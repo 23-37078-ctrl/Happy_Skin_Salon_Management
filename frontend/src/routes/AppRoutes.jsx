@@ -29,6 +29,7 @@ import BranchInventory from "../pages/manager/BranchInventory";
 import StaffMonitoring from "../pages/manager/StaffMonitoring";
 import ManagerCustomerFeedback from "../pages/manager/CustomerFeedback";
 import BranchReports from "../pages/manager/BranchReports";
+import ManagerProfile from "../pages/manager/ManagerProfile";
 
 // Staff
 import StaffDashboard from "../pages/staff/StaffDashboard";
@@ -136,6 +137,7 @@ export default function AppRoutes() {
       <Route path="/manager/staff"        element={<PrivateRoute allowedRoles={["manager"]}><StaffMonitoring /></PrivateRoute>} />
       <Route path="/manager/feedback"     element={<PrivateRoute allowedRoles={["manager"]}><ManagerCustomerFeedback /></PrivateRoute>} />
       <Route path="/manager/reports"      element={<PrivateRoute allowedRoles={["manager"]}><BranchReports /></PrivateRoute>} />
+      <Route path="/manager/profile"      element={<PrivateRoute allowedRoles={["manager"]}><ManagerProfile /></PrivateRoute>} />
 
       {/* Staff */}
       <Route path="/staff/dashboard" element={<PrivateRoute allowedRoles={["staff"]}><StaffDashboard /></PrivateRoute>} />

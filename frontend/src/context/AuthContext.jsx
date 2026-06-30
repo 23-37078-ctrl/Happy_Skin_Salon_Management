@@ -59,9 +59,21 @@ export function AuthProvider({ children }) {
     return user;
   };
 
-  const register = async (fullName, email, password) => {
-    // Returns { message, email } — navigates to /verify-email, no session set
-    return await authService.register(fullName, email, password);
+  const register = async (
+    fullName,
+    email,
+    password,
+    phone_number = null,
+    otp_method = "email"
+  ) => {
+    // Returns { message, email, otp_method } — no session yet
+    return await authService.register(
+      fullName,
+      email,
+      password,
+      phone_number,
+      otp_method
+    );
   };
 
   const verifyEmail = async (email, code) => {

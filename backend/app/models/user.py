@@ -11,8 +11,14 @@ class User(Base):
     password_hash             = Column(String(255), nullable=False)
     role                      = Column(String(20), default="customer", nullable=False)
     branch_id                 = Column(Integer, ForeignKey("branches.id"), nullable=True)
-    
-    # Email verification
+
+    # ── Contact ───────────────────────────────────────────────
+    phone_number              = Column(String(20), nullable=True)   # e.g. 09171234567
+
+    # ── OTP preference: "email" or "sms" ─────────────────────
+    otp_method                = Column(String(10), default="email", nullable=False)
+
+    # ── Verification ──────────────────────────────────────────
     email_verified            = Column(Boolean, default=False, nullable=False)
     verification_code         = Column(String(6), nullable=True)
     verification_code_expires = Column(DateTime, nullable=True)

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""      
     EMAIL_FROM: str = ""
+    
+    # SMS (iProgSMS)
+    IPROG_API_TOKEN: str = ""
 
     # OTP
     OTP_EXPIRE_MINUTES: int = 10

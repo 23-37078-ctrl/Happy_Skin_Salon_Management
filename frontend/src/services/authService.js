@@ -132,17 +132,23 @@ api.interceptors.response.use(
 );
 
 const authService = {
-  async register(full_name, email, password) {
-    try {
-      const { data } = await api.post("/auth/register", { full_name, email, password });
-      // Returns { message, email } — no token yet (unverified)
-      return data;
-    } catch (err) {
-      throw new Error(err.response?.data?.detail || "Registration failed.", {
-        cause: err,
-      });
-    }
-  },
+  async register(full_name, email, password, phone_number = null, otp_method = "email") {
+  try {
+    const { data } = await api.post("/auth/register", {
+      full_name,
+      email,
+      password,
+      phone_number,
+      otp_method,
+    });
+    // Returns { message, email, otp_method }
+    return data;
+  } catch (err) {
+    throw new Error(err.response?.data?.detail || "Registration failed.", {
+      cause: err,
+    });
+  }
+},
 
   async verifyEmail(email, code) {
     try {

@@ -41,3 +41,16 @@ def require_staff_branch(current_user: User = Depends(require_role("staff"))) ->
             detail="Your staff account is not assigned to a branch. Please contact your manager.",
         )
     return current_user
+
+
+def require_manager_branch(current_user: User = Depends(require_role("manager"))) -> User:
+    """
+    Ensures the current user is a manager with one assigned branch.
+    Manager endpoints must always scope branch data from this value.
+    """
+    if current_user.branch_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your manager account is not assigned to a branch. Please contact the owner.",
+        )
+    return current_user

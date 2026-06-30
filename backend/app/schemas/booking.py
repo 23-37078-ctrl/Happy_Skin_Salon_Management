@@ -24,6 +24,10 @@ class BookingStatusUpdateRequest(BaseModel):
         return v
 
 
+class BookingRescheduleRequest(BaseModel):
+    appointment_date: datetime
+
+
 # ── Response Schemas ─────────────────────────────────────────────
 
 class BookingCustomerOut(BaseModel):

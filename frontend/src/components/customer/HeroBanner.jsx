@@ -30,7 +30,6 @@ export default function HeroBanner({
           </span>
           <h1 className="mt-5 text-3xl font-bold leading-tight text-white sm:text-5xl">
             Welcome back, {firstName || "there"}{" "}
-            <span aria-hidden="true">👋</span>
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/88 sm:text-base">
             {appointmentSummary}
