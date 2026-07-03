@@ -1,4 +1,9 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -26,7 +31,7 @@ class Settings(BaseSettings):
     OTP_MAX_ATTEMPTS: int = 5
     OTP_RESEND_COOLDOWN_SECONDS: int = 60
 
-    model_config = SettingsConfigDict(env_file=".env", 
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

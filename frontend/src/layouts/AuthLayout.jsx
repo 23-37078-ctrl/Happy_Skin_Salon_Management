@@ -44,26 +44,15 @@ export default function AuthLayout({ children }) {
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
           }`}
         >
-          {/* Logo Circle */}
-          <div
-            className="w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-2xl"
-            style={{
-              background: "rgba(255,255,255,0.25)",
-              border: "2px solid rgba(255,255,255,0.5)",
-              backdropFilter: "blur(8px)",
-            }}
-          >
-            <span
-              className="text-3xl font-bold text-white"
-              style={{ fontFamily: "'Playfair Display', serif" }}
-            >
-              HS
-            </span>
-          </div>
+          <img
+            src="/images/happy-skin-logo.svg"
+            alt="Happy Skin Aesthetic and Nails Beauty Lounge"
+            className="mb-6 h-56 w-56 rounded-full object-cover shadow-2xl ring-4 ring-white/70"
+          />
 
           {/* Brand Name */}
           <h1
-            className="text-5xl font-bold text-white mb-1 tracking-wide drop-shadow-md"
+            className="sr-only text-5xl font-bold text-white mb-1 tracking-wide drop-shadow-md"
             style={{ fontFamily: "'Playfair Display', serif" }}
           >
             Happy Skin

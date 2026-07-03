@@ -9,7 +9,6 @@ import {
   HiOutlineDocumentText,
   HiOutlineExclamationTriangle,
   HiOutlineHome,
-  HiOutlineSparkles,
 } from "react-icons/hi2";
 import { useAuth } from "../../hooks/useAuth";
 import { getFirstName, statusStyles } from "./staffWorkspaceUtils";
@@ -37,9 +36,11 @@ export function StaffWorkspace({ children, title, eyebrow, actions }) {
         <aside className="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:w-72 lg:flex-shrink-0">
           <div className="flex h-full flex-col rounded-[1.5rem] border border-[#F3E8EF] bg-white/90 p-4 shadow-[0_18px_50px_rgba(31,41,55,0.07)] backdrop-blur">
             <Link to="/staff/dashboard" className="flex items-center gap-3 rounded-2xl px-2 py-2">
-              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#D65A9A] to-[#C85B95] text-white shadow-[0_12px_26px_rgba(214,90,154,0.28)]">
-                <HiOutlineSparkles className="h-6 w-6" />
-              </span>
+              <img
+                src="/images/happy-skin-logo.svg"
+                alt="Happy Skin Aesthetic and Nails Beauty Lounge"
+                className="h-12 w-12 rounded-full object-cover shadow-sm ring-2 ring-[#F8DCEB]"
+              />
               <span>
                 <span className="block text-sm font-bold text-[#1F2937]">Happy Skin</span>
                 <span className="block text-xs font-semibold uppercase tracking-wide text-[#D65A9A]">Staff Desk</span>

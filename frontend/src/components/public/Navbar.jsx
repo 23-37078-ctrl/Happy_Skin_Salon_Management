@@ -56,12 +56,14 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-6 h-full flex items-center justify-between">
         {/* Logo */}
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => scrollTo("#home", "Home")}>
-          <div className="w-10 h-10 rounded-xl bg-[#C85B95] flex items-center justify-center text-white font-bold text-sm tracking-wide shadow-md">
-            HS
-          </div>
+          <img
+            src="/images/happy-skin-logo.svg"
+            alt="Happy Skin Aesthetic and Nails Beauty Lounge"
+            className="h-14 w-14 rounded-full object-cover shadow-md ring-2 ring-[#F8DCEB]"
+          />
           <div>
-            <p className="font-bold text-[#1F2A44] text-base leading-tight">HappySkin</p>
-            <p className="text-[10px] text-[#6B7280] leading-tight">Salon Management</p>
+            <p className="font-bold text-[#1F2A44] text-base leading-tight">Happy Skin</p>
+            <p className="text-[10px] text-[#6B7280] leading-tight">Beauty Lounge</p>
           </div>
         </div>
 

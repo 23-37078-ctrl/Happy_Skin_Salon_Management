@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title desc">
+  <title id="title">Happy Skin Aesthetic and Nails Beauty Lounge</title>
+  <desc id="desc">Circular Happy Skin logo badge with pink script text, yellow heart, and gold salon subtitle.</desc>
+  <defs>
+    <radialGradient id="badgeGlow" cx="36%" cy="25%" r="78%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="56%" stop-color="#FFF8FB"/>
+      <stop offset="100%" stop-color="#F8DCEB"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="134" y1="86" x2="666" y2="714" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFEAF5"/>
+      <stop offset="45%" stop-color="#E19AC4"/>
+      <stop offset="100%" stop-color="#C89A5B"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#C85B95" flood-opacity="0.22"/>
+    </filter>
+    <filter id="textLift" x="-12%" y="-16%" width="124%" height="132%">
+      <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#A94E82" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <circle cx="400" cy="400" r="360" fill="url(#ring)" filter="url(#softShadow)"/>
+  <circle cx="400" cy="400" r="336" fill="url(#badgeGlow)"/>
+  <circle cx="400" cy="400" r="302" fill="none" stroke="#FFFFFF" stroke-width="10" opacity="0.9"/>
+
+  <path
+    d="M512 455C424 390 379 342 379 285c0-40 30-72 70-72 27 0 51 15 63 37 14-24 40-43 74-43 44 0 76 35 76 83 0 60-53 107-150 165Z"
+    fill="#FFDB18"
+    opacity="0.98"
+  />
+
+  <text
+    x="400"
+    y="392"
+    text-anchor="middle"
+    fill="#DF8DBD"
+    font-family="'Brush Script MT', 'Segoe Script', 'Lucida Handwriting', cursive"
+    font-size="132"
+    font-weight="400"
+    letter-spacing="-6"
+    filter="url(#textLift)"
+  >HappySkin</text>
+
+  <text
+    x="400"
+    y="505"
+    text-anchor="middle"
+    fill="#B98747"
+    font-family="'Poppins', 'Montserrat', 'Arial', sans-serif"
+    font-size="27"
+    font-weight="700"
+    letter-spacing="4.5"
+  >AESTHETIC &amp; NAILS</text>
+  <text
+    x="400"
+    y="548"
+    text-anchor="middle"
+    fill="#B98747"
+    font-family="'Poppins', 'Montserrat', 'Arial', sans-serif"
+    font-size="27"
+    font-weight="700"
+    letter-spacing="4.5"
+  >BEAUTY LOUNGE</text>
+</svg>
