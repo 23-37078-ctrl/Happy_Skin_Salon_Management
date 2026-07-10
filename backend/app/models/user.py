@@ -26,3 +26,7 @@ class User(Base):
 
     created_at                = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at                = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    password_hash = Column(String(255), nullable=True)   
+    oauth_provider = Column(String(20), nullable=True)    
+    oauth_id = Column(String(255), nullable=True, unique=True, index=True)  

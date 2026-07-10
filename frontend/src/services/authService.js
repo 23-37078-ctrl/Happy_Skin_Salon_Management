@@ -186,6 +186,20 @@ const authService = {
     }
   },
 
+  async loginWithProvider(provider, token, remember = false) {
+    try {
+      const { data } = await api.post(`/auth/${provider}`, { token });
+      setStoredToken(data.access_token, remember);
+      setStoredRefreshToken(data.refresh_token, remember);
+      setStoredUser(data.user, remember);
+      return data.user;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || `${provider} sign-in failed.`, {
+        cause: err,
+      });
+    }
+  },
+
   async refreshToken() {
     const refresh_token = getStoredRefreshToken();
     if (!refresh_token) throw new Error("No refresh token.");

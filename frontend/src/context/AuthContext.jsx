@@ -59,6 +59,16 @@ export function AuthProvider({ children }) {
     return user;
   };
 
+  const loginWithProvider = async (provider, token, remember = false) => {
+    const user = await authService.loginWithProvider(provider, token, remember);
+    if (!VALID_ROLES.has(user?.role)) {
+      authService.logout();
+      throw new Error("Your account role is not allowed to sign in here.");
+    }
+    setCurrentUser(user);
+    return user;
+  };
+
   const register = async (
     fullName,
     email,
@@ -96,6 +106,7 @@ export function AuthProvider({ children }) {
         loading,
         isAuthenticated: !!currentUser,
         login,
+        loginWithProvider,
         register,
         verifyEmail,
         resendVerification,

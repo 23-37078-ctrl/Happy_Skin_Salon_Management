@@ -44,7 +44,9 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
+    
+class SocialLoginRequest(BaseModel):
+    token: str
 
 class VerifyOTPRequest(BaseModel):
     """Works for both email and SMS verification."""

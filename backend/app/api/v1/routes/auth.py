@@ -1,6 +1,12 @@
 import random
 import string
 from datetime import datetime, timedelta, timezone
+import httpx
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
+from app.schemas.user import SocialLoginRequest
+
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -248,3 +254,103 @@ def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
         {"sub": str(user.id), "role": user.role, "email": user.email}
     )
     return TokenResponse(access_token=access_token)
+
+# ── GOOGLE LOGIN ──────────────────────────────────────────────────────────
+
+@router.post("/google", response_model=LoginResponse)
+def google_login(payload: SocialLoginRequest, db: Session = Depends(get_db)):
+    try:
+        info = id_token.verify_oauth2_token(
+            payload.token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
+        )
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid Google token.")
+
+    email = info.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Google account has no email.")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        user = User(
+            full_name=info.get("name", email.split("@")[0]),
+            email=email,
+            password_hash=None,
+            role="customer",
+            oauth_provider="google",
+            oauth_id=info.get("sub"),
+            email_verified=True,   # Google already verified this email
+            verified_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    elif not user.email_verified:
+        # existing unverified local account signing in via Google — verify it
+        user.email_verified = True
+        user.verified_at = datetime.now(timezone.utc)
+        db.commit()
+
+    access_token = create_access_token(
+        {"sub": str(user.id), "role": user.role, "email": user.email}
+    )
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserOut.model_validate(user),
+    )
+
+
+# ── FACEBOOK LOGIN ────────────────────────────────────────────────────────
+
+@router.post("/facebook", response_model=LoginResponse)
+def facebook_login(payload: SocialLoginRequest, db: Session = Depends(get_db)):
+    with httpx.Client() as client:
+        resp = client.get(
+            "https://graph.facebook.com/me",
+            params={
+                "fields": "id,name,email",
+                "access_token": payload.token,
+            },
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid Facebook token.")
+
+    data = resp.json()
+    email = data.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Your Facebook account has no email attached. Please use email login.",
+        )
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        user = User(
+            full_name=data.get("name", email.split("@")[0]),
+            email=email,
+            password_hash=None,
+            role="customer",
+            oauth_provider="facebook",
+            oauth_id=data.get("id"),
+            email_verified=True,
+            verified_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    elif not user.email_verified:
+        user.email_verified = True
+        user.verified_at = datetime.now(timezone.utc)
+        db.commit()
+
+    access_token = create_access_token(
+        {"sub": str(user.id), "role": user.role, "email": user.email}
+    )
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserOut.model_validate(user),
+    )

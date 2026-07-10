@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     OTP_MAX_ATTEMPTS: int = 5
     OTP_RESEND_COOLDOWN_SECONDS: int = 60
 
+    # OAuth
+    GOOGLE_CLIENT_ID: str = "1052189554415-0tr5qpn1bhr3n7ldojhuddf9u93ddhnd.apps.googleusercontent.com"
+
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",

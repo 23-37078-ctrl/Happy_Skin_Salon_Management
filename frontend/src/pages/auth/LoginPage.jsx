@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { GoogleLogin } from "@react-oauth/google";
 import AuthLayout from "../../layouts/AuthLayout";
 import Button from "../../components/common/Button";
 import Notification from "../../components/common/Notification";
@@ -8,12 +9,13 @@ import { useAuth } from "../../hooks/useAuth";
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, loginWithProvider } = useAuth();
 
   const [form, setForm] = useState({ email: "", password: "", remember: false });
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState(false);
   const [notification, setNotification] = useState(null);
 
   const validate = () => {
@@ -31,6 +33,25 @@ export default function LoginPage() {
     setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
+  const redirectByRole = (user) => {
+    const roleRoutes = {
+      owner: "/owner/dashboard",
+      manager: "/manager/dashboard",
+      staff: "/staff/dashboard",
+      customer: "/customer/dashboard",
+    };
+    const requestedRedirect = new URLSearchParams(location.search).get("redirect");
+    const safeCustomerRedirect =
+      user.role === "customer" && requestedRedirect?.startsWith("/customer/")
+        ? requestedRedirect
+        : null;
+    const redirectTo = safeCustomerRedirect || roleRoutes[user.role];
+    if (!redirectTo) {
+      throw new Error("Your account role is not allowed to sign in here.");
+    }
+    navigate(redirectTo, { replace: true });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const errs = validate();
@@ -39,28 +60,47 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const user = await login(form.email, form.password, form.remember);
-      const roleRoutes = {
-        owner: "/owner/dashboard",
-        manager: "/manager/dashboard",
-        staff: "/staff/dashboard",
-        customer: "/customer/dashboard",
-      };
-      const requestedRedirect = new URLSearchParams(location.search).get("redirect");
-      const safeCustomerRedirect =
-        user.role === "customer" &&
-        requestedRedirect?.startsWith("/customer/")
-          ? requestedRedirect
-          : null;
-      const redirectTo = safeCustomerRedirect || roleRoutes[user.role];
-      if (!redirectTo) {
-        throw new Error("Your account role is not allowed to sign in here.");
-      }
-      navigate(redirectTo, { replace: true });
+      redirectByRole(user);
     } catch (err) {
       setNotification({ type: "error", message: err.message || "Invalid email or password." });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setSocialLoading(true);
+    try {
+      const user = await loginWithProvider("google", credentialResponse.credential);
+      redirectByRole(user);
+    } catch (err) {
+      setNotification({ type: "error", message: err.message || "Google sign-in failed." });
+    } finally {
+      setSocialLoading(false);
+    }
+  };
+
+  const handleFacebookLogin = () => {
+    if (!window.FB || !window.fbSdkReady) {
+      setNotification({ type: "error", message: "Facebook SDK not loaded yet. Try again." });
+      return;
+    }
+    setSocialLoading(true);
+    window.FB.login(
+      (response) => {
+        if (response.authResponse) {
+          loginWithProvider("facebook", response.authResponse.accessToken)
+            .then(redirectByRole)
+            .catch((err) =>
+              setNotification({ type: "error", message: err.message || "Facebook sign-in failed." })
+            )
+            .finally(() => setSocialLoading(false));
+        } else {
+          setSocialLoading(false);
+        }
+      },
+      { scope: "email,public_profile" }
+    );
   };
 
   return (
@@ -196,6 +236,44 @@ export default function LoginPage() {
           Sign In
         </Button>
       </form>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3 my-6">
+        <div className="flex-1 h-px bg-pink-100" />
+        <span className="text-xs" style={{ color: "#9CA3AF", fontFamily: "'Poppins', sans-serif" }}>
+          or continue with
+        </span>
+        <div className="flex-1 h-px bg-pink-100" />
+      </div>
+
+      {/* Social logins */}
+      <div className="space-y-3">
+        <div className="flex justify-center">
+          <div style={{ opacity: socialLoading ? 0.6 : 1, pointerEvents: socialLoading ? "none" : "auto" }}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() =>
+                setNotification({ type: "error", message: "Google sign-in failed." })
+              }
+              width="320"
+              shape="pill"
+            />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleFacebookLogin}
+          disabled={socialLoading}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-pink-200 text-sm font-semibold hover:bg-pink-50 transition-colors disabled:opacity-60"
+          style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="#1877F2">
+            <path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.879V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.989C18.343 21.128 22 16.991 22 12z"/>
+          </svg>
+          Continue with Facebook
+        </button>
+      </div>
 
       {/* Footer */}
       <p
