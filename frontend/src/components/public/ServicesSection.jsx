@@ -36,9 +36,9 @@ function FadeIn({ children, delay = 0 }) {
 // ── Skeleton loader card ────────────────────────────────────
 function SkeletonCard() {
   return (
-    <div className="bg-white rounded-3xl overflow-hidden border border-[#F0E6EC] animate-pulse">
-      <div className="h-48 bg-pink-50" />
-      <div className="p-5 space-y-3">
+    <div className="bg-white rounded-xl overflow-hidden border border-[#F0E6EC] animate-pulse">
+      <div className="h-20 bg-pink-50" />
+      <div className="p-4 space-y-2">
         <div className="h-4 bg-pink-50 rounded w-2/3" />
         <div className="h-3 bg-pink-50 rounded w-full" />
         <div className="h-3 bg-pink-50 rounded w-4/5" />
@@ -58,10 +58,10 @@ function ServiceCard({ service, index, onBook }) {
 
   return (
     <FadeIn delay={index * 60}>
-      <div className="group bg-white rounded-3xl overflow-hidden border border-[#F0E6EC] hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
+      <div className="group bg-white rounded-xl overflow-hidden border border-[#F0E6EC] hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 flex flex-col h-full">
         
         {/* Image */}
-        <div className="relative h-48 overflow-hidden bg-pink-50">
+        <div className="relative h-20 overflow-hidden bg-pink-50">
           {!imgError ? (
             <img
               src={service.image}
@@ -76,23 +76,23 @@ function ServiceCard({ service, index, onBook }) {
           )}
 
           {/* Duration badge */}
-          <span className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/90 backdrop-blur-sm text-[#C85B95] text-[11px] font-semibold shadow-sm">
+          <span className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[#C85B95] text-[9px] font-semibold shadow-sm">
             <HiOutlineClock className="h-3.5 w-3.5" />
             {service.duration_minutes} min
           </span>
         </div>
 
         {/* Content */}
-        <div className="p-5 flex flex-col flex-1">
-          <h3 className="text-base font-bold text-[#1F2A44] leading-snug">
+        <div className="p-3 flex flex-col flex-1">
+          <h3 className="text-xs font-bold text-[#1F2A44] leading-snug">
             {service.name}
           </h3>
-          <p className="mt-1.5 text-sm text-[#6B7280] leading-relaxed flex-1">
+          <p className="mt-1 text-[10px] text-[#6B7280] leading-relaxed line-clamp-1 flex-1">
             {service.description}
           </p>
 
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-lg font-extrabold text-[#C85B95]">
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs font-extrabold text-[#C85B95]">
               {formatServicePrice(service.price)}
             </span>
           </div>
@@ -100,7 +100,7 @@ function ServiceCard({ service, index, onBook }) {
           <button
             type="button"
             onClick={() => onBook(service.id)}
-            className="mt-3 w-full py-2.5 rounded-2xl bg-[#C85B95] text-white text-sm font-semibold hover:bg-[#b34d82] hover:shadow-lg active:scale-95 transition-all duration-200"
+            className="mt-2 w-full py-1.5 rounded-lg bg-[#C85B95] text-white text-[11px] font-semibold hover:bg-[#b34d82] hover:shadow-lg active:scale-95 transition-all duration-200"
           >
             Book Now
           </button>
@@ -168,19 +168,19 @@ export default function ServicesSection() {
   };
 
   return (
-    <section id="services" className="py-24 bg-[#FAF6F8]">
-      <div className="max-w-7xl mx-auto px-6">
+    <section id="services" className="bg-white rounded-3xl border border-[#F0E6EC] p-5 lg:p-6 shadow-sm">
+      <div>
 
         {/* Header */}
         <FadeIn>
-          <div className="text-center mb-14">
-            <span className="inline-block px-4 py-1.5 rounded-full bg-pink-100 text-[#C85B95] text-xs font-semibold tracking-wide mb-4">
+          <div className="mb-5">
+            <span className="inline-block text-[#C85B95] text-xs font-bold uppercase tracking-[0.18em]">
               Our Services
             </span>
-            <h2 className="text-4xl font-extrabold text-[#1F2A44] mb-3">
-              Beauty treatments for every you.
+            <h2 className="text-2xl font-extrabold text-[#1F2A44] mt-1">
+              Popular salon services
             </h2>
-            <p className="text-[#6B7280] max-w-xl mx-auto text-sm leading-relaxed">
+            <p className="text-[#6B7280] text-xs leading-relaxed mt-1.5">
               From relaxing facials to precision nail care — book any service
               online in seconds.
             </p>
@@ -196,14 +196,14 @@ export default function ServicesSection() {
         {/* Grid */}
         {isLoading ? (
           // Skeleton while loading
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {Array.from({ length: 8 }).map((_, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {services.map((service, index) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {services.slice(0, 4).map((service, index) => (
               <ServiceCard
                 key={service.id}
                 service={service}
@@ -216,7 +216,7 @@ export default function ServicesSection() {
 
         {/* Bottom CTA */}
         <FadeIn delay={200}>
-          <div className="mt-14 text-center">
+          <div className="mt-4 mb-5 text-center">
             <button
               type="button"
               onClick={() =>
@@ -224,10 +224,10 @@ export default function ServicesSection() {
                   ? navigate("/customer/book")
                   : navigate("/login")
               }
-              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full bg-[#C85B95] text-white font-semibold text-sm hover:bg-[#b34d82] hover:shadow-xl active:scale-95 transition-all duration-200"
+              className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full border border-[#C85B95] text-[#C85B95] font-semibold text-[11px] hover:bg-[#C85B95] hover:text-white active:scale-95 transition-all duration-200"
             >
               <HiOutlineSparkles className="h-5 w-5" />
-              Book an Appointment
+              View All Services
             </button>
           </div>
         </FadeIn>

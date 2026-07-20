@@ -91,7 +91,7 @@ def get_customer_dashboard(
         .order_by(Booking.appointment_date.desc())
         .all()
     )
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(timezone.utc)
     upcoming = next(
         (
             booking

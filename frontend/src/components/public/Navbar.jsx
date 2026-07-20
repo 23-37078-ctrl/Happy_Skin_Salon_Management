@@ -3,8 +3,6 @@ import { useNavigate } from "react-router-dom";
 
 const NAV_ITEMS = [
   { label: "Home",       href: "#home" },
-  { label: "Products",   href: "#products" },
-  { label: "Services",   href: "#services" },
   { label: "About Us",   href: "#about" },
   { label: "Contact",    href: "#contact" },
 ];

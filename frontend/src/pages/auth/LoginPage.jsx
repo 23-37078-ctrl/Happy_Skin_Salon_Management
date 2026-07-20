@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { GoogleLogin } from "@react-oauth/google";
 import AuthLayout from "../../layouts/AuthLayout";
 import Button from "../../components/common/Button";
 import Notification from "../../components/common/Notification";
+import Divider from "../../components/auth/Divider";
 import { useAuth } from "../../hooks/useAuth";
 
 export default function LoginPage() {
@@ -17,6 +19,27 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  // Google's login button renders inside a cross-origin iframe, so it can only be
+  // sized with a fixed pixel `width` prop — never %. We measure the actual space
+  // available in the card on every resize and feed that number in, so it never
+  // overflows or gets squished on narrow phones, and always matches the width of
+  // the Facebook button sitting right below it.
+  const socialRef = useRef(null);
+  const [socialWidth, setSocialWidth] = useState(320);
+
+  useEffect(() => {
+    const el = socialRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setSocialWidth(Math.floor(Math.min(Math.max(w, 220), 400)));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const validate = () => {
     const e = {};
@@ -99,9 +122,11 @@ export default function LoginPage() {
           setSocialLoading(false);
         }
       },
-      { scope: "email,public_profile" }
+      { scope: "email, public_profile" }
     );
   };
+
+  const shakeIfError = Object.keys(errors).some((k) => errors[k]);
 
   return (
     <AuthLayout>
@@ -114,19 +139,25 @@ export default function LoginPage() {
       )}
 
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-5 sm:mb-8">
         <h2
-          className="text-3xl font-bold mb-1"
+          className="text-2xl sm:text-3xl font-bold mb-1"
           style={{ fontFamily: "'Playfair Display', serif", color: "#2D2D2D" }}
         >
-          Welcome Back
+          Welcome Back <span aria-hidden="true">✨</span>
         </h2>
         <p className="text-sm" style={{ fontFamily: "'Poppins', sans-serif", color: "#6B3F5D" }}>
-          Sign in to continue to your customer account.
+          Ready for your next beauty session?
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-5">
+      <motion.form
+        onSubmit={handleSubmit}
+        noValidate
+        className="space-y-3.5 sm:space-y-5"
+        animate={shakeIfError ? { x: [0, -6, 6, -4, 4, 0] } : {}}
+        transition={{ duration: 0.4 }}
+      >
         {/* Email */}
         <div>
           <label
@@ -136,23 +167,28 @@ export default function LoginPage() {
           >
             Email Address
           </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            aria-label="Email Address"
-            aria-describedby={errors.email ? "email-error" : undefined}
-            value={form.email}
-            onChange={handleChange}
-            placeholder="you@example.com"
-            className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200 focus:ring-2 ${
-              errors.email
-                ? "border-red-400 focus:ring-red-200"
-                : "border-pink-200 focus:ring-pink-200 focus:border-pink-400"
-            }`}
-            style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
-          />
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-pink-400" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4.5 h-4.5" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            </span>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              aria-label="Email Address"
+              aria-describedby={errors.email ? "email-error" : undefined}
+              value={form.email}
+              onChange={handleChange}
+              placeholder="you@example.com"
+              className={`w-full pl-11 pr-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200 focus:ring-2 focus:shadow-[0_0_0_4px_rgba(232,84,152,0.12)] ${
+                errors.email
+                  ? "border-red-400 focus:ring-red-200 animate-[shake_0.4s]"
+                  : "border-pink-200 focus:ring-pink-200 focus:border-pink-400"
+              }`}
+              style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
+            />
+          </div>
           {errors.email && (
             <p id="email-error" className="mt-1 text-xs text-red-500" role="alert">
               {errors.email}
@@ -170,6 +206,9 @@ export default function LoginPage() {
             Password
           </label>
           <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-pink-400" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 10-8 0v4h8z" /></svg>
+            </span>
             <input
               id="password"
               name="password"
@@ -180,7 +219,7 @@ export default function LoginPage() {
               value={form.password}
               onChange={handleChange}
               placeholder="••••••••"
-              className={`w-full px-4 py-3 pr-12 rounded-xl border text-sm outline-none transition-all duration-200 focus:ring-2 ${
+              className={`w-full pl-11 pr-12 py-3 rounded-xl border text-sm outline-none transition-all duration-200 focus:ring-2 focus:shadow-[0_0_0_4px_rgba(232,84,152,0.12)] ${
                 errors.password
                   ? "border-red-400 focus:ring-red-200"
                   : "border-pink-200 focus:ring-pink-200 focus:border-pink-400"
@@ -225,66 +264,80 @@ export default function LoginPage() {
           <Link
             to="/forgot-password"
             className="text-sm font-medium hover:underline transition-colors"
-            style={{ fontFamily: "'Poppins', sans-serif", color: "#C85B95" }}
+            style={{ fontFamily: "'Poppins', sans-serif", color: "#C2185B" }}
           >
             Forgot Password?
           </Link>
         </div>
 
         {/* Submit */}
-        <Button type="submit" loading={loading} fullWidth>
-          Sign In
-        </Button>
-      </form>
+        <motion.div whileHover={{ scale: loading ? 1 : 1.01 }} whileTap={{ scale: loading ? 1 : 0.98 }}>
+          <Button type="submit" loading={loading} fullWidth>
+            Sign In
+          </Button>
+        </motion.div>
+      </motion.form>
 
-      {/* Divider */}
-      <div className="flex items-center gap-3 my-6">
-        <div className="flex-1 h-px bg-pink-100" />
-        <span className="text-xs" style={{ color: "#9CA3AF", fontFamily: "'Poppins', sans-serif" }}>
-          or continue with
-        </span>
-        <div className="flex-1 h-px bg-pink-100" />
-      </div>
+      <Divider />
 
-      {/* Social logins */}
-      <div className="space-y-3">
-        <div className="flex justify-center">
-          <div style={{ opacity: socialLoading ? 0.6 : 1, pointerEvents: socialLoading ? "none" : "auto" }}>
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() =>
-                setNotification({ type: "error", message: "Google sign-in failed." })
-              }
-              width="320"
-              shape="pill"
-            />
-          </div>
+      {/* Social logins — width is measured live so both buttons match the real
+          card width on every device, instead of a hardcoded 320px guess. */}
+      <div ref={socialRef} className="space-y-2.5 sm:space-y-3 w-full">
+        <div
+          className="w-full flex justify-center overflow-hidden rounded-full"
+          style={{
+            height: 48,
+            opacity: socialLoading ? 0.6 : 1,
+            pointerEvents: socialLoading ? "none" : "auto",
+          }}
+        >
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() =>
+              setNotification({ type: "error", message: "Google sign-in failed." })
+            }
+            width={String(socialWidth)}
+            shape="pill"
+            size="large"
+          />
         </div>
 
-        <button
+        <motion.button
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.98 }}
           type="button"
           onClick={handleFacebookLogin}
           disabled={socialLoading}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-pink-200 text-sm font-semibold hover:bg-pink-50 transition-colors disabled:opacity-60"
-          style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
+          className="relative w-full h-12 flex items-center justify-center rounded-full bg-white transition-all disabled:opacity-60 hover:bg-gray-50"
+          style={{
+            border: "1px solid #DADCE0",
+            boxShadow: "0 1px 2px 0 rgba(60,64,67,0.30)",
+          }}
         >
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="#1877F2">
-            <path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.879V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.989C18.343 21.128 22 16.991 22 12z"/>
-          </svg>
-          Continue with Facebook
-        </button>
+          <span className="absolute left-4 inset-y-0 flex items-center">
+            <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="#1877F2">
+              <path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.879V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.989C18.343 21.128 22 16.991 22 12z"/>
+            </svg>
+          </span>
+          <span
+            className="text-[15px] font-normal tracking-normal"
+            style={{ fontFamily: "Roboto, arial, sans-serif", color: "#3C4043" }}
+          >
+            Continue with Facebook
+          </span>
+        </motion.button>
       </div>
 
       {/* Footer */}
       <p
-        className="mt-6 text-center text-sm"
+        className="mt-4 sm:mt-6 text-center text-sm"
         style={{ fontFamily: "'Poppins', sans-serif", color: "#6B3F5D" }}
       >
         Don't have an account?{" "}
         <Link
           to="/register"
           className="font-semibold hover:underline"
-          style={{ color: "#C85B95" }}
+          style={{ color: "#C2185B" }}
         >
           Create Account
         </Link>

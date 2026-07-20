@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import FloatingBubbles from "../components/auth/FloatingBubbles";
+import AuthIllustration from "../components/auth/AuthIllustration";
 
 export default function AuthLayout({ children }) {
   const navigate = useNavigate();
@@ -10,91 +13,85 @@ export default function AuthLayout({ children }) {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* LEFT BRANDING SECTION */}
-      <div
-        className="relative lg:w-[60%] min-h-[340px] lg:min-h-screen flex flex-col items-center justify-center overflow-hidden"
-        style={{
-          background:
-            "linear-gradient(135deg, #f7e4ec 0%, #efbfd2 40%, #ea8fb7 75%, #df5d9f 100%)",
-        }}
+    <div
+      className="relative h-dvh w-full overflow-hidden flex flex-col lg:flex-row"
+      style={{
+        background:
+          "linear-gradient(135deg, #FFF7FA 0%, #FCE4EC 45%, #F8BBD0 100%)",
+      }}
+    >
+      <FloatingBubbles />
+
+      {/* Back to Home */}
+      <button
+        onClick={() => navigate("/")}
+        className="absolute top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-white/40 backdrop-blur-md text-[#6B3F5D] text-xs sm:text-sm font-medium hover:bg-white/60 transition-all duration-300 hover:-translate-x-1 shadow-sm"
+        style={{ fontFamily: "'Poppins', sans-serif" }}
       >
-        {/* Decorative blobs */}
-        <div
-          className="absolute top-[-80px] left-[-80px] w-80 h-80 rounded-full opacity-20"
-          style={{ background: "#C85B95" }}
-        />
-        <div
-          className="absolute bottom-[-60px] right-[-60px] w-64 h-64 rounded-full opacity-20"
-          style={{ background: "#6B3F5D" }}
-        />
+        <span aria-hidden="true">←</span> Back to Home
+      </button>
 
-        {/* Back to Home */}
-        <button
-          onClick={() => navigate("/")}
-          className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-white/30 backdrop-blur-sm text-white text-sm font-medium hover:bg-white/50 transition-all duration-300 hover:-translate-x-1 z-10"
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-        >
-          <span>←</span> Back to Home
-        </button>
-
-        {/* Branding */}
-        <div
-          className={`flex flex-col items-center text-center px-8 transition-all duration-1000 ${
-            mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-          }`}
+      {/* LEFT: Branding + illustration — desktop only, mobile shows the form alone */}
+      <div className="hidden lg:flex relative z-10 lg:w-1/2 h-full flex-col items-center justify-center px-6 lg:pt-6 lg:pb-6">
+        <motion.div
+          initial={{ opacity: 0, y: -16 }}
+          animate={mounted ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.7 }}
+          className="flex flex-col items-center text-center"
         >
           <img
             src="/images/happy-skin-logo.svg"
-            alt="Happy Skin Aesthetic and Nails Beauty Lounge"
-            className="mb-6 h-56 w-56 rounded-full object-cover shadow-2xl ring-4 ring-white/70"
+            alt="Happy Skin Nails Spa & Aesthetic"
+            className="h-20 w-20 sm:h-24 sm:w-24 lg:h-20 lg:w-20 rounded-full object-cover shadow-xl ring-4 ring-white/70 mb-3"
           />
-
-          {/* Brand Name */}
           <h1
-            className="sr-only text-5xl font-bold text-white mb-1 tracking-wide drop-shadow-md"
-            style={{ fontFamily: "'Playfair Display', serif" }}
+            className="text-2xl sm:text-3xl lg:text-3xl font-bold mb-1 tracking-wide"
+            style={{ fontFamily: "'Playfair Display', serif", color: "#6B3F5D" }}
           >
             Happy Skin
           </h1>
-
-          {/* Subtitle */}
           <p
-            className="text-white/80 text-base tracking-[0.25em] uppercase mb-5"
+            className="text-[#C2185B]/80 text-xs sm:text-sm tracking-[0.25em] uppercase mb-3"
             style={{ fontFamily: "'Poppins', sans-serif" }}
           >
             Nails Spa &amp; Aesthetics
           </p>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-12 h-px bg-white/50" />
-            <span className="text-white/70 text-sm">×</span>
-            <div className="w-12 h-px bg-white/50" />
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-px bg-[#C2185B]/30" />
+            <span className="text-[#C2185B]/60 text-sm">×</span>
+            <div className="w-10 h-px bg-[#C2185B]/30" />
           </div>
-
-          {/* Tagline */}
           <p
-            className="text-white text-3xl drop-shadow"
+            className="text-2xl sm:text-3xl text-[#C2185B]"
             style={{ fontFamily: "'Great Vibes', cursive" }}
           >
             He &amp; She Salon
           </p>
+        </motion.div>
+
+        {/* Illustration — hidden on very small screens to save vertical space, shown from sm up */}
+        <div className="hidden sm:block w-full max-w-[280px] lg:max-w-[260px] mt-4 lg:mt-3">
+          <AuthIllustration />
         </div>
       </div>
 
-      {/* RIGHT AUTH CARD SECTION */}
-      <div
-        className="lg:w-[40%] flex items-center justify-center p-6 lg:p-10"
-        style={{ background: "#F8E5EE" }}
-      >
-        <div
-          className={`w-full max-w-[450px] bg-white rounded-3xl p-10 shadow-2xl transition-all duration-700 delay-200 ${
-            mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
-          }`}
+      {/* RIGHT / MOBILE: Glassmorphism auth card */}
+      <div className="relative z-10 w-full lg:w-1/2 h-full min-h-0 flex-1 flex items-center justify-center px-4 sm:px-6 pt-16 pb-6 lg:pt-6 lg:pb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={mounted ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.7, delay: 0.15 }}
+          className="w-full max-w-[440px] max-h-full overflow-y-auto rounded-3xl p-6 sm:p-8 lg:p-8"
+          style={{
+            background: "rgba(255, 255, 255, 0.7)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid rgba(255, 255, 255, 0.6)",
+            boxShadow: "0 20px 60px -15px rgba(194, 24, 91, 0.25)",
+          }}
         >
           {children}
-        </div>
+        </motion.div>
       </div>
     </div>
   );

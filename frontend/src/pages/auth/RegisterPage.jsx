@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import AuthLayout from "../../layouts/AuthLayout";
 import Button from "../../components/common/Button";
 import Notification from "../../components/common/Notification";
+import PasswordStrength from "../../components/auth/PasswordStrength";
 import { useAuth } from "../../hooks/useAuth";
 
 // ── Eye toggle icon ───────────────────────────────────────────
@@ -45,7 +47,7 @@ function OTPMethodToggle({ value, onChange }) {
           onClick={() => onChange("email")}
           className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all duration-200 ${
             value === "email"
-              ? "border-[#C85B95] bg-pink-50 text-[#C85B95]"
+              ? "border-[#C2185B] bg-pink-50 text-[#C2185B]"
               : "border-pink-100 bg-white text-[#6B7280] hover:border-pink-200"
           }`}
           style={{ fontFamily: "'Poppins', sans-serif" }}
@@ -55,7 +57,7 @@ function OTPMethodToggle({ value, onChange }) {
           </svg>
           Email OTP
           {value === "email" && (
-            <span className="ml-1 w-4 h-4 rounded-full bg-[#C85B95] flex items-center justify-center">
+            <span className="ml-1 w-4 h-4 rounded-full bg-[#C2185B] flex items-center justify-center">
               <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414 0L8 12.586 4.707 9.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8a1 1 0 000-1.414z" clipRule="evenodd" />
               </svg>
@@ -69,7 +71,7 @@ function OTPMethodToggle({ value, onChange }) {
           onClick={() => onChange("sms")}
           className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all duration-200 ${
             value === "sms"
-              ? "border-[#C85B95] bg-pink-50 text-[#C85B95]"
+              ? "border-[#C2185B] bg-pink-50 text-[#C2185B]"
               : "border-pink-100 bg-white text-[#6B7280] hover:border-pink-200"
           }`}
           style={{ fontFamily: "'Poppins', sans-serif" }}
@@ -79,7 +81,7 @@ function OTPMethodToggle({ value, onChange }) {
           </svg>
           SMS OTP
           {value === "sms" && (
-            <span className="ml-1 w-4 h-4 rounded-full bg-[#C85B95] flex items-center justify-center">
+            <span className="ml-1 w-4 h-4 rounded-full bg-[#C2185B] flex items-center justify-center">
               <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414 0L8 12.586 4.707 9.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8a1 1 0 000-1.414z" clipRule="evenodd" />
               </svg>
@@ -206,11 +208,13 @@ export default function RegisterPage() {
   };
 
   const inputClass = (field) =>
-    `w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200 focus:ring-2 ${
+    `w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200 focus:ring-2 focus:shadow-[0_0_0_4px_rgba(232,84,152,0.12)] ${
       errors[field]
         ? "border-red-400 focus:ring-red-200"
         : "border-pink-200 focus:ring-pink-200 focus:border-pink-400"
     }`;
+
+  const shakeIfError = Object.keys(errors).some((k) => errors[k]);
 
   return (
     <AuthLayout>
@@ -225,7 +229,7 @@ export default function RegisterPage() {
       {/* Header */}
       <div className="mb-6">
         <h2
-          className="text-3xl font-bold mb-1"
+          className="text-2xl sm:text-3xl font-bold mb-1"
           style={{ fontFamily: "'Playfair Display', serif", color: "#2D2D2D" }}
         >
           Create Account
@@ -238,7 +242,13 @@ export default function RegisterPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <motion.form
+        onSubmit={handleSubmit}
+        noValidate
+        className="space-y-4"
+        animate={shakeIfError ? { x: [0, -6, 6, -4, 4, 0] } : {}}
+        transition={{ duration: 0.4 }}
+      >
 
         {/* Full Name */}
         <div>
@@ -298,9 +308,11 @@ export default function RegisterPage() {
 
         {/* Phone Number — only shown when SMS is selected */}
         {form.otp_method === "sms" && (
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: -6, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            transition={{ duration: 0.25 }}
             className="rounded-xl border border-pink-100 bg-pink-50 p-4"
-            style={{ animation: "fadeIn 0.2s ease" }}
           >
             <label
               htmlFor="phone_number"
@@ -344,7 +356,7 @@ export default function RegisterPage() {
             >
               Enter your Philippine mobile number (e.g. 09171234567)
             </p>
-          </div>
+          </motion.div>
         )}
 
         {/* Password */}
@@ -374,6 +386,7 @@ export default function RegisterPage() {
               label={showPassword ? "Hide password" : "Show password"}
             />
           </div>
+          <PasswordStrength password={form.password} />
           {errors.password && (
             <p className="mt-1 text-xs text-red-500" role="alert">{errors.password}</p>
           )}
@@ -413,10 +426,12 @@ export default function RegisterPage() {
           )}
         </div>
 
-        <Button type="submit" loading={loading} fullWidth>
-          Create Account
-        </Button>
-      </form>
+        <motion.div whileHover={{ scale: loading ? 1 : 1.01 }} whileTap={{ scale: loading ? 1 : 0.98 }}>
+          <Button type="submit" loading={loading} fullWidth>
+            Create Account
+          </Button>
+        </motion.div>
+      </motion.form>
 
       <p
         className="mt-6 text-center text-sm"
@@ -426,19 +441,11 @@ export default function RegisterPage() {
         <Link
           to="/login"
           className="font-semibold hover:underline"
-          style={{ color: "#C85B95" }}
+          style={{ color: "#C2185B" }}
         >
           Sign In
         </Link>
       </p>
-
-      {/* Subtle fade-in animation for the SMS section */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(-6px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
     </AuthLayout>
   );
 }
