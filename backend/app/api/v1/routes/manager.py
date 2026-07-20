@@ -20,6 +20,7 @@ from app.schemas.booking import BookingListResponse, BookingOut, BookingReschedu
 from app.schemas.inventory import InventoryItemOut, InventoryListResponse, InventorySummary
 from app.schemas.transaction import TransactionListResponse, TransactionOut
 from app.schemas.user import PasswordUpdateRequest, ProfileUpdateRequest, UserOut
+from app.services.forecast_service import build_branch_forecast
 
 router = APIRouter(prefix="/manager", tags=["Manager"])
 
@@ -285,10 +286,22 @@ def get_manager_forecasting(
     current_user: User = Depends(require_manager_branch),
     db: Session = Depends(get_db),
 ):
+    forecast = build_branch_forecast(db, current_user.branch_id)
     return {
-        "demand_forecast": [],
-        "workforce_recommendations": [],
-        "message": "Forecasting and workforce recommendations are not available for this branch yet.",
+        "branch_id": current_user.branch_id,
+        "data_quality": forecast["data_quality"],
+        "model": forecast["model"],
+        "demand_forecast": forecast["predictions"],
+        "workforce_recommendations": [
+            {
+                "date": point["date"],
+                "demand_level": point["demand_level"],
+                "recommendation": point["recommendation"],
+                "reason": f"Predicted demand is {point['predicted_demand']} completed appointments.",
+            }
+            for point in forecast["predictions"]
+        ],
+        "message": forecast["limitation"],
     }
 
 

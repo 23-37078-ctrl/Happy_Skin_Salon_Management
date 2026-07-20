@@ -22,10 +22,12 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core.config import settings
 from app.core.database import Base
 from app.models import user, branch, service, booking, transaction  # import each model file so Alembic sees them
 
 target_metadata = Base.metadata
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

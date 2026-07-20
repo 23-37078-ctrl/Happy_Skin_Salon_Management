@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { GoogleLogin } from "@react-oauth/google";
 import AuthLayout from "../../layouts/AuthLayout";
 import Button from "../../components/common/Button";
