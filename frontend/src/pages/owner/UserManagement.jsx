@@ -90,11 +90,11 @@ export default function UserManagement() {
       {error && <Notice message={error} onRetry={loadUsers} />}
       {success && <Notice tone="success" message={success} />}
 
-      <section className="grid gap-3 sm:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:grid-cols-4">
         {roles.map((role) => <StatCard key={role} label={role} value={users.filter((user) => user.role === role).length} icon={HiOutlineUsers} tone={role === "owner" ? "pink" : role === "manager" ? "blue" : role === "staff" ? "green" : "amber"} />)}
       </section>
 
-      <form onSubmit={submit} className="mt-5 rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
+      <form onSubmit={submit} className="mt-5 rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:rounded-[1.5rem]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Field label="Full name" value={form.full_name} onChange={(value) => setForm((prev) => ({ ...prev, full_name: value }))} required />
           <Field label="Email" type="email" value={form.email} onChange={(value) => setForm((prev) => ({ ...prev, email: value }))} required disabled={Boolean(editingId)} />
@@ -130,7 +130,7 @@ export default function UserManagement() {
             <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, role, or branch" className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-10 py-3 text-sm font-medium text-[#1F2937] outline-none" />
           </div>
-          <div className="flex gap-2 overflow-x-auto">
+          <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {["all", ...roles].map((role) => <button key={role} type="button" onClick={() => setRoleFilter(role)} className={`min-h-10 rounded-xl px-4 py-2 text-sm font-bold capitalize ${roleFilter === role ? "bg-[#C85B95] text-white" : "bg-[#FFF8FB] text-[#6B7280]"}`}>{role}</button>)}
           </div>
         </div>
@@ -143,12 +143,12 @@ export default function UserManagement() {
               <span>User</span><span>Email</span><span>Role</span><span>Branch</span><span></span>
             </div>
             {visibleUsers.map((user) => (
-              <article key={user.id} className="grid gap-3 border-b border-[#F3E8EF] px-5 py-4 last:border-0 lg:grid-cols-[1.2fr_1fr_0.7fr_1fr_auto] lg:items-center">
+              <article key={user.id} className="grid gap-3 border-b border-[#F3E8EF] px-4 py-4 last:border-0 sm:px-5 lg:grid-cols-[1.2fr_1fr_0.7fr_1fr_auto] lg:items-center">
                 <p className="font-bold text-[#1F2937]">{user.full_name}</p>
                 <p className="break-all text-sm text-[#6B7280]">{user.email}</p>
                 <span className="w-fit rounded-full bg-[#FFF0F7] px-3 py-1 text-xs font-bold capitalize text-[#C85B95]">{user.role}</span>
                 <p className="text-sm text-[#6B7280]">{user.branch_name || "No branch"}</p>
-                <button type="button" onClick={() => startEdit(user)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#D65A9A]/25 bg-white px-3 py-2 text-sm font-bold text-[#1F2937] hover:bg-[#FFF0F7]">
+                <button type="button" onClick={() => startEdit(user)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D65A9A]/25 bg-white px-3 py-2 text-sm font-bold text-[#1F2937] hover:bg-[#FFF0F7] sm:w-auto">
                   <HiOutlinePencilSquare className="h-5 w-5 text-[#D65A9A]" />
                   Edit
                 </button>

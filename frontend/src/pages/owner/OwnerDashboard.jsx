@@ -62,27 +62,27 @@ export default function OwnerDashboard() {
     >
       {error && <Notice message={error} onRetry={loadDashboard} />}
 
-      <section className="rounded-[1.5rem] bg-gradient-to-br from-[#C85B95] via-[#E879B0] to-[#F8BBD6] p-5 text-white shadow-[0_24px_70px_rgba(214,90,154,0.24)] sm:p-7">
+      <section className="rounded-[1.25rem] bg-gradient-to-br from-[#B94B86] via-[#D968A3] to-[#F4AFCF] p-4 text-white shadow-[0_20px_55px_rgba(214,90,154,0.22)] sm:rounded-[1.5rem] sm:p-7">
         <span className="inline-flex rounded-full border border-white/45 bg-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide shadow-sm backdrop-blur">Owner control</span>
-        <h2 className="mt-5 max-w-3xl text-3xl font-bold leading-tight sm:text-4xl" style={{ fontFamily: "'Playfair Display', serif" }}>
+        <h2 className="mt-4 max-w-3xl text-2xl font-bold leading-tight sm:mt-5 sm:text-4xl" style={{ fontFamily: "'Playfair Display', serif" }}>
           Monitor bookings, transactions, branch performance, and demand trends in one centralized view.
         </h2>
       </section>
 
-      <section className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-6">
+      <section className="mt-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:mt-5 sm:gap-4 xl:grid-cols-6">
         {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
       </section>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_0.9fr]">
         <section>
-          <div className="mb-4 flex items-center justify-between gap-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-[#1F2937]">Branch Performance</h2>
-            <Link to="/owner/branches" className="text-sm font-bold text-[#C85B95] hover:underline">Manage branches</Link>
+            <Link to="/owner/branches" className="min-h-10 rounded-xl px-2 py-2.5 text-sm font-bold text-[#C85B95] hover:bg-[#FFF0F7]">Manage branches</Link>
           </div>
           {isLoading ? <CardSkeleton rows={4} /> : data?.branch_performance?.length ? (
             <div className="overflow-hidden rounded-[1.25rem] border border-[#F3E8EF] bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
               {data.branch_performance.map((row) => (
-                <div key={row.branch_id} className="grid gap-3 border-b border-[#F3E8EF] px-5 py-4 last:border-0 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                <div key={row.branch_id} className="grid gap-2 border-b border-[#F3E8EF] px-4 py-4 last:border-0 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-3 sm:px-5">
                   <span className="font-bold text-[#1F2937]">{row.branch}</span>
                   <span className="text-sm text-[#6B7280]">{row.bookings} bookings</span>
                   <span className="font-bold text-[#166534]">{formatCurrency(row.sales)}</span>
@@ -93,9 +93,9 @@ export default function OwnerDashboard() {
         </section>
 
         <section>
-          <div className="mb-4 flex items-center justify-between gap-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-[#1F2937]">Recent Bookings</h2>
-            <Link to="/owner/bookings" className="text-sm font-bold text-[#C85B95] hover:underline">View all</Link>
+            <Link to="/owner/bookings" className="min-h-10 rounded-xl px-2 py-2.5 text-sm font-bold text-[#C85B95] hover:bg-[#FFF0F7]">View all</Link>
           </div>
           {isLoading ? <CardSkeleton rows={4} /> : data?.recent_bookings?.length ? (
             <div className="space-y-3">

@@ -101,7 +101,7 @@ export default function ForcastingPage() {
 
       {isLoading ? <ForecastPageSkeleton /> : forecasts.length ? (
         <div className="space-y-5">
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Forecast overview">
+          <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4" aria-label="Forecast overview">
             <KpiCard icon={HiOutlinePresentationChartLine} label="Active branches" value={forecasts.length} helper={`${summary.validated} using a validated model`} tone="pink" />
             <KpiCard icon={HiOutlineCalendarDays} label="Expected demand" value={summary.total.toFixed(1)} helper="Completed appointments · 7 days" tone="blue" />
             <KpiCard icon={HiOutlineChartBar} label="High-demand days" value={summary.high} helper="Review capacity on these dates" tone="green" />
@@ -115,7 +115,7 @@ export default function ForcastingPage() {
                 <h2 className="mt-1 text-xl font-bold text-[#1F2937]">Branch demand outlook</h2>
                 <p className="mt-1 text-sm text-[#6B7280]">Compare recent completed appointments with the next seven-day outlook.</p>
               </div>
-              <label className="block min-w-56 text-xs font-bold uppercase tracking-wide text-[#6B7280]">
+              <label className="block w-full text-xs font-bold uppercase tracking-wide text-[#6B7280] sm:min-w-56 sm:w-auto">
                 Branch
                 <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-[#EBCFDE] bg-white px-3 py-2 text-sm font-bold normal-case text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/15">
                   {forecasts.map((forecast) => <option key={forecast.branch_id} value={forecast.branch_id}>{forecast.branch_name}</option>)}

@@ -36,8 +36,8 @@ export default function CentralizedReports() {
       {error && <Notice message={error} onRetry={loadReport} />}
       <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
         <div className="grid gap-3 lg:grid-cols-[auto_1fr_1fr_auto] lg:items-end">
-          <div className="flex gap-2 overflow-x-auto">
-            {periods.map((item) => <button key={item} type="button" onClick={() => setPeriod(item)} className={`min-h-10 rounded-xl px-4 py-2 text-sm font-bold capitalize ${period === item ? "bg-[#C85B95] text-white" : "bg-[#FFF8FB] text-[#6B7280]"}`}>{item}</button>)}
+          <div className="grid grid-cols-3 gap-2">
+            {periods.map((item) => <button key={item} type="button" onClick={() => setPeriod(item)} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-bold capitalize ${period === item ? "bg-[#C85B95] text-white" : "bg-[#FFF8FB] text-[#6B7280]"}`}>{item}</button>)}
           </div>
           <DateInput label="Start" value={range.start_date} onChange={(value) => setRange((prev) => ({ ...prev, start_date: value }))} />
           <DateInput label="End" value={range.end_date} onChange={(value) => setRange((prev) => ({ ...prev, end_date: value }))} />
@@ -45,7 +45,7 @@ export default function CentralizedReports() {
         </div>
       </section>
 
-      <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="mt-5 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Bookings" value={summary.bookings || 0} icon={HiOutlineCalendarDays} tone="pink" />
         <StatCard label="Completed" value={summary.completed || 0} icon={HiOutlineCheckCircle} tone="green" />
         <StatCard label="Pending" value={summary.pending || 0} icon={HiOutlineClock} tone="amber" />
@@ -76,10 +76,10 @@ function ReportTable({ title, rows, empty }) {
     <section>
       <h2 className="mb-4 text-lg font-bold text-[#1F2937]">{title}</h2>
       {rows.length ? (
-        <div className="overflow-hidden rounded-[1.25rem] border border-[#F3E8EF] bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-          <div className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-[#F3E8EF] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-wide text-[#6B7280]"><span>Name</span><span>Bookings</span><span>Sales</span></div>
+        <div className="overflow-x-auto rounded-[1.25rem] border border-[#F3E8EF] bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
+          <div className="grid min-w-[30rem] grid-cols-[1fr_auto_auto] gap-4 border-b border-[#F3E8EF] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-wide text-[#6B7280]"><span>Name</span><span>Bookings</span><span>Sales</span></div>
           {rows.map((row) => (
-            <div key={row.name} className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-[#F3E8EF] px-5 py-4 last:border-0">
+            <div key={row.name} className="grid min-w-[30rem] grid-cols-[1fr_auto_auto] gap-4 border-b border-[#F3E8EF] px-5 py-4 last:border-0">
               <span className="font-bold text-[#1F2937]">{row.name}</span>
               <span className="text-sm text-[#6B7280]">{row.bookings}</span>
               <span className="font-bold text-[#166534]">{formatCurrency(row.sales)}</span>

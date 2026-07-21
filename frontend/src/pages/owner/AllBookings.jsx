@@ -46,7 +46,7 @@ export default function AllBookings() {
         {isLoading ? <CardSkeleton rows={5} /> : visibleBookings.length ? (
           <div className="space-y-4">
             {visibleBookings.map((booking) => (
-              <article key={booking.id} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
+              <article key={booking.id} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr_auto] lg:items-center">
                   <div>
                     <div className="flex flex-wrap items-center gap-2"><p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">Booking #{booking.id}</p><StatusBadge status={booking.status} /></div>
@@ -72,18 +72,18 @@ export default function AllBookings() {
 function Filters({ search, setSearch, branchId, setBranchId, branches, statusFilter, setStatusFilter }) {
   return (
     <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-      <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
         <div className="relative">
           <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer, branch, service, or booking number" className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-10 py-3 text-sm font-medium text-[#1F2937] outline-none" />
         </div>
-        <select value={branchId} onChange={(event) => setBranchId(event.target.value)} className="min-h-12 rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 py-2 text-sm font-bold text-[#1F2937] outline-none">
+        <select value={branchId} onChange={(event) => setBranchId(event.target.value)} className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 py-2 text-sm font-bold text-[#1F2937] outline-none sm:w-auto">
           <option value="">All branches</option>
           {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
         </select>
       </div>
-      <div className="mt-3 flex gap-2 overflow-x-auto">
-        {statuses.map((status) => <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`min-h-10 rounded-xl px-4 py-2 text-sm font-bold capitalize ${statusFilter === status ? "bg-[#C85B95] text-white" : "bg-[#FFF8FB] text-[#6B7280]"}`}>{status}</button>)}
+      <div className="-mx-1 mt-3 flex snap-x gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {statuses.map((status) => <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`min-h-11 flex-none snap-start rounded-xl px-4 py-2 text-sm font-bold capitalize ${statusFilter === status ? "bg-[#C85B95] text-white" : "bg-[#FFF8FB] text-[#6B7280]"}`}>{status}</button>)}
       </div>
     </section>
   );

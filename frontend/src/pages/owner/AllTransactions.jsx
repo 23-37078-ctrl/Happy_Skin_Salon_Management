@@ -38,7 +38,7 @@ export default function AllTransactions() {
   return (
     <OwnerWorkspace title="All Transactions" eyebrow="Centralized sales ledger">
       {error && <Notice message={error} onRetry={loadTransactions} />}
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:grid-cols-3">
         <StatCard label="Total Sales" value={formatCurrency(total)} icon={HiOutlineBanknotes} tone="green" />
         <StatCard label="Transactions" value={filtered.length} icon={HiOutlineReceiptRefund} tone="pink" />
         <StatCard label="Average Ticket" value={formatCurrency(filtered.length ? total / filtered.length : 0)} icon={HiOutlineCreditCard} tone="blue" />
@@ -56,7 +56,7 @@ export default function AllTransactions() {
               <span>Receipt</span><span>Branch / Booking</span><span>Staff</span><span>Method</span><span className="text-right">Amount</span>
             </div>
             {filtered.map((transaction) => (
-              <article key={transaction.id} className="grid gap-4 border-b border-[#F3E8EF] px-5 py-4 last:border-0 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-center">
+              <article key={transaction.id} className="grid gap-4 border-b border-[#F3E8EF] px-4 py-4 last:border-0 sm:px-5 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-center">
                 <div><p className="font-bold text-[#1F2937]">Receipt #{transaction.id}</p><p className="mt-1 text-xs font-semibold text-[#9CA3AF]">{formatDateTime(transaction.created_at)}</p></div>
                 <div><p className="font-bold text-[#1F2937]">{transaction.booking?.branch?.name || "Branch"}</p><p className="mt-1 text-sm text-[#6B7280]">Booking #{transaction.booking?.id} - {transaction.booking?.customer?.full_name || "Customer"}</p><div className="mt-2"><StatusBadge status={transaction.booking?.status || "completed"} /></div></div>
                 <p className="inline-flex items-center gap-2 text-sm text-[#6B7280]"><HiOutlineUserCircle className="h-5 w-5 text-[#D65A9A]" /> {transaction.staff?.full_name || "Staff"}</p>

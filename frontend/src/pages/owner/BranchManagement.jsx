@@ -61,7 +61,7 @@ export default function BranchManagement() {
       {error && <Notice message={error} onRetry={loadBranches} />}
       {success && <Notice tone="success" message={success} />}
 
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:grid-cols-3 sm:gap-4">
         <StatCard label="Branches" value={branches.length} icon={HiOutlineBuildingStorefront} tone="pink" />
         <StatCard label="Active" value={branches.filter((branch) => branch.is_active).length} icon={HiOutlineBuildingStorefront} tone="green" />
         <StatCard label="Sales" value={formatCurrency(branches.reduce((sum, branch) => sum + Number(branch.sales || 0), 0))} icon={HiOutlineBuildingStorefront} tone="blue" />
@@ -87,7 +87,7 @@ export default function BranchManagement() {
         {isLoading ? <CardSkeleton rows={4} /> : branches.length ? (
           <div className="grid gap-4 lg:grid-cols-2">
             {branches.map((branch) => (
-              <article key={branch.id} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
+              <article key={branch.id} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-lg font-bold text-[#1F2937]">{branch.name}</p>
@@ -96,12 +96,12 @@ export default function BranchManagement() {
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-bold ${branch.is_active ? "bg-[#DCFCE7] text-[#166534]" : "bg-[#FEE2E2] text-[#991B1B]"}`}>{branch.is_active ? "Active" : "Inactive"}</span>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                <div className="mt-4 grid grid-cols-2 gap-2 text-sm min-[420px]:grid-cols-3 sm:gap-3">
                   <Metric label="Bookings" value={branch.bookings || 0} />
                   <Metric label="Users" value={branch.assigned_users || 0} />
                   <Metric label="Sales" value={formatCurrency(branch.sales)} />
                 </div>
-                <button type="button" onClick={() => startEdit(branch)} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937] hover:bg-[#FFF0F7]">
+                <button type="button" onClick={() => startEdit(branch)} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937] hover:bg-[#FFF0F7] sm:w-auto">
                   <HiOutlinePencilSquare className="h-5 w-5 text-[#D65A9A]" />
                   Edit
                 </button>

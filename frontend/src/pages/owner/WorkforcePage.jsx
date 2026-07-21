@@ -31,7 +31,7 @@ export default function WorkforcePage() {
   return (
     <OwnerWorkspace title="Capacity Review" eyebrow="Forecast-informed recommendations">
       {error && <Notice message={error} onRetry={loadRecommendations} />}
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:grid-cols-3">
         <StatCard label="Branches" value={branches.length} icon={HiOutlineShieldCheck} tone="pink" />
         <StatCard label="Review Days" value={recommendations.filter((item) => item.demand_level === "high").length} icon={HiOutlineUsers} tone="amber" />
         <StatCard label="Validated Branches" value={branches.filter(({ forecast }) => forecast.data_quality === "sufficient").length} icon={HiOutlineShieldCheck} tone="green" />
@@ -40,8 +40,8 @@ export default function WorkforcePage() {
       <section className="mt-5">
         {isLoading ? <CardSkeleton rows={5} /> : recommendations.length ? (
           <div className="grid gap-4 lg:grid-cols-2">{recommendations.map((item) => (
-            <article key={`${item.branch_name}-${item.date}`} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-              <div className="flex items-start justify-between gap-3"><div><p className="font-bold text-[#1F2937]">{item.branch_name}</p><p className="mt-1 text-sm text-[#6B7280]">{item.date} • predicted demand {item.predicted_demand}</p></div><span className="rounded-full bg-[#FFF0F7] px-3 py-1 text-xs font-bold capitalize text-[#C85B95]">{item.demand_level}</span></div>
+            <article key={`${item.branch_name}-${item.date}`} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-[#1F2937]">{item.branch_name}</p><p className="mt-1 text-sm text-[#6B7280]">{item.date} • predicted demand {item.predicted_demand}</p></div><span className="rounded-full bg-[#FFF0F7] px-3 py-1 text-xs font-bold capitalize text-[#C85B95]">{item.demand_level}</span></div>
               <p className="mt-4 text-sm leading-6 text-[#6B7280]">{item.recommendation}</p>
             </article>
           ))}</div>
