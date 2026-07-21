@@ -143,6 +143,16 @@ def _serialize_booking(booking: Booking) -> dict:
             "price": booking.service.price,
             "duration_minutes": booking.service.duration_minutes,
         } if booking.service else None,
+        "service_provider": {
+            "id": booking.service_provider.id,
+            "full_name": booking.service_provider.full_name,
+            "job_title": booking.service_provider.job_title,
+        } if booking.service_provider else None,
+        "preferred_service_provider": {
+            "id": booking.preferred_service_provider.id,
+            "full_name": booking.preferred_service_provider.full_name,
+            "job_title": booking.preferred_service_provider.job_title,
+        } if booking.preferred_service_provider else None,
         "appointment_date": booking.appointment_date,
         "status": booking.status,
         "notes": booking.notes,
@@ -178,6 +188,8 @@ def _booking_query(db: Session):
         joinedload(Booking.customer),
         joinedload(Booking.branch),
         joinedload(Booking.service),
+        joinedload(Booking.service_provider),
+        joinedload(Booking.preferred_service_provider),
     )
 
 

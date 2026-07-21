@@ -13,7 +13,7 @@ import {
   getCustomerAppointments,
   submitFeedback,
 } from "../../services/customerService";
-import { CustomerShell, Notice } from "./CustomerBookAppointment";
+import { CustomerShell, Notice } from "./CustomerShell";
 
 export default function CustomerFeedback() {
   const [searchParams] = useSearchParams();

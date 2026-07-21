@@ -11,6 +11,7 @@ class Booking(Base):
     branch_id        = Column(Integer, ForeignKey("branches.id"), nullable=False)
     service_id       = Column(Integer, ForeignKey("services.id"), nullable=False)
     service_provider_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    preferred_service_provider_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     appointment_date = Column(DateTime, nullable=False)
     status           = Column(String(20), default="pending", nullable=False)
@@ -25,3 +26,4 @@ class Booking(Base):
     branch           = relationship("Branch")
     service          = relationship("Service")
     service_provider = relationship("User", foreign_keys=[service_provider_id])
+    preferred_service_provider = relationship("User", foreign_keys=[preferred_service_provider_id])
