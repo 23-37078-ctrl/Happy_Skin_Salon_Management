@@ -91,6 +91,11 @@ export async function getCustomerServices(signal) {
   return data;
 }
 
+export async function getBranchProviders(branchId, signal) {
+  const { data } = await api.get(`/customer/branches/${branchId}/providers`, { signal });
+  return data;
+}
+
 export async function createAppointment(payload) {
   const { data } = await api.post("/customer/appointments", payload);
   return data;

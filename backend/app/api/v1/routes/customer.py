@@ -57,6 +57,7 @@ def _booking_query(db: Session):
         joinedload(Booking.branch),
         joinedload(Booking.service),
         joinedload(Booking.service_provider),
+        joinedload(Booking.preferred_service_provider),
     )
 
 
@@ -196,6 +197,32 @@ def get_featured_customer_services(
     return [_serialize_service(service) for service in services]
 
 
+@router.get("/branches/{branch_id}/providers")
+def list_customer_branch_providers(
+    branch_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return only the public fields needed to request a branch specialist."""
+    _require_customer(current_user)
+    branch_exists = db.query(Branch.id).filter(
+        Branch.id == branch_id,
+        Branch.is_active.is_(True),
+    ).first()
+    if not branch_exists:
+        raise HTTPException(status_code=404, detail="Selected branch is not available.")
+
+    providers = db.query(User).filter(
+        User.role == "staff",
+        User.branch_id == branch_id,
+        User.job_title.isnot(None),
+    ).order_by(User.full_name.asc()).all()
+    return [
+        {"id": provider.id, "full_name": provider.full_name, "job_title": provider.job_title}
+        for provider in providers
+    ]
+
+
 @router.post("/appointments", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
 def create_customer_appointment(
     payload: BookingCreateRequest,
@@ -220,11 +247,31 @@ def create_customer_appointment(
     if not service:
         raise HTTPException(status_code=404, detail="Selected service is not offered at this branch.")
 
+    preferred_provider = None
+    if payload.preferred_service_provider_id is not None:
+        preferred_provider = db.query(User).filter(
+            User.id == payload.preferred_service_provider_id,
+            User.role == "staff",
+            User.branch_id == payload.branch_id,
+            User.job_title.isnot(None),
+        ).first()
+        if not preferred_provider:
+            raise HTTPException(
+                status_code=400,
+                detail="The requested specialist is not available at the selected branch.",
+            )
+
+    appointment_date = payload.appointment_date
+    now = datetime.now(appointment_date.tzinfo) if appointment_date.tzinfo else datetime.now()
+    if appointment_date <= now:
+        raise HTTPException(status_code=400, detail="Please choose a future appointment date and time.")
+
     booking = Booking(
         customer_id=current_user.id,
         branch_id=payload.branch_id,
         service_id=payload.service_id,
         appointment_date=payload.appointment_date,
+        preferred_service_provider_id=preferred_provider.id if preferred_provider else None,
         notes=payload.notes,
         status="pending",
     )

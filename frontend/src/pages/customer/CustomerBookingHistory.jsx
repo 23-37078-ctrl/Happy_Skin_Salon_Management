@@ -4,13 +4,14 @@ import {
   HiOutlineChatBubbleLeftRight,
   HiOutlineClock,
   HiOutlineMagnifyingGlass,
+  HiOutlineUserGroup,
   HiOutlineXMark,
 } from "react-icons/hi2";
 import {
   cancelAppointment,
   getCustomerAppointments,
 } from "../../services/customerService";
-import { CustomerShell, Notice } from "./CustomerBookAppointment";
+import { CustomerShell, Notice } from "./CustomerShell";
 
 const statusStyles = {
   pending: "bg-[#FEF3C7] text-[#92400E]",
@@ -65,7 +66,7 @@ export default function CustomerBookingHistory() {
       const appointmentDate = new Date(appointment.appointment_date);
       const localDate = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth() + 1).padStart(2, "0")}-${String(appointmentDate.getDate()).padStart(2, "0")}`;
       const matchesDate = !dateFilter || localDate === dateFilter;
-      const searchable = [appointment.service?.name, appointment.branch?.name, appointment.status, appointment.notes].filter(Boolean).join(" ").toLowerCase();
+      const searchable = [appointment.service?.name, appointment.branch?.name, appointment.status, appointment.notes, appointment.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase();
       return matchesDate && (!term || searchable.includes(term));
     });
   }, [appointments, query, dateFilter]);
@@ -144,6 +145,7 @@ function AppointmentCard({ appointment, busy, onCancel }) {
           </div>
           <h2 className="mt-3 text-lg font-bold text-[#1F2937]">{appointment.service?.name || "Service"}</h2>
           <p className="mt-1 text-sm text-[#6B7280]">{appointment.branch?.name || "Branch"}</p>
+          {appointment.preferred_service_provider && <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-[#7C3F62]"><HiOutlineUserGroup className="h-5 w-5" /> Requested: {appointment.preferred_service_provider.full_name}</p>}
           {appointment.notes && <p className="mt-3 rounded-xl bg-[#FFF8FB] px-3 py-2 text-sm text-[#6B7280]">{appointment.notes}</p>}
         </div>
 

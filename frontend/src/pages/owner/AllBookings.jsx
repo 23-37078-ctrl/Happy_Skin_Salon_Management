@@ -52,6 +52,7 @@ export default function AllBookings() {
                     <div className="flex flex-wrap items-center gap-2"><p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">Booking #{booking.id}</p><StatusBadge status={booking.status} /></div>
                     <h2 className="mt-3 text-lg font-bold text-[#1F2937]">{booking.service?.name || "Service"}</h2>
                     <p className="mt-1 text-sm text-[#6B7280]">{booking.customer?.full_name || "Customer"} - {booking.branch?.name || "Branch"}</p>
+                    {booking.preferred_service_provider && <p className="mt-2 text-sm font-semibold text-[#7C3F62]">Requested: {booking.preferred_service_provider.full_name}</p>}
                   </div>
                   <div className="grid gap-2 text-sm text-[#6B7280]">
                     <span className="inline-flex items-center gap-2"><HiOutlineCalendarDays className="h-5 w-5 text-[#D65A9A]" /> {formatDateTime(booking.appointment_date)}</span>

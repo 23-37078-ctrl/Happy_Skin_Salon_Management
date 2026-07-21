@@ -19,6 +19,8 @@ def get_bookings_for_branch(
             joinedload(Booking.customer),
             joinedload(Booking.branch),
             joinedload(Booking.service),
+            joinedload(Booking.service_provider),
+            joinedload(Booking.preferred_service_provider),
         )
         .filter(Booking.branch_id == branch_id)
     )
@@ -45,6 +47,8 @@ def get_booking_by_id(db: Session, booking_id: int, branch_id: int) -> Optional[
             joinedload(Booking.customer),
             joinedload(Booking.branch),
             joinedload(Booking.service),
+            joinedload(Booking.service_provider),
+            joinedload(Booking.preferred_service_provider),
         )
         .filter(Booking.id == booking_id, Booking.branch_id == branch_id)
         .first()

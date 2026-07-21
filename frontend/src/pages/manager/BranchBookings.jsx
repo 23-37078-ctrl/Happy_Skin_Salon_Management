@@ -145,6 +145,12 @@ function BookingCard({ booking, busy, editing, onEdit, onReschedule, onStatus })
           </div>
           <h2 className="mt-3 truncate text-lg font-bold text-[#1F2937]">{booking.service?.name || "Service"}</h2>
           <p className="mt-1 text-sm text-[#6B7280]">{booking.customer?.full_name || "Customer"} • {booking.customer?.email || "No email"}</p>
+          {booking.preferred_service_provider && (
+            <p className="mt-2 text-sm font-semibold text-[#7C3F62]">
+              Customer preference: {booking.preferred_service_provider.full_name}
+              <span className="font-normal text-[#6B7280]"> · subject to availability</span>
+            </p>
+          )}
           {booking.notes && <p className="mt-3 rounded-xl bg-[#FFF8FB] px-3 py-2 text-sm text-[#6B7280]">{booking.notes}</p>}
         </div>
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Request Schemas ──────────────────────────────────────────────
@@ -9,7 +9,15 @@ class BookingCreateRequest(BaseModel):
     branch_id: int
     service_id: int
     appointment_date: datetime
-    notes: Optional[str] = None
+    preferred_service_provider_id: Optional[int] = None
+    notes: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("notes")
+    @classmethod
+    def clean_notes(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 class BookingStatusUpdateRequest(BaseModel):
@@ -69,6 +77,7 @@ class BookingOut(BaseModel):
     branch: BookingBranchOut
     service: BookingServiceOut
     service_provider: Optional[BookingProviderOut] = None
+    preferred_service_provider: Optional[BookingProviderOut] = None
     appointment_date: datetime
     status: str
     notes: Optional[str] = None
