@@ -8,7 +8,7 @@ import {
   HiOutlineMapPin,
   HiOutlineCheckCircle,
 } from "react-icons/hi2";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   getCustomerAppointments,
   submitFeedback,
@@ -16,6 +16,7 @@ import {
 import { CustomerShell, Notice } from "./CustomerShell";
 
 export default function CustomerFeedback() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [appointments, setAppointments] = useState([]);
   const [form, setForm] = useState({
@@ -23,12 +24,16 @@ export default function CustomerFeedback() {
     rating: 5,
     service_provider_id: "",
     staff_rating: 5,
+    staff_review: "",
+    branch_rating: 5,
+    branch_review: "",
     review: "",
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -73,7 +78,15 @@ export default function CustomerFeedback() {
       return;
     }
     if (form.review.trim().length < 10) {
-      setError("Please share at least 10 characters about your salon experience.");
+      setError("Please share at least 10 characters about the service.");
+      return;
+    }
+    if (form.staff_review.trim().length < 10) {
+      setError("Please share at least 10 characters about the staff service.");
+      return;
+    }
+    if (form.branch_review.trim().length < 10) {
+      setError("Please share at least 10 characters about the branch experience.");
       return;
     }
     if (!form.service_provider_id) {
@@ -89,9 +102,13 @@ export default function CustomerFeedback() {
         review: form.review.trim() || null,
         service_provider_id: Number(form.service_provider_id),
         staff_rating: Number(form.staff_rating),
+        staff_review: form.staff_review.trim(),
+        branch_rating: Number(form.branch_rating),
+        branch_review: form.branch_review.trim(),
       });
       setSuccess("Thank you. Your feedback was submitted for management review.");
-      setForm((prev) => ({ ...prev, review: "" }));
+      setShowSuccessModal(true);
+      setForm((prev) => ({ ...prev, review: "", staff_review: "", branch_review: "" }));
     } catch (err) {
       setError(err.response?.data?.detail || "We couldn't submit your feedback.");
     } finally {
@@ -150,7 +167,7 @@ export default function CustomerFeedback() {
           </label>
 
           <label className="mt-4 block text-sm font-bold text-[#1F2937]">
-            Rating
+            Service Rating
             <div className="mt-2 flex gap-2">
               {[1, 2, 3, 4, 5].map((rating) => (
                 <button
@@ -178,7 +195,7 @@ export default function CustomerFeedback() {
           </label>
 
           <label className="mt-4 block text-sm font-bold text-[#1F2937]">
-            Review
+            Service Review
             <textarea
               value={form.review}
               onChange={(event) => setForm((prev) => ({ ...prev, review: event.target.value }))}
@@ -186,10 +203,30 @@ export default function CustomerFeedback() {
               minLength={10}
               maxLength={500}
               required
-              placeholder="How was the service, staff assistance, cleanliness, and overall branch experience?"
+              placeholder="How was the treatment or service you received?"
               className="mt-2 w-full resize-none rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 py-3 text-sm outline-none focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20"
             />
             <span className="mt-1 block text-right text-[11px] font-medium text-[#98A2B3]">{form.review.length}/500</span>
+          </label>
+
+          <label className="mt-4 block text-sm font-bold text-[#1F2937]">
+            Staff Review {selectedProvider && <span className="font-normal text-[#6B7280]">— {selectedProvider.full_name}</span>}
+            <textarea value={form.staff_review} onChange={(event) => setForm((prev) => ({ ...prev, staff_review: event.target.value }))} rows={4} minLength={10} maxLength={500} required placeholder="How was the staff member's assistance, professionalism, and care?" className="mt-2 w-full resize-none rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 py-3 text-sm outline-none focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20" />
+            <span className="mt-1 block text-right text-[11px] font-medium text-[#98A2B3]">{form.staff_review.length}/500</span>
+          </label>
+
+          <label className="mt-4 block text-sm font-bold text-[#1F2937]">
+            Branch Rating <span className="font-normal text-[#6B7280]">— {selectedAppointment?.branch?.name || "Selected branch"}</span>
+            <div className="mt-2 flex gap-2">
+              {[1, 2, 3, 4, 5].map((rating) => <button key={rating} type="button" onClick={() => setForm((prev) => ({ ...prev, branch_rating: rating }))} className={`flex h-11 w-11 items-center justify-center rounded-xl border transition hover:-translate-y-0.5 ${rating <= form.branch_rating ? "border-[#D65A9A] bg-[#FFF0F7] text-[#D65A9A] shadow-sm" : "border-[#F3E8EF] bg-white text-[#9CA3AF]"}`} aria-label={`${rating} star branch rating`}><HiOutlineStar className="h-6 w-6" /></button>)}
+            </div>
+            <span className="mt-2 block text-xs font-semibold text-[#C85B95]">{form.branch_rating}/5 · {ratingLabels[form.branch_rating - 1]}</span>
+          </label>
+
+          <label className="mt-4 block text-sm font-bold text-[#1F2937]">
+            Branch Review
+            <textarea value={form.branch_review} onChange={(event) => setForm((prev) => ({ ...prev, branch_review: event.target.value }))} rows={4} minLength={10} maxLength={500} required placeholder="How was the branch cleanliness, comfort, and overall atmosphere?" className="mt-2 w-full resize-none rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 py-3 text-sm outline-none focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20" />
+            <span className="mt-1 block text-right text-[11px] font-medium text-[#98A2B3]">{form.branch_review.length}/500</span>
           </label>
 
           <button
@@ -227,6 +264,20 @@ export default function CustomerFeedback() {
           )}
         </aside>
       </section>
+
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1F2937]/45 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="feedback-success-title">
+          <div className="w-full max-w-sm rounded-[1.75rem] border border-[#F3E8EF] bg-white p-6 text-center shadow-[0_24px_70px_rgba(31,41,55,0.22)]">
+            <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#DCFCE7] text-[#16A34A]">
+              <HiOutlineCheckCircle className="h-9 w-9" />
+            </span>
+            <h2 id="feedback-success-title" className="mt-4 text-xl font-extrabold text-[#1F2937]">Review submitted!</h2>
+            <p className="mt-2 text-sm leading-6 text-[#667085]">Thank you for sharing your experience. Your ratings and review were successfully sent to Happy Skin.</p>
+            <button type="button" onClick={() => navigate("/customer/dashboard")} className="mt-6 min-h-12 w-full rounded-xl bg-[#C85B95] px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(200,91,149,0.24)] transition hover:bg-[#B94B86]">Back to Dashboard</button>
+            <button type="button" onClick={() => setShowSuccessModal(false)} className="mt-2 min-h-10 w-full rounded-xl px-4 py-2 text-sm font-bold text-[#667085] transition hover:bg-[#FFF0F7]">Stay on this page</button>
+          </div>
+        </div>
+      )}
     </CustomerShell>
   );
 }

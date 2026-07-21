@@ -23,8 +23,11 @@ class FeedbackCreateRequest(BaseModel):
     review: str | None = Field(default=None, max_length=1000)
     service_provider_id: int
     staff_rating: int = Field(ge=1, le=5)
+    staff_review: str | None = Field(default=None, max_length=1000)
+    branch_rating: int = Field(ge=1, le=5)
+    branch_review: str | None = Field(default=None, max_length=1000)
 
-    @field_validator("review")
+    @field_validator("review", "staff_review", "branch_review")
     @classmethod
     def clean_review(cls, value: str | None) -> str | None:
         if value is None:
@@ -304,6 +307,19 @@ def list_customer_appointments(
         branch_staff = db.query(User).filter(User.role == "staff", User.branch_id == booking.branch_id, User.job_title.isnot(None)).order_by(User.full_name).all()
         item["service_provider"] = {"id": provider.id, "full_name": provider.full_name, "job_title": provider.job_title or "Salon Specialist"} if provider else None
         item["available_providers"] = [{"id": staff.id, "full_name": staff.full_name, "job_title": staff.job_title or "Salon Specialist"} for staff in branch_staff]
+        if transaction:
+            item["receipt"] = {
+                "transaction_id": transaction.id,
+                "amount": transaction.amount,
+                "payment_method": transaction.payment_method,
+                "additional_charge": transaction.additional_charge,
+                "additional_charges": transaction.charge_reason,
+                "commission_amount": transaction.commission_amount,
+                "service_provider": provider.full_name if provider else None,
+                "created_at": transaction.created_at,
+            }
+        else:
+            item["receipt"] = None
         results.append(item)
     return results
 
@@ -369,6 +385,9 @@ def submit_customer_feedback(
         existing.review = payload.review
         existing.service_provider_id = provider.id
         existing.staff_rating = payload.staff_rating
+        existing.staff_review = payload.staff_review
+        existing.branch_rating = payload.branch_rating
+        existing.branch_review = payload.branch_review
         feedback = existing
     else:
         feedback = Feedback(
@@ -378,6 +397,9 @@ def submit_customer_feedback(
             review=payload.review,
             service_provider_id=provider.id,
             staff_rating=payload.staff_rating,
+            staff_review=payload.staff_review,
+            branch_rating=payload.branch_rating,
+            branch_review=payload.branch_review,
         )
         db.add(feedback)
 
@@ -391,6 +413,9 @@ def submit_customer_feedback(
         "review": feedback.review,
         "service_provider_id": feedback.service_provider_id,
         "staff_rating": feedback.staff_rating,
+        "staff_review": feedback.staff_review,
+        "branch_rating": feedback.branch_rating,
+        "branch_review": feedback.branch_review,
         "created_at": feedback.created_at,
     }
 

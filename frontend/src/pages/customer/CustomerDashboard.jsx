@@ -3,14 +3,12 @@ import { motion } from "framer-motion";
 import {
   HiOutlineCalendar,
   HiOutlineClock,
-  HiOutlineExclamationTriangle,
   HiOutlineGift,
   HiOutlineBell,
   HiOutlineXMark,
   HiOutlineMapPin,
   HiOutlinePhone,
   HiOutlineSparkles,
-  HiOutlineStar,
   HiOutlineArrowRightOnRectangle,
   HiChevronDown,
 } from "react-icons/hi2";
@@ -23,6 +21,7 @@ import PromotionCard from "../../components/customer/PromotionCard";
 import RecentActivityCard from "../../components/customer/RecentActivityCard";
 import RecommendedServiceCard from "../../components/customer/RecommendedServiceCard";
 import Footer from "../../components/public/Footer";
+import SystemPopup from "../../components/common/SystemPopup";
 
 import {
   CardRailSkeleton,
@@ -102,15 +101,9 @@ export default function CustomerDashboard() {
   const quickActions = [
     {
       icon: HiOutlineClock,
-      title: "Booking History",
+      title: "History",
       description: "Review past visits.",
       onClick: () => navigate("/customer/history"),
-    },
-    {
-      icon: HiOutlineStar,
-      title: "Submit Feedback",
-      description: "Share your rating.",
-      onClick: () => navigate("/customer/feedback"),
     },
   ];
 
@@ -139,18 +132,7 @@ export default function CustomerDashboard() {
           promotionCount={data?.promotions?.length || 0}
         />
 
-        {error && (
-          <div className="mb-5 flex items-center gap-3 rounded-[1.25rem] border border-[#EF4444]/20 bg-white px-4 py-3 text-sm text-[#B91C1C] shadow-sm">
-            <HiOutlineExclamationTriangle className="h-5 w-5 flex-shrink-0" />
-            <span className="flex-1">{error}</span>
-            <button
-              onClick={() => fetchDashboard()}
-              className="font-bold text-[#D65A9A] underline underline-offset-4 focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"
-            >
-              Retry
-            </button>
-          </div>
-        )}
+        {error && <SystemPopup message={error} tone="error" onRetry={fetchDashboard} />}
 
         <Section
           title="Choose a Branch"
@@ -260,7 +242,8 @@ function CustomerHeader({ name, email, actions, onLogout, recentActivity, notifi
   return (
     <header className="mb-6 rounded-[1.5rem] border border-[#F3E8EF] bg-white/90 px-4 py-3 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur lg:px-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <button type="button" className="flex shrink-0 items-center gap-3 text-left" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+        <div className="flex shrink-0 items-center gap-2">
+        <button type="button" className="flex items-center gap-3 text-left" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
           <img
             src="/images/happy-skin-logo.svg"
             alt="Happy Skin"
@@ -271,22 +254,19 @@ function CustomerHeader({ name, email, actions, onLogout, recentActivity, notifi
             <p className="text-[10px] text-[#6B7280]">Customer Portal</p>
           </div>
         </button>
+        </div>
 
-        <nav className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4 xl:mx-5 xl:max-w-3xl" aria-label="Customer actions">
-          {actions.map(({ icon: Icon, title, onClick }, index) => (
-            <button
-              key={title}
-              type="button"
-              onClick={onClick}
-              className={`group inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-[#1F2937] transition hover:bg-[#FFF0F7] hover:text-[#C85B95] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30 ${index === 0 ? "sm:col-start-3" : ""}`}
-            >
-              <Icon className="h-5 w-5 shrink-0 text-[#D65A9A]" />
-              <span className="truncate">{title}</span>
-            </button>
-          ))}
-        </nav>
+        <div className="flex-1" />
 
         <div className="flex shrink-0 items-center gap-1 border-t border-[#F3E8EF] pt-3 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+          <nav className="flex items-center" aria-label="Customer actions">
+            {actions.map(({ icon: Icon, title, onClick }) => (
+              <button key={title} type="button" onClick={onClick} aria-label={title} title={title} className="group grid h-11 w-11 place-items-center rounded-xl text-[#1F2937] transition hover:bg-[#FFF0F7] hover:text-[#C85B95] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30">
+                <Icon className="h-5 w-5 shrink-0 text-[#D65A9A]" />
+                <span className="sr-only">{title}</span>
+              </button>
+            ))}
+          </nav>
           <details className="group relative">
             <summary aria-label="Activity and notifications" className="relative grid h-11 w-11 cursor-pointer list-none place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30 [&::-webkit-details-marker]:hidden">
               <HiOutlineBell className="h-6 w-6" />

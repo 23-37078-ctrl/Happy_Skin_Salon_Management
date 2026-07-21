@@ -14,6 +14,9 @@ class Feedback(Base):
     review = Column(Text, nullable=True)
     service_provider_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     staff_rating = Column(Integer, nullable=True)
+    staff_review = Column(Text, nullable=True)
+    branch_rating = Column(Integer, nullable=True)
+    branch_review = Column(Text, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 

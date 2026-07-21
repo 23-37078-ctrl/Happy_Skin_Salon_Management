@@ -9,6 +9,7 @@ import {
   HiOutlineMapPin,
   HiOutlineSparkles,
   HiOutlineUserGroup,
+  HiChevronDown,
 } from "react-icons/hi2";
 import {
   createAppointment,
@@ -17,12 +18,22 @@ import {
   getCustomerServices,
 } from "../../services/customerService";
 import { CustomerShell, Notice } from "./CustomerShell";
+import ModernDatePicker from "../../components/common/ModernDatePicker";
 
 const today = () => {
   const date = new Date();
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 };
+
+const APPOINTMENT_SLOTS = Array.from({ length: 21 }, (_, index) => {
+  const totalMinutes = 9 * 60 + index * 30;
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const displayHour = hour % 12 || 12;
+  return { value, label: `${displayHour}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}` };
+});
 
 export default function CustomerBookAppointment() {
   const navigate = useNavigate();
@@ -118,6 +129,11 @@ export default function CustomerBookAppointment() {
     () => providers.find((provider) => String(provider.id) === String(form.preferred_service_provider_id)),
     [form.preferred_service_provider_id, providers]
   );
+  const availableTimeSlots = useMemo(() => {
+    if (!form.appointment_date) return APPOINTMENT_SLOTS;
+    const now = new Date();
+    return APPOINTMENT_SLOTS.filter((slot) => new Date(`${form.appointment_date}T${slot.value}:00`) > now);
+  }, [form.appointment_date]);
   const handleBranchChange = (branchId) => {
     const branch = branches.find((item) => String(item.id) === String(branchId));
     const branchServices = branch?.services || [];
@@ -170,7 +186,7 @@ export default function CustomerBookAppointment() {
   };
 
   return (
-    <CustomerShell title="Book Appointment" showHeading={false}>
+    <CustomerShell title="Book Appointment" showHeading={false} backTo="/customer/dashboard">
       <div className="mx-auto w-full max-w-[1500px]">
         {error && <Notice tone="error">{error}</Notice>}
         {success && <Notice tone="success">{success}</Notice>}
@@ -209,10 +225,16 @@ export default function CustomerBookAppointment() {
             <FormSection number="3" title="Date and time" description="Tell us when you’d prefer to come in.">
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Preferred date" icon={HiOutlineCalendarDays}>
-                  <input required type="date" value={form.appointment_date} min={today()} onChange={(event) => setForm((previous) => ({ ...previous, appointment_date: event.target.value }))} className="form-input" />
+                  <ModernDatePicker value={form.appointment_date} min={today()} onChange={(value) => setForm((previous) => ({ ...previous, appointment_date: value }))} placeholder="Choose a preferred date" ariaLabel="Choose preferred appointment date" />
                 </Field>
                 <Field label="Preferred time" icon={HiOutlineClock}>
-                  <input required type="time" value={form.appointment_time} onChange={(event) => setForm((previous) => ({ ...previous, appointment_time: event.target.value }))} className="form-input" />
+                  <div className="relative">
+                    <select required value={form.appointment_time} onChange={(event) => setForm((previous) => ({ ...previous, appointment_time: event.target.value }))} className="form-input appearance-none pr-11">
+                      <option value="">Choose a time</option>
+                      {availableTimeSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
+                    </select>
+                    <HiChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#B94B86]" />
+                  </div>
                 </Field>
               </div>
               <label className="mt-4 block text-sm font-bold text-[#344054]">Notes <span className="font-normal text-[#98A2B3]">(optional)</span>

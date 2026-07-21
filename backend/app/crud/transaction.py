@@ -13,6 +13,10 @@ def create_transaction(
     amount: Optional[float],
     payment_method: str,
     service_provider_id: Optional[int] = None,
+    additional_charge: float = 0,
+    charge_reason: Optional[str] = None,
+    commission_rate: float = 0,
+    commission_amount: float = 0,
 ) -> Transaction:
     final_amount = amount if amount is not None else booking.service.price
 
@@ -22,6 +26,10 @@ def create_transaction(
         amount=final_amount,
         payment_method=payment_method,
         service_provider_id=service_provider_id,
+        additional_charge=additional_charge,
+        charge_reason=charge_reason,
+        commission_rate=commission_rate,
+        commission_amount=commission_amount,
     )
     db.add(transaction)
 
@@ -45,8 +53,10 @@ def get_transactions_for_branch(
         db.query(Transaction)
         .join(Booking, Transaction.booking_id == Booking.id)
         .options(
-            joinedload(Transaction.booking),
+            joinedload(Transaction.booking).joinedload(Booking.customer),
+            joinedload(Transaction.booking).joinedload(Booking.service),
             joinedload(Transaction.staff),
+            joinedload(Transaction.service_provider),
         )
         .filter(Booking.branch_id == branch_id)
     )

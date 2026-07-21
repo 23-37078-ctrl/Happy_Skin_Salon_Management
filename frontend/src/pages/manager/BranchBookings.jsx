@@ -10,8 +10,16 @@ import {
 import managerService from "../../services/managerService";
 import { formatCurrency, formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, ManagerWorkspace, Notice, StatusBadge } from "./ManagerWorkspace";
+import ModernDatePicker from "../../components/common/ModernDatePicker";
 
 const statuses = ["all", "pending", "confirmed", "completed", "cancelled"];
+const rescheduleTimes = Array.from({ length: 21 }, (_, index) => {
+  const minutes = 9 * 60 + index * 30;
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return { value, label: new Date(2000, 0, 1, hour, minute).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }) };
+});
 
 function toDateTimeLocal(value) {
   if (!value) return "";
@@ -170,11 +178,12 @@ function BookingCard({ booking, busy, editing, onEdit, onReschedule, onStatus })
 
       {isEditing && (
         <form onSubmit={onReschedule} className="border-t border-[#F3E8EF] bg-[#FFF8FB] p-4 lg:p-5">
-          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <label className="text-sm font-bold text-[#1F2937]">
-              New appointment date
-              <input type="datetime-local" value={editing.appointment_date} onChange={(event) => onEdit((prev) => ({ ...prev, appointment_date: event.target.value }))} className="mt-2 min-h-11 w-full rounded-xl border border-[#F3E8EF] bg-white px-3 py-2 text-sm outline-none focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20" />
-            </label>
+          <div className="grid gap-3 md:grid-cols-[minmax(15rem,1fr)_13rem_auto] md:items-end">
+            <div className="text-sm font-bold text-[#1F2937]">
+              <span>New appointment date</span>
+              <ModernDatePicker value={editing.appointment_date.split("T")[0] || ""} onChange={(date) => onEdit((prev) => ({ ...prev, appointment_date: date ? `${date}T${prev.appointment_date.split("T")[1] || "09:00"}` : "" }))} placeholder="Choose new date" className="mt-2" />
+            </div>
+            <label className="text-sm font-bold text-[#1F2937]">Time<select required value={editing.appointment_date.split("T")[1] || ""} onChange={(event) => onEdit((prev) => ({ ...prev, appointment_date: `${prev.appointment_date.split("T")[0]}T${event.target.value}` }))} className="form-input mt-2 bg-white"><option value="">Choose time</option>{rescheduleTimes.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>
             <div className="flex gap-2">
               <button type="submit" disabled={busy} className="min-h-11 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">Save</button>
               <button type="button" onClick={() => onEdit({ id: null, appointment_date: "" })} className="min-h-11 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937]">Close</button>
