@@ -6,20 +6,18 @@ import {
   HiOutlineCalendarDays,
   HiOutlineChartBar,
   HiOutlineClipboardDocumentList,
-  HiOutlineDocumentText,
-  HiOutlineExclamationTriangle,
   HiOutlineHome,
   HiOutlineBars3,
   HiOutlineXMark,
 } from "react-icons/hi2";
 import { useAuth } from "../../hooks/useAuth";
 import { getFirstName, statusStyles } from "./staffWorkspaceUtils";
+import SystemPopup from "../../components/common/SystemPopup";
 
 const navItems = [
   { to: "/staff/dashboard", label: "Dashboard", icon: HiOutlineHome },
   { to: "/staff/bookings", label: "Bookings", icon: HiOutlineCalendarDays },
   { to: "/staff/transactions", label: "Transactions", icon: HiOutlineBanknotes },
-  { to: "/staff/feedback", label: "Handover", icon: HiOutlineDocumentText },
 ];
 
 export function StaffWorkspace({ children, title, eyebrow, actions, brandOnly = false, headerStats, identity }) {
@@ -160,17 +158,7 @@ export function EmptyState({ icon: Icon = HiOutlineClipboardDocumentList, title,
 }
 
 export function ErrorNotice({ message, onRetry }) {
-  return (
-    <div className="mb-5 flex flex-col gap-3 rounded-[1.25rem] border border-[#EF4444]/20 bg-white px-4 py-3 text-sm text-[#B91C1C] shadow-sm sm:flex-row sm:items-center">
-      <HiOutlineExclamationTriangle className="h-5 w-5 flex-shrink-0" />
-      <span className="flex-1">{message}</span>
-      {onRetry && (
-        <button type="button" onClick={onRetry} className="font-bold text-[#D65A9A] underline underline-offset-4">
-          Retry
-        </button>
-      )}
-    </div>
-  );
+  return <SystemPopup message={message} tone="error" onRetry={onRetry} />;
 }
 
 export function CardSkeleton({ rows = 3 }) {

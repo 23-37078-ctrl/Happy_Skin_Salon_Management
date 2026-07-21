@@ -16,6 +16,7 @@ import {
 } from "react-icons/hi2";
 import { useAuth } from "../../hooks/useAuth";
 import { getFirstName, statusStyles } from "../staff/staffWorkspaceUtils";
+import SystemPopup from "../../components/common/SystemPopup";
 
 const navItems = [
   { to: "/owner/dashboard", label: "Dashboard", icon: HiOutlineHome },
@@ -135,13 +136,7 @@ export function EmptyState({ icon: Icon = HiOutlineClipboardDocumentList, title,
 }
 
 export function Notice({ message, tone = "error", onRetry }) {
-  const color = tone === "success" ? "text-[#166534] border-[#22C55E]/20" : "text-[#B91C1C] border-[#EF4444]/20";
-  return (
-    <div className={`mb-5 flex flex-col gap-3 rounded-[1.25rem] border bg-white px-4 py-3 text-sm font-semibold shadow-sm sm:flex-row sm:items-center ${color}`}>
-      <span className="flex-1">{message}</span>
-      {onRetry && <button type="button" onClick={onRetry} className="font-bold text-[#D65A9A] underline underline-offset-4">Retry</button>}
-    </div>
-  );
+  return <SystemPopup message={message} tone={tone} onRetry={onRetry} />;
 }
 
 export function CardSkeleton({ rows = 3 }) {

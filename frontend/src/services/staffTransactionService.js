@@ -8,10 +8,7 @@ export const staffTransactionService = {
     return response.data;
   },
 
-  create: async ({ booking_id, amount = null, payment_method = "cash", service_provider_id = null }) => {
-    const payload = { booking_id, payment_method, service_provider_id };
-    if (amount !== null) payload.amount = amount;
-
+  create: async (payload) => {
     const response = await api.post("/staff/transactions", payload);
     return response.data;
   },

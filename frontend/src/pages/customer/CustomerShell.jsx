@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { HiChevronDown, HiOutlineArrowLeft, HiOutlineArrowRightOnRectangle } from "react-icons/hi2";
 import { useAuth } from "../../hooks/useAuth";
+import SystemPopup from "../../components/common/SystemPopup";
 
 export function CustomerShell({ title, subtitle, stats, showHeading = true, backTo, children }) {
   const navigate = useNavigate();
@@ -46,6 +47,5 @@ export function CustomerShell({ title, subtitle, stats, showHeading = true, back
 }
 
 export function Notice({ tone = "error", children }) {
-  const style = tone === "success" ? "border-[#22C55E]/20 text-[#166534]" : "border-[#EF4444]/20 text-[#B91C1C]";
-  return <div className={`mb-5 rounded-[1.25rem] border bg-white px-4 py-3 text-sm font-semibold shadow-sm ${style}`}>{children}</div>;
+  return <SystemPopup tone={tone}>{children}</SystemPopup>;
 }

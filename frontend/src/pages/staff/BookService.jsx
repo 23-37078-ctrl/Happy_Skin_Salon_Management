@@ -3,12 +3,14 @@ import {
   HiOutlineBanknotes,
   HiOutlineCalendarDays,
   HiOutlineCheck,
+  HiOutlineCheckCircle,
   HiOutlineClock,
   HiOutlineMagnifyingGlass,
   HiOutlineXMark,
 } from "react-icons/hi2";
 import staffBookingService from "../../services/staffBookingService";
 import staffTransactionService from "../../services/staffTransactionService";
+import ModernDatePicker from "../../components/common/ModernDatePicker";
 import {
   CardSkeleton,
   EmptyState,
@@ -30,31 +32,38 @@ export default function BookService() {
   const [bookings, setBookings] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [busyId, setBusyId] = useState(null);
-  const [paymentDraft, setPaymentDraft] = useState({ bookingId: null, amount: "", payment_method: "cash", service_provider_id: "" });
+  const [paymentDraft, setPaymentDraft] = useState({ bookingId: null, base_price: 0, payment_method: "cash", service_provider_id: "", amount_tendered: "", additional_charges: [], commission_rate: "10" });
   const [providers, setProviders] = useState([]);
   const [providerAssignments, setProviderAssignments] = useState({});
+  const [transactions, setTransactions] = useState([]);
+  const [staffContext, setStaffContext] = useState(null);
 
   const loadBookings = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      const [payload, providerData] = await Promise.all([
-        staffBookingService.list({ page: 1, page_size: 100, status_filter: statusFilter === "all" ? null : statusFilter }),
+      const [payload, providerData, transactionData, contextData] = await Promise.all([
+        staffBookingService.list({ page: 1, page_size: 100 }),
         staffBookingService.providers(),
+        staffTransactionService.list({ page: 1, page_size: 100 }),
+        staffTransactionService.posContext(),
       ]);
       setBookings(payload.bookings || []);
       setProviders(providerData || []);
+      setTransactions(transactionData.transactions || []);
+      setStaffContext(contextData);
       setProviderAssignments((previous) => Object.fromEntries((payload.bookings || []).map((booking) => [booking.id, previous[booking.id] || booking.service_provider?.id || ""])));
     } catch (err) {
       setError(getApiError(err, "We couldn't load branch bookings."));
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => {
     Promise.resolve().then(() => loadBookings());
@@ -62,7 +71,6 @@ export default function BookService() {
 
   const visibleBookings = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return bookings;
     return bookings.filter((booking) => {
       const text = [
         booking.customer?.full_name,
@@ -72,9 +80,27 @@ export default function BookService() {
         booking.status,
         booking.id,
       ].join(" ").toLowerCase();
-      return text.includes(term);
+      const matchesStatus = statusFilter === "all" || booking.status === statusFilter;
+      const appointmentDate = new Date(booking.appointment_date);
+      const localDate = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth() + 1).padStart(2, "0")}-${String(appointmentDate.getDate()).padStart(2, "0")}`;
+      const matchesDate = !dateFilter || localDate === dateFilter;
+      return matchesStatus && matchesDate && (!term || text.includes(term));
     });
-  }, [bookings, search]);
+  }, [bookings, search, statusFilter, dateFilter]);
+
+  const headerStats = useMemo(() => {
+    const today = new Date().toDateString();
+    const todayBookings = bookings.filter((booking) => new Date(booking.appointment_date).toDateString() === today).length;
+    const openQueue = bookings.filter((booking) => ["pending", "confirmed"].includes(booking.status)).length;
+    const completed = bookings.filter((booking) => booking.status === "completed").length;
+    const todayRevenue = transactions.filter((transaction) => new Date(transaction.created_at).toDateString() === today).reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
+    return [
+      { label: "Today's Appointments", value: todayBookings, icon: HiOutlineCalendarDays, tone: "pink" },
+      { label: "Open Queue", value: openQueue, icon: HiOutlineClock, tone: "amber" },
+      { label: "Completed", value: completed, icon: HiOutlineCheckCircle, tone: "green" },
+      { label: "Today Revenue", value: formatCurrency(todayRevenue), icon: HiOutlineBanknotes, tone: "blue" },
+    ];
+  }, [bookings, transactions]);
 
   const handleStatusUpdate = async (bookingId, status) => {
     setBusyId(bookingId);
@@ -105,15 +131,23 @@ export default function BookService() {
     setError("");
     setSuccess("");
     try {
+      const extras = paymentDraft.additional_charges.map((item) => ({ reason: item.reason.trim(), amount: Number(item.amount) }));
+      if (extras.some((item) => !item.reason || item.amount <= 0)) throw new Error("Every additional charge needs a reason and a valid amount.");
+      const extrasTotal = extras.reduce((sum, item) => sum + item.amount, 0);
+      const commission = Number(paymentDraft.base_price) * Number(paymentDraft.commission_rate || 0) / 100;
+      const amountDue = Number(paymentDraft.base_price) + extrasTotal + commission;
+      if (paymentDraft.payment_method === "cash" && Number(paymentDraft.amount_tendered || 0) < amountDue) throw new Error("Cash received must cover the total amount due.");
       await staffTransactionService.create({
         booking_id: paymentDraft.bookingId,
-        amount: paymentDraft.amount ? Number(paymentDraft.amount) : null,
         payment_method: paymentDraft.payment_method,
         service_provider_id: Number(paymentDraft.service_provider_id),
+        amount_tendered: paymentDraft.payment_method === "cash" ? Number(paymentDraft.amount_tendered) : amountDue,
+        additional_charges: extras,
+        commission_rate: Number(paymentDraft.commission_rate),
       });
       const updated = await staffBookingService.getById(paymentDraft.bookingId);
       setBookings((prev) => prev.map((booking) => (booking.id === paymentDraft.bookingId ? updated : booking)));
-      setPaymentDraft({ bookingId: null, amount: "", payment_method: "cash", service_provider_id: "" });
+      setPaymentDraft({ bookingId: null, base_price: 0, payment_method: "cash", service_provider_id: "", amount_tendered: "", additional_charges: [], commission_rate: "10" });
       setSuccess(`Payment recorded for booking #${paymentDraft.bookingId}.`);
     } catch (err) {
       setError(getApiError(err, "Couldn't record that payment."));
@@ -123,7 +157,7 @@ export default function BookService() {
   };
 
   return (
-    <StaffWorkspace title="Booking Queue" eyebrow="Staff appointments">
+    <StaffWorkspace title="Booking Queue" eyebrow="Staff appointments" brandOnly headerStats={headerStats} identity={staffContext}>
       {error && <ErrorNotice message={error} onRetry={loadBookings} />}
       {success && (
         <div className="mb-5 rounded-[1.25rem] border border-[#22C55E]/20 bg-white px-4 py-3 text-sm font-semibold text-[#166534] shadow-sm">
@@ -142,6 +176,7 @@ export default function BookService() {
               className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-10 py-3 text-sm font-medium text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20"
             />
           </div>
+          <ModernDatePicker value={dateFilter} onChange={setDateFilter} placeholder="Filter by date" ariaLabel="Filter bookings by date" className="lg:min-w-56" />
           <div className="flex gap-2 overflow-x-auto pb-1 lg:pb-0">
             {statuses.map((status) => (
               <button
@@ -216,7 +251,7 @@ function BookingCard({ booking, busy, paymentDraft, providers, providerId, onPro
             <ActionButton disabled={busy || !providerId} onClick={() => onStatusUpdate(booking.id, "confirmed")} icon={HiOutlineCheck}>Confirm</ActionButton>
           )}
           {canManage && (
-            <ActionButton disabled={busy || !providerId} onClick={() => onPaymentDraft({ bookingId: booking.id, amount: booking.service?.price || "", payment_method: "cash", service_provider_id: providerId })} icon={HiOutlineBanknotes}>Record Pay</ActionButton>
+            <ActionButton disabled={busy || !providerId} onClick={() => onPaymentDraft({ bookingId: booking.id, base_price: Number(booking.service?.price || 0), payment_method: "cash", service_provider_id: providerId, amount_tendered: "", additional_charges: [], commission_rate: "10" })} icon={HiOutlineBanknotes}>Checkout</ActionButton>
           )}
           {canManage && (
             <ActionButton disabled={busy} variant="danger" onClick={() => onStatusUpdate(booking.id, "cancelled")} icon={HiOutlineXMark}>Cancel</ActionButton>
@@ -228,13 +263,14 @@ function BookingCard({ booking, busy, paymentDraft, providers, providerId, onPro
         <form onSubmit={onRecordPayment} className="border-t border-[#F3E8EF] bg-[#FFF8FB] p-4 lg:p-5">
           <div className="grid gap-3 md:grid-cols-3 md:items-end">
             <label className="text-sm font-bold text-[#1F2937]">
-              Amount
+              Cash received
               <input
                 type="number"
-                min="1"
+                min="0"
                 step="0.01"
-                value={paymentDraft.amount}
-                onChange={(event) => onPaymentDraft((prev) => ({ ...prev, amount: event.target.value }))}
+                value={paymentDraft.amount_tendered}
+                disabled={paymentDraft.payment_method !== "cash"}
+                onChange={(event) => onPaymentDraft((prev) => ({ ...prev, amount_tendered: event.target.value }))}
                 className="mt-2 min-h-11 w-full rounded-xl border border-[#F3E8EF] bg-white px-3 py-2 text-sm outline-none focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20"
               />
             </label>
@@ -249,11 +285,13 @@ function BookingCard({ booking, busy, paymentDraft, providers, providerId, onPro
                 {paymentMethods.map((method) => <option key={method} value={method}>{paymentLabels[method]}</option>)}
               </select>
             </label>
-            <div className="flex gap-2">
-              <button type="submit" disabled={busy} className="min-h-11 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">Save Payment</button>
-              <button type="button" onClick={() => onPaymentDraft({ bookingId: null, amount: "", payment_method: "cash", service_provider_id: "" })} className="min-h-11 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937]">Close</button>
-            </div>
+            <label className="text-sm font-bold text-[#1F2937]">Commission rate (%)<input type="number" min="0" max="100" step="0.5" value={paymentDraft.commission_rate} onChange={(event) => onPaymentDraft((prev) => ({ ...prev, commission_rate: event.target.value }))} className="mt-2 min-h-11 w-full rounded-xl border border-[#F3E8EF] bg-white px-3 py-2 text-sm outline-none" /></label>
           </div>
+          <div className="mt-4 rounded-xl border border-[#F3E8EF] bg-white p-3"><div className="flex items-center justify-between"><p className="text-sm font-bold">Additional charges</p><button type="button" onClick={() => onPaymentDraft((prev) => ({ ...prev, additional_charges: [...prev.additional_charges, { reason: "", amount: "" }] }))} className="rounded-lg border border-[#D65A9A]/25 px-3 py-2 text-xs font-bold text-[#C85B95]">+ Add charge</button></div><div className="mt-3 space-y-2">{paymentDraft.additional_charges.map((item, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1fr_10rem_2.5rem]"><input required value={item.reason} onChange={(event) => onPaymentDraft((prev) => ({ ...prev, additional_charges: prev.additional_charges.map((charge, i) => i === index ? { ...charge, reason: event.target.value } : charge) }))} placeholder="Reason/design" className="form-input" /><input required type="number" min="0.01" step="0.01" value={item.amount} onChange={(event) => onPaymentDraft((prev) => ({ ...prev, additional_charges: prev.additional_charges.map((charge, i) => i === index ? { ...charge, amount: event.target.value } : charge) }))} placeholder="Amount" className="form-input" /><button type="button" onClick={() => onPaymentDraft((prev) => ({ ...prev, additional_charges: prev.additional_charges.filter((_, i) => i !== index) }))} className="grid h-11 w-10 place-items-center text-[#B91C1C]"><HiOutlineXMark className="h-5 w-5" /></button></div>)}</div></div>
+            <div className="mt-4 flex gap-2">
+              <button type="submit" disabled={busy} className="min-h-11 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">Save Payment</button>
+              <button type="button" onClick={() => onPaymentDraft({ bookingId: null, base_price: 0, payment_method: "cash", service_provider_id: "", amount_tendered: "", additional_charges: [], commission_rate: "10" })} className="min-h-11 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937]">Close</button>
+            </div>
         </form>
       )}
     </article>

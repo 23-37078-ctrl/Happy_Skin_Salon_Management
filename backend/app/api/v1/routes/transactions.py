@@ -79,11 +79,16 @@ def checkout_walk_in(
         raise HTTPException(status_code=404, detail="Selected service provider is not assigned to your branch.")
 
     base_price = float(service.price)
-    additional_charge = float(payload.additional_charge or 0)
-    total = base_price + additional_charge
+    charge_items = [{"reason": item.reason, "amount": float(item.amount)} for item in payload.additional_charges]
+    if not charge_items and payload.additional_charge > 0:
+        charge_items = [{"reason": payload.charge_reason or "Additional charge", "amount": float(payload.additional_charge)}]
+    additional_charge = sum(item["amount"] for item in charge_items)
+    charge_reason = "; ".join(f'{item["reason"]}: PHP {item["amount"]:,.2f}' for item in charge_items) or None
     commission_amount = round(base_price * float(payload.commission_rate or 0) / 100, 2)
-    if payload.payment_method == "cash" and payload.amount_tendered is not None and payload.amount_tendered < total:
-        raise HTTPException(status_code=400, detail="Amount tendered is less than the service price.")
+    subtotal = base_price + additional_charge
+    amount_due = subtotal + commission_amount
+    if payload.payment_method == "cash" and payload.amount_tendered is not None and payload.amount_tendered < amount_due:
+        raise HTTPException(status_code=400, detail="Cash received is less than the total amount due.")
 
     clean_phone = payload.phone_number.strip() if payload.phone_number else None
     customer = db.query(User).filter(User.role == "customer", User.phone_number == clean_phone).first() if clean_phone else None
@@ -113,16 +118,16 @@ def checkout_walk_in(
     db.add(booking)
     db.flush()
 
-    transaction = Transaction(booking_id=booking.id, staff_id=current_user.id, service_provider_id=provider.id, amount=total, payment_method=payload.payment_method, additional_charge=additional_charge, charge_reason=payload.charge_reason.strip() if payload.charge_reason else None, commission_rate=payload.commission_rate, commission_amount=commission_amount)
+    transaction = Transaction(booking_id=booking.id, staff_id=current_user.id, service_provider_id=provider.id, amount=amount_due, payment_method=payload.payment_method, additional_charge=additional_charge, charge_reason=charge_reason, commission_rate=payload.commission_rate, commission_amount=commission_amount)
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
 
-    tendered = float(payload.amount_tendered) if payload.amount_tendered is not None else total
-    return {"transaction_id": transaction.id, "booking_id": booking.id, "customer_name": customer.full_name, "service": service.name, "service_provider": provider.full_name, "base_price": base_price, "additional_charge": additional_charge, "total": total, "commission_rate": payload.commission_rate, "commission_amount": commission_amount, "amount_tendered": tendered, "change": max(0, tendered - total), "payment_method": payload.payment_method}
+    tendered = float(payload.amount_tendered) if payload.amount_tendered is not None else amount_due
+    return {"transaction_id": transaction.id, "booking_id": booking.id, "customer_name": customer.full_name, "service": service.name, "service_provider": provider.full_name, "base_price": base_price, "additional_charges": charge_items, "additional_charge": additional_charge, "charge_reason": charge_reason, "subtotal": subtotal, "total": amount_due, "commission_rate": payload.commission_rate, "commission_amount": commission_amount, "amount_tendered": tendered, "change": max(0, tendered - amount_due), "payment_method": payload.payment_method}
 
 
-@router.post("", response_model=TransactionOut, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def encode_transaction(
     payload: TransactionCreateRequest,
     current_user: User = Depends(require_staff_branch),
@@ -149,16 +154,35 @@ def encode_transaction(
     if not provider:
         raise HTTPException(status_code=400, detail="Select the staff member who performed this service.")
 
+    charge_items = []
+    for item in payload.additional_charges:
+        reason = str(item.get("reason", "")).strip()
+        amount = float(item.get("amount", 0) or 0)
+        if not reason or amount <= 0:
+            raise HTTPException(status_code=400, detail="Every additional charge needs a reason and an amount greater than zero.")
+        charge_items.append({"reason": reason, "amount": amount})
+    base_price = float(booking.service.price)
+    additional_charge = sum(item["amount"] for item in charge_items)
+    charge_reason = "; ".join(f'{item["reason"]}: PHP {item["amount"]:,.2f}' for item in charge_items) or None
+    commission_amount = round(base_price * float(payload.commission_rate or 0) / 100, 2)
+    amount_due = base_price + additional_charge + commission_amount
+    if payload.payment_method == "cash" and payload.amount_tendered is not None and payload.amount_tendered < amount_due:
+        raise HTTPException(status_code=400, detail="Cash received is less than the total amount due.")
+
     transaction = create_transaction(
         db,
         booking=booking,
         staff_id=current_user.id,
-        amount=payload.amount,
+        amount=amount_due,
         payment_method=payload.payment_method,
         service_provider_id=provider.id,
+        additional_charge=additional_charge,
+        charge_reason=charge_reason,
+        commission_rate=payload.commission_rate,
+        commission_amount=commission_amount,
     )
-
-    return TransactionOut.model_validate(transaction)
+    tendered = float(payload.amount_tendered) if payload.amount_tendered is not None else amount_due
+    return {"id": transaction.id, "booking_id": booking.id, "service_provider": provider.full_name, "base_price": base_price, "additional_charges": charge_items, "additional_charge": additional_charge, "commission_rate": payload.commission_rate, "commission_amount": commission_amount, "amount": amount_due, "amount_tendered": tendered, "change": max(0, tendered - amount_due), "payment_method": payload.payment_method, "created_at": transaction.created_at}
 
 
 @router.get("", response_model=TransactionListResponse)

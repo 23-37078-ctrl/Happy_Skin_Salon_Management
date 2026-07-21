@@ -18,6 +18,7 @@ import {
   getCustomerServices,
 } from "../../services/customerService";
 import { CustomerShell, Notice } from "./CustomerShell";
+import ModernDatePicker from "../../components/common/ModernDatePicker";
 
 const today = () => {
   const date = new Date();
@@ -185,7 +186,7 @@ export default function CustomerBookAppointment() {
   };
 
   return (
-    <CustomerShell title="Book Appointment" showHeading={false}>
+    <CustomerShell title="Book Appointment" showHeading={false} backTo="/customer/dashboard">
       <div className="mx-auto w-full max-w-[1500px]">
         {error && <Notice tone="error">{error}</Notice>}
         {success && <Notice tone="success">{success}</Notice>}
@@ -224,7 +225,7 @@ export default function CustomerBookAppointment() {
             <FormSection number="3" title="Date and time" description="Tell us when you’d prefer to come in.">
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Preferred date" icon={HiOutlineCalendarDays}>
-                  <input required type="date" value={form.appointment_date} min={today()} onChange={(event) => setForm((previous) => ({ ...previous, appointment_date: event.target.value }))} className="form-input" />
+                  <ModernDatePicker value={form.appointment_date} min={today()} onChange={(value) => setForm((previous) => ({ ...previous, appointment_date: value }))} placeholder="Choose a preferred date" ariaLabel="Choose preferred appointment date" />
                 </Field>
                 <Field label="Preferred time" icon={HiOutlineClock}>
                   <div className="relative">

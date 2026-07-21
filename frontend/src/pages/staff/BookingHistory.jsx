@@ -13,7 +13,6 @@ import {
   EmptyState,
   ErrorNotice,
   StaffWorkspace,
-  StatCard,
   StatusBadge,
 } from "./StaffWorkspace";
 import {
@@ -28,13 +27,15 @@ export default function BookingHistory() {
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [staffContext, setStaffContext] = useState(null);
 
   const loadTransactions = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      const payload = await staffTransactionService.list({ page: 1, page_size: 100 });
+      const [payload, contextData] = await Promise.all([staffTransactionService.list({ page: 1, page_size: 100 }), staffTransactionService.posContext()]);
       setTransactions(payload.transactions || []);
+      setStaffContext(contextData);
     } catch (err) {
       setError(getApiError(err, "We couldn't load branch transactions."));
     } finally {
@@ -55,6 +56,9 @@ export default function BookingHistory() {
         transaction.booking?.id,
         transaction.booking?.status,
         transaction.staff?.full_name,
+        transaction.service_provider?.full_name,
+        transaction.booking?.customer?.full_name,
+        transaction.booking?.service?.name,
         transaction.payment_method,
         transaction.amount,
       ].join(" ").toLowerCase();
@@ -65,23 +69,22 @@ export default function BookingHistory() {
   const stats = useMemo(() => {
     const totalRevenue = filteredTransactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
     const today = new Date().toDateString();
-    const todayCount = filteredTransactions.filter((transaction) => new Date(transaction.created_at).toDateString() === today).length;
+    const todayTransactions = filteredTransactions.filter((transaction) => new Date(transaction.created_at).toDateString() === today);
+    const todayCount = todayTransactions.length;
+    const todayCollected = todayTransactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
     return [
       { label: "Total Collected", value: formatCurrency(totalRevenue), icon: HiOutlineBanknotes, tone: "green" },
       { label: "Payments", value: filteredTransactions.length, icon: HiOutlineReceiptRefund, tone: "pink" },
       { label: "Today", value: todayCount, icon: HiOutlineCalendarDays, tone: "amber" },
+      { label: "Today Collected", value: formatCurrency(todayCollected), icon: HiOutlineCreditCard, tone: "blue" },
     ];
   }, [filteredTransactions]);
 
   return (
-    <StaffWorkspace title="Transaction Ledger" eyebrow="Payment history">
+    <StaffWorkspace title="Transaction Ledger" eyebrow="Payment history" brandOnly headerStats={stats} identity={staffContext}>
       {error && <ErrorNotice message={error} onRetry={loadTransactions} />}
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
-      </section>
-
-      <section className="mt-5 rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
+      <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
         <div className="relative">
           <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" />
           <input
@@ -98,13 +101,6 @@ export default function BookingHistory() {
           <CardSkeleton rows={5} />
         ) : filteredTransactions.length ? (
           <div className="overflow-hidden rounded-[1.25rem] border border-[#F3E8EF] bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-            <div className="hidden grid-cols-[1fr_1fr_1fr_1fr_auto] gap-4 border-b border-[#F3E8EF] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-wide text-[#6B7280] lg:grid">
-              <span>Transaction</span>
-              <span>Booking</span>
-              <span>Staff</span>
-              <span>Method</span>
-              <span className="text-right">Amount</span>
-            </div>
             <div className="divide-y divide-[#F3E8EF]">
               {filteredTransactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} />)}
             </div>
@@ -119,18 +115,13 @@ export default function BookingHistory() {
 
 function TransactionRow({ transaction }) {
   return (
-    <article className="grid gap-4 px-4 py-4 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-center lg:px-5">
-      <div>
-        <p className="text-sm font-bold text-[#1F2937]">Receipt #{transaction.id}</p>
-        <p className="mt-1 text-xs font-semibold text-[#9CA3AF]">{formatDateTime(transaction.created_at)}</p>
+    <article className="px-4 py-5 lg:px-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-[#1F2937]">Receipt #{transaction.id}</p><StatusBadge status={transaction.booking?.status || "completed"} /></div><p className="mt-1 text-xs font-semibold text-[#9CA3AF]">{formatDateTime(transaction.created_at)} · Booking #{transaction.booking?.id}</p><h3 className="mt-3 text-lg font-extrabold text-[#1F2937]">{transaction.booking?.service?.name || "Salon service"}</h3><p className="mt-1 text-sm text-[#6B7280]">Customer: {transaction.booking?.customer?.full_name || "Walk-in customer"}</p></div>
+        <div className="grid gap-2 text-sm text-[#6B7280] sm:grid-cols-2 lg:min-w-[25rem]"><p className="inline-flex items-center gap-2"><HiOutlineUserCircle className="h-5 w-5 text-[#D65A9A]" /> Provider: {transaction.service_provider?.full_name || "Staff"}</p><p className="inline-flex items-center gap-2"><HiOutlineCreditCard className="h-5 w-5 text-[#D65A9A]" /> {paymentLabels[transaction.payment_method] || transaction.payment_method}</p><p>Processed by: {transaction.staff?.full_name || "Staff"}</p><p>Commission ({Number(transaction.commission_rate || 0)}%): {formatCurrency(transaction.commission_amount)}</p></div>
+        <p className="text-2xl font-extrabold text-[#1F2937]">{formatCurrency(transaction.amount)}</p>
       </div>
-      <div>
-        <p className="text-sm font-bold text-[#1F2937]">Booking #{transaction.booking?.id}</p>
-        <div className="mt-1"><StatusBadge status={transaction.booking?.status || "completed"} /></div>
-      </div>
-      <p className="inline-flex items-center gap-2 text-sm text-[#6B7280]"><HiOutlineUserCircle className="h-5 w-5 text-[#D65A9A]" /> {transaction.staff?.full_name || "Staff"}</p>
-      <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#6B7280]"><HiOutlineCreditCard className="h-5 w-5 text-[#D65A9A]" /> {paymentLabels[transaction.payment_method] || transaction.payment_method}</p>
-      <p className="text-left text-lg font-bold text-[#1F2937] lg:text-right">{formatCurrency(transaction.amount)}</p>
+      {(transaction.additional_charge > 0 || transaction.charge_reason) && <div className="mt-4 rounded-xl bg-[#FFF8FB] px-4 py-3 text-sm"><p className="font-bold text-[#C85B95]">Additional charges: {formatCurrency(transaction.additional_charge)}</p><p className="mt-1 text-[#6B7280]">{transaction.charge_reason}</p></div>}
     </article>
   );
 }
