@@ -20,7 +20,7 @@ export default function HeroSection() {
 
   return (
     <section id="home" className="min-h-[85vh] pt-[72px] flex items-center bg-[#FAF6F8]">
-      <div className="max-w-7xl mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center w-full">
+      <div className="w-full max-w-none px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div ref={ref} className="opacity-0 translate-y-8 transition-all duration-700 ease-out">
           <span className="inline-block px-4 py-1.5 rounded-full bg-pink-100 text-[#C85B95] text-xs font-semibold tracking-wide mb-6">
             Centralized Salon Platform

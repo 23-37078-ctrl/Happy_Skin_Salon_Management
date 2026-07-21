@@ -27,6 +27,57 @@ class TransactionCreateRequest(BaseModel):
         return v
 
 
+class WalkInCheckoutRequest(BaseModel):
+    customer_name: str
+    phone_number: Optional[str] = None
+    service_id: int
+    payment_method: str = "cash"
+    service_provider_id: Optional[int] = None
+    amount_tendered: Optional[float] = None
+    notes: Optional[str] = None
+    service_provider_id: int
+    additional_charge: float = 0
+    charge_reason: Optional[str] = None
+    commission_rate: float = 10
+
+    @field_validator("customer_name")
+    @classmethod
+    def customer_name_is_required(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("Customer name must contain at least 2 characters.")
+        return value
+
+    @field_validator("payment_method")
+    @classmethod
+    def walk_in_payment_method_is_valid(cls, value: str) -> str:
+        allowed = {"cash", "gcash", "card", "bank_transfer"}
+        if value not in allowed:
+            raise ValueError(f"Payment method must be one of: {', '.join(sorted(allowed))}")
+        return value
+
+    @field_validator("amount_tendered")
+    @classmethod
+    def amount_tendered_must_be_positive(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v < 0:
+            raise ValueError("Amount tendered cannot be negative.")
+        return v
+
+    @field_validator("additional_charge")
+    @classmethod
+    def additional_charge_is_valid(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("Additional charge cannot be negative.")
+        return value
+
+    @field_validator("commission_rate")
+    @classmethod
+    def commission_rate_is_valid(cls, value: float) -> float:
+        if value < 0 or value > 100:
+            raise ValueError("Commission rate must be between 0 and 100.")
+        return value
+
+
 # ── Response Schemas ─────────────────────────────────────────────
 
 class TransactionStaffOut(BaseModel):

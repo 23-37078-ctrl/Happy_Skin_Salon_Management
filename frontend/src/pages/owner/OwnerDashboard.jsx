@@ -8,6 +8,8 @@ import {
   HiOutlineClock,
   HiOutlineExclamationTriangle,
   HiOutlineUsers,
+  HiOutlineTrophy,
+  HiOutlineCheckBadge,
 } from "react-icons/hi2";
 import ownerService from "../../services/ownerService";
 import { formatCurrency, formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
@@ -50,6 +52,7 @@ export default function OwnerDashboard() {
     <OwnerWorkspace
       title="Owner Dashboard"
       eyebrow="Centralized multi-branch monitoring"
+      brandOnly
       actions={
         <Link to="/owner/reports" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white shadow-[0_10px_24px_rgba(200,91,149,0.24)]">
           <HiOutlineChartBar className="h-5 w-5" />
@@ -112,6 +115,21 @@ export default function OwnerDashboard() {
           ) : <EmptyState title="No recent bookings" description="Customer appointments across branches will appear here." />}
         </section>
       </div>
+
+      <section className="mt-6">
+        <div className="mb-4"><h2 className="flex items-center gap-2 text-lg font-bold text-[#1F2937]"><HiOutlineTrophy className="h-5 w-5 text-[#D65A9A]" /> Branch Excellence Ranking</h2><p className="mt-1 text-xs text-[#6B7280]">Ranked by recorded sales, completed services, and booking activity.</p></div>
+        {isLoading ? <CardSkeleton rows={3} /> : data?.branch_rankings?.length ? (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {data.branch_rankings.map((branch) => (
+              <article key={branch.branch_id} className={`rounded-[1.25rem] border bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)] ${branch.rank === 1 ? "border-[#D65A9A] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF]"}`}>
+                <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-[#C85B95]">Rank #{branch.rank}</p><h3 className="mt-1 font-bold text-[#1F2937]">{branch.branch}</h3></div>{branch.rank === 1 && <span className="grid h-10 w-10 place-items-center rounded-full bg-[#FEF3C7] text-[#D97706]"><HiOutlineTrophy className="h-5 w-5" /></span>}</div>
+                <p className="mt-5 text-2xl font-extrabold text-[#166534]">{formatCurrency(branch.sales)}</p><p className="text-[10px] font-bold uppercase text-[#6B7280]">Recorded sales</p>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#F3E8EF] pt-3 text-xs text-[#6B7280]"><span>{branch.completed} completed</span><span className="inline-flex items-center gap-1 font-bold text-[#C85B95]"><HiOutlineCheckBadge className="h-4 w-4" /> {branch.completion_rate}% rate</span></div>
+              </article>
+            ))}
+          </div>
+        ) : <EmptyState icon={HiOutlineTrophy} title="No branch ranking yet" description="Branch excellence will appear after bookings and transactions are recorded." />}
+      </section>
     </OwnerWorkspace>
   );
 }

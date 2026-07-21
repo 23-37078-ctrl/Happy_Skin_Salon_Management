@@ -232,6 +232,21 @@ def get_owner_dashboard(
         .order_by(Branch.name.asc())
         .all()
     )
+    branch_rankings = []
+    for row in branch_rows:
+        completed = db.query(Booking).filter(Booking.branch_id == row.id, Booking.status == "completed").count()
+        total = int(row.bookings or 0)
+        branch_rankings.append({
+            "branch_id": row.id,
+            "branch": row.name,
+            "bookings": total,
+            "completed": completed,
+            "sales": float(row.sales or 0),
+            "completion_rate": round(completed / total * 100, 1) if total else 0,
+        })
+    branch_rankings.sort(key=lambda item: (item["sales"], item["completed"], item["bookings"]), reverse=True)
+    for index, item in enumerate(branch_rankings, start=1):
+        item["rank"] = index
 
     service_rows = (
         db.query(
@@ -253,6 +268,8 @@ def get_owner_dashboard(
             {"branch_id": row.id, "branch": row.name, "bookings": row.bookings, "sales": float(row.sales or 0)}
             for row in branch_rows
         ],
+        "branch_rankings": branch_rankings,
+        "top_branch": branch_rankings[0] if branch_rankings else None,
         "service_demand": [
             {"service": row.name, "bookings": row.bookings, "sales": float(row.sales or 0)}
             for row in service_rows

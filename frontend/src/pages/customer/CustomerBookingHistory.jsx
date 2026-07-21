@@ -3,6 +3,7 @@ import {
   HiOutlineCalendarDays,
   HiOutlineChatBubbleLeftRight,
   HiOutlineClock,
+  HiOutlineMagnifyingGlass,
   HiOutlineXMark,
 } from "react-icons/hi2";
 import {
@@ -24,6 +25,8 @@ export default function CustomerBookingHistory() {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [query, setQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
 
   const loadAppointments = useCallback(async (signal) => {
     setIsLoading(true);
@@ -56,6 +59,17 @@ export default function CustomerBookingHistory() {
     ];
   }, [appointments]);
 
+  const filteredAppointments = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return appointments.filter((appointment) => {
+      const appointmentDate = new Date(appointment.appointment_date);
+      const localDate = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth() + 1).padStart(2, "0")}-${String(appointmentDate.getDate()).padStart(2, "0")}`;
+      const matchesDate = !dateFilter || localDate === dateFilter;
+      const searchable = [appointment.service?.name, appointment.branch?.name, appointment.status, appointment.notes].filter(Boolean).join(" ").toLowerCase();
+      return matchesDate && (!term || searchable.includes(term));
+    });
+  }, [appointments, query, dateFilter]);
+
   const handleCancel = async (appointmentId) => {
     setBusyId(appointmentId);
     setError("");
@@ -72,17 +86,21 @@ export default function CustomerBookingHistory() {
   };
 
   return (
-    <CustomerShell title="Booking History" subtitle="Track appointment status and completed visits.">
+    <CustomerShell title="History" stats={stats} showHeading={false} backTo="/customer/dashboard">
       {error && <Notice>{error}</Notice>}
       {success && <Notice tone="success">{success}</Notice>}
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        {stats.map((stat) => (
-          <article key={stat.label} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-            <p className="text-2xl font-bold text-[#1F2937]">{stat.value}</p>
-            <p className="mt-1 text-xs font-bold uppercase tracking-wide text-[#6B7280]">{stat.label}</p>
-          </article>
-        ))}
+      <section className="flex flex-col gap-3 rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:flex-row">
+        <label className="relative flex-1">
+          <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search service or branch" className="min-h-12 w-full rounded-xl border border-[#E8DCE3] bg-[#FFF8FB] py-3 pl-11 pr-4 text-sm text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-4 focus:ring-[#D65A9A]/10" />
+        </label>
+        <label className="flex min-h-12 items-center gap-2 rounded-xl border border-[#E8DCE3] bg-[#FFF8FB] px-4 text-sm font-bold text-[#1F2937] transition focus-within:border-[#D65A9A] focus-within:ring-4 focus-within:ring-[#D65A9A]/10 sm:min-w-56">
+          <HiOutlineCalendarDays className="h-5 w-5 shrink-0 text-[#D65A9A]" />
+          <span className="sr-only">Filter by appointment date</span>
+          <input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} className="w-full bg-transparent outline-none" />
+          {dateFilter && <button type="button" onClick={() => setDateFilter("")} aria-label="Clear date filter" className="rounded-full p-1 text-[#6B7280] hover:bg-white hover:text-[#D65A9A]"><HiOutlineXMark className="h-4 w-4" /></button>}
+        </label>
       </section>
 
       <section className="mt-5">
@@ -90,9 +108,9 @@ export default function CustomerBookingHistory() {
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-[1.25rem] bg-white" />)}
           </div>
-        ) : appointments.length ? (
+        ) : filteredAppointments.length ? (
           <div className="space-y-4">
-            {appointments.map((appointment) => (
+            {filteredAppointments.map((appointment) => (
               <AppointmentCard
                 key={appointment.id}
                 appointment={appointment}
@@ -104,8 +122,8 @@ export default function CustomerBookingHistory() {
         ) : (
           <div className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-8 text-center shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
             <HiOutlineCalendarDays className="mx-auto h-10 w-10 text-[#D65A9A]" />
-            <h2 className="mt-3 text-lg font-bold text-[#1F2937]">No appointments yet</h2>
-            <p className="mt-1 text-sm text-[#6B7280]">Your online bookings will appear here after you submit a request.</p>
+            <h2 className="mt-3 text-lg font-bold text-[#1F2937]">{appointments.length ? "No matching appointments" : "No appointments yet"}</h2>
+            <p className="mt-1 text-sm text-[#6B7280]">{appointments.length ? "Try a different search or appointment date." : "Your online appointments will appear here after you submit a request."}</p>
           </div>
         )}
       </section>
@@ -122,7 +140,6 @@ function AppointmentCard({ appointment, busy, onCancel }) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#C85B95]">Booking #{appointment.id}</p>
             <span className={`rounded-full px-3 py-1 text-xs font-bold capitalize ${statusStyles[appointment.status] || statusStyles.pending}`}>{appointment.status}</span>
           </div>
           <h2 className="mt-3 text-lg font-bold text-[#1F2937]">{appointment.service?.name || "Service"}</h2>

@@ -5,7 +5,11 @@ import {
   HiOutlineCheckCircle,
   HiOutlineMapPin,
   HiOutlineSparkles,
+  HiOutlineArrowRightOnRectangle,
+  HiChevronDown,
+  HiOutlineArrowLeft,
 } from "react-icons/hi2";
+import { useAuth } from "../../hooks/useAuth";
 import {
   createAppointment,
   getCustomerBranches,
@@ -41,11 +45,29 @@ export default function CustomerBookAppointment() {
         ]);
         setBranches(branchData || []);
         setServices(serviceData || []);
-        setForm((prev) => ({
-          ...prev,
-          branch_id: prev.branch_id || branchData?.[0]?.id || "",
-          service_id: prev.service_id || serviceData?.[0]?.id || "",
-        }));
+        setForm((prev) => {
+          const requestedService = String(prev.service_id || "");
+          const requestedBranch = String(prev.branch_id || "");
+          const serviceBranch = requestedService
+            ? branchData?.find((branch) =>
+                branch.services?.some((service) => String(service.id) === requestedService)
+              )
+            : null;
+          const branch =
+            branchData?.find((item) => String(item.id) === requestedBranch) ||
+            serviceBranch ||
+            branchData?.[0];
+          const branchServices = branch?.services || [];
+          const serviceIsOffered = branchServices.some(
+            (service) => String(service.id) === requestedService
+          );
+
+          return {
+            ...prev,
+            branch_id: branch?.id || "",
+            service_id: serviceIsOffered ? requestedService : branchServices[0]?.id || "",
+          };
+        });
       } catch (err) {
         if (err.name !== "CanceledError" && err.code !== "ERR_CANCELED") {
           setError("We couldn't load booking options. Please try again.");
@@ -62,6 +84,33 @@ export default function CustomerBookAppointment() {
     () => services.find((service) => String(service.id) === String(form.service_id)),
     [form.service_id, services]
   );
+  const selectedBranch = useMemo(
+    () => branches.find((branch) => String(branch.id) === String(form.branch_id)),
+    [branches, form.branch_id]
+  );
+  const availableServices = useMemo(
+    () => selectedBranch?.services || [],
+    [selectedBranch]
+  );
+
+  const handleBranchChange = (branchId) => {
+    const branch = branches.find((item) => String(item.id) === String(branchId));
+    const branchServices = branch?.services || [];
+    setForm((prev) => {
+      const currentServiceIsOffered = branchServices.some(
+        (service) => String(service.id) === String(prev.service_id)
+      );
+      return {
+        ...prev,
+        branch_id: branchId,
+        service_id: currentServiceIsOffered
+          ? prev.service_id
+          : branchServices[0]?.id || "",
+      };
+    });
+  };
+
+  const cameFromDiscovery = searchParams.has("branch") || searchParams.has("service");
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -70,6 +119,11 @@ export default function CustomerBookAppointment() {
 
     if (!form.branch_id || !form.service_id || !form.appointment_date || !form.appointment_time) {
       setError("Please complete the branch, service, date, and time fields.");
+      return;
+    }
+    const selectedDateTime = new Date(`${form.appointment_date}T${form.appointment_time}:00`);
+    if (Number.isNaN(selectedDateTime.getTime()) || selectedDateTime <= new Date()) {
+      setError("Please choose a future appointment date and time.");
       return;
     }
 
@@ -84,7 +138,16 @@ export default function CustomerBookAppointment() {
       setSuccess("Your appointment request was sent. Staff will confirm it soon.");
       setTimeout(() => navigate("/customer/history"), 900);
     } catch (err) {
-      setError(err.response?.data?.detail || "We couldn't create that appointment.");
+      const detail = err.response?.data?.detail;
+      const validationMessage = Array.isArray(detail)
+        ? detail.map((item) => item.msg).filter(Boolean).join(" ")
+        : detail;
+      setError(
+        validationMessage ||
+        (!err.response
+          ? "The booking server is temporarily unavailable. Please check that the backend is running, then try again."
+          : "We couldn't create that appointment. Please review your schedule and try again.")
+      );
     } finally {
       setIsSaving(false);
     }
@@ -92,16 +155,21 @@ export default function CustomerBookAppointment() {
 
   return (
     <CustomerShell title="Book Appointment" subtitle="Select a service, branch, and schedule.">
+      {cameFromDiscovery && (
+        <Notice tone="success">
+          We preselected your landing-page choice. You can still change the branch or service below.
+        </Notice>
+      )}
       {error && <Notice tone="error">{error}</Notice>}
       {success && <Notice tone="success">{success}</Notice>}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
         <form onSubmit={handleSubmit} className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Branch" icon={HiOutlineMapPin}>
+            <Field label="Branch (you can change this)" icon={HiOutlineMapPin}>
               <select
                 value={form.branch_id}
-                onChange={(event) => setForm((prev) => ({ ...prev, branch_id: event.target.value }))}
+                onChange={(event) => handleBranchChange(event.target.value)}
                 disabled={isLoading}
                 className="form-input"
               >
@@ -116,7 +184,7 @@ export default function CustomerBookAppointment() {
                 disabled={isLoading}
                 className="form-input"
               >
-                {services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+                {availableServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
               </select>
             </Field>
 
@@ -163,6 +231,12 @@ export default function CustomerBookAppointment() {
 
         <aside className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
           <p className="text-xs font-bold uppercase tracking-wide text-[#C85B95]">Selected service</p>
+          {selectedBranch && (
+            <div className="mt-3 rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-3">
+              <p className="flex items-center gap-2 text-sm font-bold text-[#1F2937]"><HiOutlineMapPin className="h-5 w-5 text-[#D65A9A]" /> {selectedBranch.name}</p>
+              <p className="mt-1 pl-7 text-xs leading-5 text-[#6B7280]">{selectedBranch.address}</p>
+            </div>
+          )}
           {selectedService ? (
             <div className="mt-4">
               <img src={selectedService.image} alt="" className="h-44 w-full rounded-xl object-cover" />
@@ -188,21 +262,52 @@ export default function CustomerBookAppointment() {
   );
 }
 
-export function CustomerShell({ title, subtitle, children }) {
+export function CustomerShell({ title, subtitle, stats, showHeading = true, backTo, children }) {
   const navigate = useNavigate();
+  const { currentUser, logout } = useAuth();
+  const displayName = currentUser?.first_name || currentUser?.full_name || currentUser?.name || currentUser?.email?.split("@")[0] || "Customer";
+  const handleLogout = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
   return (
     <main className="min-h-screen bg-[#FFF8FB]">
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-5 flex flex-col gap-3 rounded-[1.5rem] border border-[#F3E8EF] bg-white px-4 py-4 shadow-[0_12px_34px_rgba(31,41,55,0.05)] sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-[#C85B95]">Customer portal</p>
-            <h1 className="mt-1 text-2xl font-bold text-[#1F2937]">{title}</h1>
-            {subtitle && <p className="mt-1 text-sm text-[#6B7280]">{subtitle}</p>}
+      <div className="w-full max-w-none px-4 py-6 sm:px-6 lg:px-8">
+        <header className="mb-5 rounded-[1.5rem] border border-[#F3E8EF] bg-white px-4 py-3 shadow-[0_12px_34px_rgba(31,41,55,0.05)]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2">
+              {backTo && <button type="button" onClick={() => navigate(backTo)} aria-label="Back to dashboard" title="Back to dashboard" className="grid h-10 w-10 place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"><HiOutlineArrowLeft className="h-6 w-6" /></button>}
+              <button type="button" onClick={() => navigate("/customer/dashboard")} className="flex items-center gap-3 text-left">
+                <img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-12 w-12 rounded-full object-cover ring-2 ring-[#F8DCEB]" />
+                <div><p className="font-bold leading-tight text-[#1F2A44]">Happy Skin</p><p className="text-[10px] text-[#6B7280]">Customer Portal</p></div>
+              </button>
+            </div>
+            {stats?.length ? (
+              <div className="grid flex-1 grid-cols-3 gap-2 lg:mx-5 lg:max-w-xl">
+                {stats.map((stat) => (
+                  <div key={stat.label} className="rounded-xl bg-[#FFF8FB] px-3 py-2 text-center ring-1 ring-[#F3E8EF]">
+                    <p className="text-lg font-extrabold leading-tight text-[#1F2937]">{stat.value}</p>
+                    <p className="mt-1 text-[9px] font-bold uppercase tracking-wide text-[#C85B95]">{stat.label}</p>
+                  </div>
+                ))}
+              </div>
+            ) : <div className="flex-1" />}
+            <details className="group relative border-t border-[#F3E8EF] pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-2 py-1.5 transition hover:bg-[#FFF0F7] [&::-webkit-details-marker]:hidden">
+                <span className="grid h-10 w-10 place-items-center rounded-full bg-[#D65A9A] font-bold text-white">{displayName.slice(0, 1).toUpperCase()}</span>
+                <span className="min-w-0 text-left"><span className="block max-w-32 truncate text-xs font-bold text-[#1F2937]">{displayName}</span><span className="block max-w-32 truncate text-[10px] text-[#6B7280]">{currentUser?.email}</span></span>
+                <HiChevronDown className="h-4 w-4 text-[#6B7280] transition group-open:rotate-180" />
+              </summary>
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-44 rounded-xl border border-[#F3E8EF] bg-white p-2 shadow-xl"><button type="button" onClick={handleLogout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold text-[#1F2937] hover:bg-[#FFF0F7] hover:text-[#C85B95]"><HiOutlineArrowRightOnRectangle className="h-5 w-5 text-[#D65A9A]" /> Logout</button></div>
+            </details>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => navigate("/customer/dashboard")} className="nav-button">Dashboard</button>
-            <button type="button" onClick={() => navigate("/customer/history")} className="nav-button">History</button>
-          </div>
+          {showHeading && (
+            <div className="mt-4 border-t border-[#F3E8EF] pt-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-[#C85B95]">Customer portal</p>
+              <h1 className="mt-1 text-2xl font-bold text-[#1F2937]">{title}</h1>
+              {subtitle && <p className="mt-1 text-sm text-[#6B7280]">{subtitle}</p>}
+            </div>
+          )}
         </header>
         {children}
       </div>

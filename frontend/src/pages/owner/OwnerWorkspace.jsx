@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   HiOutlineArrowLeftOnRectangle,
@@ -11,6 +11,8 @@ import {
   HiOutlinePresentationChartLine,
   HiOutlineShieldCheck,
   HiOutlineUsers,
+  HiOutlineBars3,
+  HiOutlineXMark,
 } from "react-icons/hi2";
 import { useAuth } from "../../hooks/useAuth";
 import { getFirstName, statusStyles } from "../staff/staffWorkspaceUtils";
@@ -27,10 +29,11 @@ const navItems = [
   { to: "/owner/audit-logs", label: "Audit Logs", icon: HiOutlineClipboardDocumentList },
 ];
 
-export function OwnerWorkspace({ children, title, eyebrow, actions }) {
+export function OwnerWorkspace({ children, title, eyebrow, actions, brandOnly = false }) {
   const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
   const firstName = useMemo(() => getFirstName(currentUser?.full_name || currentUser?.email), [currentUser]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -39,22 +42,26 @@ export function OwnerWorkspace({ children, title, eyebrow, actions }) {
 
   return (
     <main className="min-h-screen bg-[#FFF8FB] text-[#1F2937]" style={{ fontFamily: "'Poppins', sans-serif" }}>
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-4 sm:px-6 lg:flex-row lg:gap-6 lg:px-8">
-        <aside className="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:w-72 lg:flex-shrink-0">
+      {sidebarOpen && <button type="button" aria-label="Close owner menu" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-40 bg-[#1F2937]/40 backdrop-blur-sm" />}
+      <div className="flex min-h-screen w-full max-w-none flex-col px-4 py-4 sm:px-6 lg:flex-row lg:gap-6 lg:px-8">
+        <aside className={`fixed inset-y-0 left-0 z-50 w-[min(19rem,86vw)] transform p-3 transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div className="flex h-full flex-col rounded-[1.5rem] border border-[#F3E8EF] bg-white/90 p-4 shadow-[0_18px_50px_rgba(31,41,55,0.07)] backdrop-blur">
-            <Link to="/owner/dashboard" className="flex items-center gap-3 rounded-2xl px-2 py-2">
+            <div className="flex items-center gap-1"><button type="button" onClick={() => setSidebarOpen(false)} aria-label="Close owner menu" className="grid h-10 w-10 place-items-center rounded-xl text-[#D65A9A] hover:bg-[#FFF0F7]"><HiOutlineXMark className="h-6 w-6" /></button>
+            <Link to="/owner/dashboard" onClick={() => setSidebarOpen(false)} className="flex flex-1 items-center gap-3 rounded-2xl px-2 py-2">
               <img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-12 w-12 rounded-full object-cover shadow-sm ring-2 ring-[#F8DCEB]" />
               <span>
                 <span className="block text-sm font-bold text-[#1F2937]">Happy Skin</span>
                 <span className="block text-xs font-semibold uppercase tracking-wide text-[#D65A9A]">Owner Panel</span>
               </span>
             </Link>
+            </div>
 
             <nav className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-1" aria-label="Owner navigation">
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  onClick={() => setSidebarOpen(false)}
                   className={({ isActive }) =>
                     `flex min-h-11 items-center gap-3 rounded-2xl px-3 py-2 text-sm font-bold transition-all ${
                       isActive ? "bg-[#FFF0F7] text-[#C85B95] shadow-[inset_0_0_0_1px_rgba(214,90,154,0.12)]" : "text-[#6B7280] hover:bg-[#FFF8FB] hover:text-[#1F2937]"
@@ -79,13 +86,13 @@ export function OwnerWorkspace({ children, title, eyebrow, actions }) {
           </div>
         </aside>
 
-        <section className="min-w-0 flex-1 py-5 lg:py-0">
-          <header className="mb-5 flex flex-col gap-4 rounded-[1.5rem] border border-[#F3E8EF] bg-white/86 px-5 py-5 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              {eyebrow && <p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">{eyebrow}</p>}
-              <h1 className="mt-1 text-2xl font-bold text-[#1F2937] sm:text-3xl" style={{ fontFamily: "'Playfair Display', serif" }}>{title}</h1>
+        <section className="w-full min-w-0 flex-1 py-5 lg:py-0">
+          <header className="mb-5 flex w-full flex-col gap-4 rounded-[1.5rem] border border-[#F3E8EF] bg-white/86 px-4 py-4 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur sm:px-6 sm:py-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setSidebarOpen((current) => !current)} aria-label="Toggle owner sidebar" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] hover:bg-[#FFF0F7]"><HiOutlineBars3 className="h-7 w-7" /></button>
+              {brandOnly ? <Link to="/owner/dashboard" className="flex items-center gap-3"><img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-12 w-12 rounded-full ring-2 ring-[#F8DCEB]" /><span><span className="block text-sm font-bold">Happy Skin</span><span className="block text-[10px] text-[#6B7280]">Owner Portal</span></span></Link> : <div>{eyebrow && <p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">{eyebrow}</p>}<h1 className="mt-1 text-2xl font-bold text-[#1F2937] sm:text-3xl" style={{ fontFamily: "'Playfair Display', serif" }}>{title}</h1></div>}
             </div>
-            {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+            {actions && <div className="flex w-full flex-wrap gap-2 [&>*]:flex-1 sm:[&>*]:flex-none lg:w-auto">{actions}</div>}
           </header>
           {children}
         </section>

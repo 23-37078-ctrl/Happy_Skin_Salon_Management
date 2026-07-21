@@ -23,9 +23,14 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.database import Base
+from app.core.config import settings
 from app.models import user, branch, service, booking, transaction  # import each model file so Alembic sees them
 
 target_metadata = Base.metadata
+
+# Keep Alembic on the same database as the FastAPI application. ConfigParser
+# treats percent signs as interpolation markers, so encoded URLs must escape them.
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

@@ -1,4 +1,5 @@
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, func
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
@@ -13,3 +14,5 @@ class Branch(Base):
 
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    services   = relationship("Service", secondary="branch_services", back_populates="branches")

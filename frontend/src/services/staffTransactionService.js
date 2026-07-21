@@ -8,11 +8,31 @@ export const staffTransactionService = {
     return response.data;
   },
 
-  create: async ({ booking_id, amount = null, payment_method = "cash" }) => {
-    const payload = { booking_id, payment_method };
+  create: async ({ booking_id, amount = null, payment_method = "cash", service_provider_id = null }) => {
+    const payload = { booking_id, payment_method, service_provider_id };
     if (amount !== null) payload.amount = amount;
 
     const response = await api.post("/staff/transactions", payload);
+    return response.data;
+  },
+
+  posServices: async () => {
+    const response = await api.get("/staff/transactions/pos/services");
+    return response.data;
+  },
+
+  posContext: async () => {
+    const response = await api.get("/staff/transactions/pos/context");
+    return response.data;
+  },
+
+  posStaff: async () => {
+    const response = await api.get("/staff/transactions/pos/staff");
+    return response.data;
+  },
+
+  checkoutWalkIn: async (payload) => {
+    const response = await api.post("/staff/transactions/pos/walk-in", payload);
     return response.data;
   },
 };

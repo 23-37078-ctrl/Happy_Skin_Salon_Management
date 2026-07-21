@@ -12,8 +12,11 @@ class Feedback(Base):
     customer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     rating = Column(Integer, nullable=False)
     review = Column(Text, nullable=True)
+    service_provider_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    staff_rating = Column(Integer, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     booking = relationship("Booking")
     customer = relationship("User", foreign_keys=[customer_id])
+    service_provider = relationship("User", foreign_keys=[service_provider_id])

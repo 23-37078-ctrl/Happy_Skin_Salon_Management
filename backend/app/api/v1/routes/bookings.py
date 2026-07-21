@@ -14,6 +14,15 @@ from app.schemas.booking import BookingListResponse, BookingOut, BookingStatusUp
 router = APIRouter(prefix="/staff/bookings", tags=["Staff - Bookings"])
 
 
+@router.get("/providers/list")
+def list_branch_service_providers(
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    providers = db.query(User).filter(User.role == "staff", User.branch_id == current_user.branch_id, User.job_title.isnot(None)).order_by(User.full_name).all()
+    return [{"id": item.id, "full_name": item.full_name, "job_title": item.job_title} for item in providers]
+
+
 @router.get("", response_model=BookingListResponse)
 def list_branch_bookings(
     page: int = 1,
@@ -67,5 +76,11 @@ def update_branch_booking_status(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found.")
 
+    if payload.status in {"confirmed", "completed"}:
+        provider_id = payload.service_provider_id or booking.service_provider_id
+        provider = db.query(User).filter(User.id == provider_id, User.role == "staff", User.branch_id == current_user.branch_id).first() if provider_id else None
+        if not provider:
+            raise HTTPException(status_code=400, detail="Select the staff member who will perform this service.")
+        booking.service_provider_id = provider.id
     updated = update_booking_status(db, booking, payload.status)
     return BookingOut.model_validate(updated)

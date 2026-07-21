@@ -11,6 +11,7 @@ class User(Base):
     password_hash             = Column(String(255), nullable=False)
     role                      = Column(String(20), default="customer", nullable=False)
     branch_id                 = Column(Integer, ForeignKey("branches.id"), nullable=True)
+    job_title                 = Column(String(80), nullable=True)
 
     # ── Contact ───────────────────────────────────────────────
     phone_number              = Column(String(20), nullable=True)   # e.g. 09171234567

@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 
 const NAV_ITEMS = [
   { label: "Home",       href: "#home" },
+  { label: "Branches",   href: "#branches" },
+  { label: "Services",   href: "#services" },
   { label: "About Us",   href: "#about" },
-  { label: "Contact",    href: "#contact" },
 ];
 
 export default function Navbar() {
@@ -51,7 +52,7 @@ export default function Navbar() {
         scrolled ? "shadow-md" : "border-b border-[#E6E6E6]"
       }`}
     >
-      <div className="max-w-7xl mx-auto px-6 h-full flex items-center justify-between">
+      <div className="h-full w-full max-w-none px-6 flex items-center justify-between">
         {/* Logo */}
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => scrollTo("#home", "Home")}>
           <img
@@ -66,7 +67,7 @@ export default function Navbar() {
         </div>
 
         {/* Desktop Nav */}
-        <div className="hidden md:flex items-center gap-1">
+        <div className="hidden lg:flex items-center gap-1">
           {NAV_ITEMS.map(({ label, href }) => (
             <button
               key={label}
@@ -86,12 +87,12 @@ export default function Navbar() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/login")}
-            className="px-5 py-2 rounded-full bg-[#C85B95] text-white text-sm font-semibold shadow hover:shadow-lg hover:scale-105 transition-all duration-200"
+            className="px-5 py-2.5 rounded-xl bg-[#C85B95] text-white text-sm font-semibold shadow hover:shadow-lg hover:bg-[#B94B86] transition-all duration-200"
           >
-            Login
+            Login / Sign Up
           </button>
           <button
-            className="md:hidden flex flex-col gap-1.5 p-1"
+            className="lg:hidden flex flex-col gap-1.5 p-1"
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="Toggle menu"
           >
@@ -104,7 +105,7 @@ export default function Navbar() {
 
       {/* Mobile Menu */}
       {menuOpen && (
-        <div className="md:hidden bg-white border-t border-[#E6E6E6] px-6 py-4 flex flex-col gap-2 shadow-lg">
+        <div className="lg:hidden bg-white border-t border-[#E6E6E6] px-6 py-4 flex flex-col gap-2 shadow-lg">
           {NAV_ITEMS.map(({ label, href }) => (
             <button
               key={label}

@@ -59,7 +59,7 @@ export default function ContactSection() {
 
   return (
     <section id="contact" className="py-24 bg-[#FAF6F8]">
-      <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+      <div className="w-full max-w-none px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
         {/* Left */}
         <FadeIn>
           <span className="inline-block px-4 py-1.5 rounded-full bg-pink-100 text-[#C85B95] text-xs font-semibold tracking-wide mb-5">

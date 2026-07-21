@@ -30,7 +30,7 @@ function FadeIn({ children, delay = 0, className = "" }) {
 export default function AboutSection() {
   return (
     <section id="about" className="py-24 bg-white">
-      <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+      <div className="w-full max-w-none px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
         {/* Left */}
         <FadeIn>
           <span className="inline-block px-4 py-1.5 rounded-full bg-pink-100 text-[#C85B95] text-xs font-semibold tracking-wide mb-5">

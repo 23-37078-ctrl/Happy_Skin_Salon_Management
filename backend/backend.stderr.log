@@ -1,1 +1,4 @@
-INFO:     Will watch for changes in these directories: ['C:\\Happy_Skin_Salon_Management\\backend']
+INFO:     Started server process [17972]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

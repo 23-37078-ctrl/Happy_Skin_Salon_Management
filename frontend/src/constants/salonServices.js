@@ -6,7 +6,7 @@ export const SALON_SERVICES = [
     description: "Deep cleansing facial for refreshed and glowing skin.",
     price: 899,
     duration: 60,
-    img: "/images/services/signature-facial.jpg",
+    img: "/images/services/generated/signature-facial.jpg",
   },
   {
     id: 2,
@@ -15,7 +15,7 @@ export const SALON_SERVICES = [
     description: "Gentle exfoliation service for smoother skin texture.",
     price: 1299,
     duration: 75,
-    img: "/images/services/diamond-peel.jpg",
+    img: "/images/services/generated/diamond-peel.jpg",
   },
   {
     id: 3,
@@ -24,7 +24,7 @@ export const SALON_SERVICES = [
     description: "Brow shaping and grooming for a polished salon visit.",
     price: 349,
     duration: 30,
-    img: "/images/services/brow-care.jpg",
+    img: "/images/services/generated/brow-care.jpg",
   },
   {
     id: 4,
@@ -33,7 +33,7 @@ export const SALON_SERVICES = [
     description: "Brightening laser session for dark spots and uneven tone.",
     price: 1499,
     duration: 45,
-    img: "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=700&q=80",
+    img: "/images/services/generated/pico-whitening-laser.jpg",
   },
   {
     id: 5,
@@ -42,7 +42,7 @@ export const SALON_SERVICES = [
     description: "Smoothing hair treatment for a straighter polished finish.",
     price: 999,
     duration: 180,
-    img: "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=700&q=80",
+    img: "/images/services/generated/hair-rebond.jpg",
   },
   {
     id: 6,
@@ -51,7 +51,7 @@ export const SALON_SERVICES = [
     description: "Clean nail care with long-wear gel polish.",
     price: 450,
     duration: 60,
-    img: "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=700&q=80",
+    img: "/images/services/generated/gel-manicure.jpg",
   },
   {
     id: 7,
@@ -60,7 +60,7 @@ export const SALON_SERVICES = [
     description: "Foot soak, scrub, and massage for relaxation.",
     price: 550,
     duration: 60,
-    img: "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=700&q=80",
+    img: "/images/services/generated/foot-spa-massage.jpg",
   },
   {
     id: 8,
@@ -69,7 +69,7 @@ export const SALON_SERVICES = [
     description: "Natural lash extension set for everyday definition.",
     price: 799,
     duration: 90,
-    img: "https://images.unsplash.com/photo-1583001931096-959e9a1a6223?w=700&q=80",
+    img: "/images/services/generated/classic-eyelash-extension.jpg",
   },
 ];
 

@@ -14,10 +14,16 @@ export const staffBookingService = {
     return response.data;
   },
 
-  updateStatus: async (bookingId, status) => {
+  updateStatus: async (bookingId, status, service_provider_id = null) => {
     const response = await api.patch(`/staff/bookings/${bookingId}/status`, {
       status,
+      service_provider_id,
     });
+    return response.data;
+  },
+
+  providers: async () => {
+    const response = await api.get("/staff/bookings/providers/list");
     return response.data;
   },
 };

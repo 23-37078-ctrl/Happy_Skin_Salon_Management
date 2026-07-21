@@ -12,6 +12,7 @@ def create_transaction(
     staff_id: int,
     amount: Optional[float],
     payment_method: str,
+    service_provider_id: Optional[int] = None,
 ) -> Transaction:
     final_amount = amount if amount is not None else booking.service.price
 
@@ -20,11 +21,14 @@ def create_transaction(
         staff_id=staff_id,
         amount=final_amount,
         payment_method=payment_method,
+        service_provider_id=service_provider_id,
     )
     db.add(transaction)
 
     # Recording payment implies the service was rendered.
     booking.status = "completed"
+    if service_provider_id:
+        booking.service_provider_id = service_provider_id
 
     db.commit()
     db.refresh(transaction)

@@ -14,6 +14,7 @@ class BookingCreateRequest(BaseModel):
 
 class BookingStatusUpdateRequest(BaseModel):
     status: str
+    service_provider_id: Optional[int] = None
 
     @field_validator("status")
     @classmethod
@@ -54,11 +55,20 @@ class BookingBranchOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BookingProviderOut(BaseModel):
+    id: int
+    full_name: str
+    job_title: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class BookingOut(BaseModel):
     id: int
     customer: BookingCustomerOut
     branch: BookingBranchOut
     service: BookingServiceOut
+    service_provider: Optional[BookingProviderOut] = None
     appointment_date: datetime
     status: str
     notes: Optional[str] = None

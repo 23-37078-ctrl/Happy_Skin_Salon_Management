@@ -99,6 +99,55 @@ def get_manager_dashboard(
         .all()
     )
 
+    provider_customer_rows = (
+        db.query(
+            Transaction.service_provider_id.label("provider_id"),
+            Booking.customer_id.label("customer_id"),
+            func.count(Transaction.id).label("visits"),
+        )
+        .join(Booking, Transaction.booking_id == Booking.id)
+        .filter(Booking.branch_id == branch_id, Transaction.service_provider_id.isnot(None))
+        .group_by(Transaction.service_provider_id, Booking.customer_id)
+        .all()
+    )
+    provider_metrics = {}
+    for row in provider_customer_rows:
+        metrics = provider_metrics.setdefault(row.provider_id, {"total_visits": 0, "customers": 0, "repeat_customers": 0})
+        metrics["total_visits"] += row.visits
+        metrics["customers"] += 1
+        if row.visits >= 2:
+            metrics["repeat_customers"] += 1
+    branch_providers = db.query(User).filter(User.role == "staff", User.branch_id == branch_id, User.job_title.isnot(None)).all()
+    providers = {item.id: item for item in branch_providers}
+    for provider_id in providers:
+        provider_metrics.setdefault(provider_id, {"total_visits": 0, "customers": 0, "repeat_customers": 0})
+    provider_commissions = dict(
+        db.query(Transaction.service_provider_id, func.coalesce(func.sum(Transaction.commission_amount), 0))
+        .join(Booking, Transaction.booking_id == Booking.id)
+        .filter(Booking.branch_id == branch_id, Transaction.service_provider_id.isnot(None))
+        .group_by(Transaction.service_provider_id)
+        .all()
+    )
+    provider_ratings = {
+        row.provider_id: {"average": round(float(row.average or 0), 1), "count": row.count}
+        for row in db.query(Feedback.service_provider_id.label("provider_id"), func.avg(Feedback.staff_rating).label("average"), func.count(Feedback.id).label("count"))
+        .filter(Feedback.service_provider_id.isnot(None), Feedback.staff_rating.isnot(None))
+        .group_by(Feedback.service_provider_id).all()
+    }
+    staff_retention = sorted([
+        {
+            "staff_id": provider_id,
+            "full_name": providers[provider_id].full_name,
+            "job_title": providers[provider_id].job_title or "Salon Specialist",
+            **metrics,
+            "repeat_rate": round(metrics["repeat_customers"] / metrics["customers"] * 100, 1) if metrics["customers"] else 0,
+            "commission_earned": float(provider_commissions.get(provider_id, 0) or 0),
+            "average_rating": provider_ratings.get(provider_id, {}).get("average", 0),
+            "rating_count": provider_ratings.get(provider_id, {}).get("count", 0),
+        }
+        for provider_id, metrics in provider_metrics.items() if provider_id in providers
+    ], key=lambda item: (item["repeat_customers"], item["total_visits"]), reverse=True)
+
     return {
         "branch": {
             "id": branch.id if branch else branch_id,
@@ -118,6 +167,7 @@ def get_manager_dashboard(
             {"date": str(row.day), "bookings": row.bookings, "sales": float(row.sales or 0)}
             for row in performance_rows
         ],
+        "staff_retention": staff_retention,
     }
 
 

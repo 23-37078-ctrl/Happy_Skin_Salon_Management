@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
 from app.dependencies.auth import get_current_user
@@ -11,6 +11,7 @@ from app.models.branch import Branch
 from app.models.feedback import Feedback
 from app.models.service import Service
 from app.models.user import User
+from app.models.transaction import Transaction
 from app.schemas.booking import BookingCreateRequest, BookingOut
 
 router = APIRouter(prefix="/customer", tags=["Customer"])
@@ -20,6 +21,8 @@ class FeedbackCreateRequest(BaseModel):
     booking_id: int
     rating: int = Field(ge=1, le=5)
     review: str | None = Field(default=None, max_length=1000)
+    service_provider_id: int
+    staff_rating: int = Field(ge=1, le=5)
 
     @field_validator("review")
     @classmethod
@@ -53,6 +56,7 @@ def _booking_query(db: Session):
         joinedload(Booking.customer),
         joinedload(Booking.branch),
         joinedload(Booking.service),
+        joinedload(Booking.service_provider),
     )
 
 
@@ -65,6 +69,7 @@ def _serialize_service(service: Service) -> dict:
         "duration_minutes": service.duration_minutes,
         "image": service.image_url or "/images/services/signature-facial.jpg",
         "reason": service.description or "Available for online appointment booking.",
+        "branch_ids": [branch.id for branch in service.branches],
     }
 
 
@@ -149,8 +154,20 @@ def list_customer_branches(
     db: Session = Depends(get_db),
 ):
     _require_customer(current_user)
-    branches = db.query(Branch).filter(Branch.is_active.is_(True)).order_by(Branch.name.asc()).all()
-    return [_serialize_branch(branch) for branch in branches]
+    branches = (
+        db.query(Branch)
+        .options(selectinload(Branch.services))
+        .filter(Branch.is_active.is_(True))
+        .order_by(Branch.name.asc())
+        .all()
+    )
+    return [
+        {
+            **_serialize_branch(branch),
+            "services": [_serialize_service(service) for service in branch.services if service.is_active],
+        }
+        for branch in branches
+    ]
 
 
 @router.get("/services")
@@ -159,7 +176,13 @@ def list_customer_services(
     db: Session = Depends(get_db),
 ):
     _require_customer(current_user)
-    services = db.query(Service).filter(Service.is_active.is_(True)).order_by(Service.name.asc()).all()
+    services = (
+        db.query(Service)
+        .options(selectinload(Service.branches))
+        .filter(Service.is_active.is_(True))
+        .order_by(Service.name.asc())
+        .all()
+    )
     return [_serialize_service(service) for service in services]
 
 
@@ -182,11 +205,20 @@ def create_customer_appointment(
     _require_customer(current_user)
 
     branch = db.query(Branch).filter(Branch.id == payload.branch_id, Branch.is_active.is_(True)).first()
-    service = db.query(Service).filter(Service.id == payload.service_id, Service.is_active.is_(True)).first()
+    service = (
+        db.query(Service)
+        .join(Service.branches)
+        .filter(
+            Service.id == payload.service_id,
+            Service.is_active.is_(True),
+            Branch.id == payload.branch_id,
+        )
+        .first()
+    )
     if not branch:
         raise HTTPException(status_code=404, detail="Selected branch is not available.")
     if not service:
-        raise HTTPException(status_code=404, detail="Selected service is not available.")
+        raise HTTPException(status_code=404, detail="Selected service is not offered at this branch.")
 
     booking = Booking(
         customer_id=current_user.id,
@@ -217,7 +249,16 @@ def list_customer_appointments(
         .order_by(Booking.appointment_date.desc())
         .all()
     )
-    return [BookingOut.model_validate(booking) for booking in bookings]
+    results = []
+    for booking in bookings:
+        item = BookingOut.model_validate(booking).model_dump()
+        transaction = db.query(Transaction).filter(Transaction.booking_id == booking.id).order_by(Transaction.created_at.desc()).first()
+        provider = transaction.service_provider if transaction and transaction.service_provider else booking.service_provider
+        branch_staff = db.query(User).filter(User.role == "staff", User.branch_id == booking.branch_id, User.job_title.isnot(None)).order_by(User.full_name).all()
+        item["service_provider"] = {"id": provider.id, "full_name": provider.full_name, "job_title": provider.job_title or "Salon Specialist"} if provider else None
+        item["available_providers"] = [{"id": staff.id, "full_name": staff.full_name, "job_title": staff.job_title or "Salon Specialist"} for staff in branch_staff]
+        results.append(item)
+    return results
 
 
 @router.patch("/appointments/{appointment_id}/cancel", response_model=BookingOut)
@@ -267,10 +308,20 @@ def submit_customer_feedback(
             detail="Feedback can only be submitted for your completed appointments.",
         )
 
+    assigned_provider_id = booking.service_provider_id
+    if assigned_provider_id and payload.service_provider_id != assigned_provider_id:
+        raise HTTPException(status_code=400, detail="The staff rating must be for the assigned service provider.")
+
+    provider = db.query(User).filter(User.id == payload.service_provider_id, User.role == "staff", User.branch_id == booking.branch_id).first()
+    if not provider:
+        raise HTTPException(status_code=400, detail="Selected staff member is not assigned to this branch.")
+
     existing = db.query(Feedback).filter(Feedback.booking_id == booking.id).first()
     if existing:
         existing.rating = payload.rating
         existing.review = payload.review
+        existing.service_provider_id = provider.id
+        existing.staff_rating = payload.staff_rating
         feedback = existing
     else:
         feedback = Feedback(
@@ -278,6 +329,8 @@ def submit_customer_feedback(
             customer_id=current_user.id,
             rating=payload.rating,
             review=payload.review,
+            service_provider_id=provider.id,
+            staff_rating=payload.staff_rating,
         )
         db.add(feedback)
 
@@ -289,6 +342,8 @@ def submit_customer_feedback(
         "booking_id": feedback.booking_id,
         "rating": feedback.rating,
         "review": feedback.review,
+        "service_provider_id": feedback.service_provider_id,
+        "staff_rating": feedback.staff_rating,
         "created_at": feedback.created_at,
     }
 

@@ -34,18 +34,21 @@ export default function BookService() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [busyId, setBusyId] = useState(null);
-  const [paymentDraft, setPaymentDraft] = useState({ bookingId: null, amount: "", payment_method: "cash" });
+  const [paymentDraft, setPaymentDraft] = useState({ bookingId: null, amount: "", payment_method: "cash", service_provider_id: "" });
+  const [providers, setProviders] = useState([]);
+  const [providerAssignments, setProviderAssignments] = useState({});
 
   const loadBookings = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      const payload = await staffBookingService.list({
-        page: 1,
-        page_size: 100,
-        status_filter: statusFilter === "all" ? null : statusFilter,
-      });
+      const [payload, providerData] = await Promise.all([
+        staffBookingService.list({ page: 1, page_size: 100, status_filter: statusFilter === "all" ? null : statusFilter }),
+        staffBookingService.providers(),
+      ]);
       setBookings(payload.bookings || []);
+      setProviders(providerData || []);
+      setProviderAssignments((previous) => Object.fromEntries((payload.bookings || []).map((booking) => [booking.id, previous[booking.id] || booking.service_provider?.id || ""])));
     } catch (err) {
       setError(getApiError(err, "We couldn't load branch bookings."));
     } finally {
@@ -78,7 +81,13 @@ export default function BookService() {
     setError("");
     setSuccess("");
     try {
-      const updated = await staffBookingService.updateStatus(bookingId, status);
+      const providerId = providerAssignments[bookingId] || null;
+      if (["confirmed", "completed"].includes(status) && !providerId) {
+        setError("Select the staff member who will perform the service first.");
+        setBusyId(null);
+        return;
+      }
+      const updated = await staffBookingService.updateStatus(bookingId, status, providerId ? Number(providerId) : null);
       setBookings((prev) => prev.map((booking) => (booking.id === bookingId ? updated : booking)));
       setSuccess(`Booking #${bookingId} marked as ${status}.`);
     } catch (err) {
@@ -100,10 +109,11 @@ export default function BookService() {
         booking_id: paymentDraft.bookingId,
         amount: paymentDraft.amount ? Number(paymentDraft.amount) : null,
         payment_method: paymentDraft.payment_method,
+        service_provider_id: Number(paymentDraft.service_provider_id),
       });
       const updated = await staffBookingService.getById(paymentDraft.bookingId);
       setBookings((prev) => prev.map((booking) => (booking.id === paymentDraft.bookingId ? updated : booking)));
-      setPaymentDraft({ bookingId: null, amount: "", payment_method: "cash" });
+      setPaymentDraft({ bookingId: null, amount: "", payment_method: "cash", service_provider_id: "" });
       setSuccess(`Payment recorded for booking #${paymentDraft.bookingId}.`);
     } catch (err) {
       setError(getApiError(err, "Couldn't record that payment."));
@@ -160,6 +170,9 @@ export default function BookService() {
                 booking={booking}
                 busy={busyId === booking.id}
                 paymentDraft={paymentDraft}
+                providers={providers}
+                providerId={providerAssignments[booking.id] || ""}
+                onProviderChange={(providerId) => setProviderAssignments((previous) => ({ ...previous, [booking.id]: providerId }))}
                 onStatusUpdate={handleStatusUpdate}
                 onPaymentDraft={setPaymentDraft}
                 onRecordPayment={handleRecordPayment}
@@ -174,7 +187,7 @@ export default function BookService() {
   );
 }
 
-function BookingCard({ booking, busy, paymentDraft, onStatusUpdate, onPaymentDraft, onRecordPayment }) {
+function BookingCard({ booking, busy, paymentDraft, providers, providerId, onProviderChange, onStatusUpdate, onPaymentDraft, onRecordPayment }) {
   const canManage = !["completed", "cancelled"].includes(booking.status);
   const isPaying = paymentDraft.bookingId === booking.id;
 
@@ -195,14 +208,15 @@ function BookingCard({ booking, busy, paymentDraft, onStatusUpdate, onPaymentDra
           <span className="inline-flex items-center gap-2"><HiOutlineCalendarDays className="h-5 w-5 text-[#D65A9A]" /> {formatDateTime(booking.appointment_date)}</span>
           <span className="inline-flex items-center gap-2"><HiOutlineClock className="h-5 w-5 text-[#D65A9A]" /> {booking.service?.duration_minutes || 0} minutes</span>
           <span className="inline-flex items-center gap-2"><HiOutlineBanknotes className="h-5 w-5 text-[#D65A9A]" /> {formatCurrency(booking.service?.price)}</span>
+          <label className="text-xs font-bold text-[#1F2937]">Service provider<select value={providerId} onChange={(event) => onProviderChange(event.target.value)} disabled={!canManage} className="mt-1 min-h-10 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 text-xs outline-none focus:border-[#D65A9A]"><option value="">Choose provider</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.full_name} — {provider.job_title}</option>)}</select></label>
         </div>
 
         <div className="flex flex-wrap gap-2 lg:w-52 lg:justify-end">
           {booking.status === "pending" && (
-            <ActionButton disabled={busy} onClick={() => onStatusUpdate(booking.id, "confirmed")} icon={HiOutlineCheck}>Confirm</ActionButton>
+            <ActionButton disabled={busy || !providerId} onClick={() => onStatusUpdate(booking.id, "confirmed")} icon={HiOutlineCheck}>Confirm</ActionButton>
           )}
           {canManage && (
-            <ActionButton disabled={busy} onClick={() => onPaymentDraft({ bookingId: booking.id, amount: booking.service?.price || "", payment_method: "cash" })} icon={HiOutlineBanknotes}>Record Pay</ActionButton>
+            <ActionButton disabled={busy || !providerId} onClick={() => onPaymentDraft({ bookingId: booking.id, amount: booking.service?.price || "", payment_method: "cash", service_provider_id: providerId })} icon={HiOutlineBanknotes}>Record Pay</ActionButton>
           )}
           {canManage && (
             <ActionButton disabled={busy} variant="danger" onClick={() => onStatusUpdate(booking.id, "cancelled")} icon={HiOutlineXMark}>Cancel</ActionButton>
@@ -212,7 +226,7 @@ function BookingCard({ booking, busy, paymentDraft, onStatusUpdate, onPaymentDra
 
       {isPaying && (
         <form onSubmit={onRecordPayment} className="border-t border-[#F3E8EF] bg-[#FFF8FB] p-4 lg:p-5">
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <div className="grid gap-3 md:grid-cols-3 md:items-end">
             <label className="text-sm font-bold text-[#1F2937]">
               Amount
               <input
@@ -224,6 +238,7 @@ function BookingCard({ booking, busy, paymentDraft, onStatusUpdate, onPaymentDra
                 className="mt-2 min-h-11 w-full rounded-xl border border-[#F3E8EF] bg-white px-3 py-2 text-sm outline-none focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20"
               />
             </label>
+            <label className="text-sm font-bold text-[#1F2937]">Service Provider<select required value={paymentDraft.service_provider_id} onChange={(event) => { onPaymentDraft((prev) => ({ ...prev, service_provider_id: event.target.value })); onProviderChange(event.target.value); }} className="mt-2 min-h-11 w-full rounded-xl border border-[#F3E8EF] bg-white px-3 py-2 text-sm outline-none focus:border-[#D65A9A]">{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.full_name} — {provider.job_title}</option>)}</select></label>
             <label className="text-sm font-bold text-[#1F2937]">
               Payment Method
               <select
@@ -236,7 +251,7 @@ function BookingCard({ booking, busy, paymentDraft, onStatusUpdate, onPaymentDra
             </label>
             <div className="flex gap-2">
               <button type="submit" disabled={busy} className="min-h-11 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">Save Payment</button>
-              <button type="button" onClick={() => onPaymentDraft({ bookingId: null, amount: "", payment_method: "cash" })} className="min-h-11 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937]">Close</button>
+              <button type="button" onClick={() => onPaymentDraft({ bookingId: null, amount: "", payment_method: "cash", service_provider_id: "" })} className="min-h-11 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937]">Close</button>
             </div>
           </div>
         </form>
