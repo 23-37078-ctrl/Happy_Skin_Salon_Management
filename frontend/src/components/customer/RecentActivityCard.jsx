@@ -5,6 +5,7 @@ import {
   HiOutlineCreditCard,
   HiOutlineSparkles,
 } from "react-icons/hi2";
+import { formatTimestamp } from "../../utils/formatTimestamp";
 
 const ACTIVITY_CONFIG = {
   booked: { icon: HiOutlineCalendarDays, color: "text-[#D65A9A]", bg: "bg-[#FFE9F3]" },
@@ -46,7 +47,7 @@ export default function RecentActivityCard({
       </div>
       <div className="pb-6">
         <p className="text-sm font-medium text-[#1E2A4A]">{description}</p>
-        <p className="mt-0.5 text-xs text-[#6B7280]">{timestamp}</p>
+        <p className="mt-0.5 text-xs text-[#6B7280]">{formatTimestamp(timestamp)}</p>
       </div>
     </div>
   );

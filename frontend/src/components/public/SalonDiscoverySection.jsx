@@ -35,6 +35,7 @@ export default function SalonDiscoverySection() {
   const [services, setServices] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
   const [query, setQuery] = useState("");
+  const [showAllServices, setShowAllServices] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
 
@@ -74,6 +75,10 @@ export default function SalonDiscoverySection() {
       [service.name, service.description].join(" ").toLowerCase().includes(normalizedQuery)
     );
   }, [normalizedQuery, selectedBranch, services]);
+  const shouldLimitServices = !normalizedQuery && !selectedBranch;
+  const displayedServices = shouldLimitServices && !showAllServices
+    ? visibleServices.slice(0, 8)
+    : visibleServices;
 
   const goToBooking = (serviceId, branchId = selectedBranch?.id) => {
     const params = new URLSearchParams();
@@ -105,13 +110,7 @@ export default function SalonDiscoverySection() {
 
       <div className="w-full max-w-none px-4 sm:px-6 lg:px-8">
         <section id="branches" className="scroll-mt-24 py-4">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#C85B95]">Filter by location</p>
-              <h2 className="mt-0.5 text-base font-extrabold text-[#1F2A44] sm:text-lg">Choose a branch</h2>
-            </div>
-            <span className="hidden text-sm text-[#667085] sm:block">{branches.length} active locations</span>
-          </div>
+          <h2 className="text-base font-extrabold text-[#1F2A44] sm:text-lg">Choose a branch</h2>
 
           {notice && <p className="mt-4 rounded-xl bg-[#FFF0F7] px-4 py-3 text-sm text-[#9D3C70]">{notice}</p>}
 
@@ -139,10 +138,6 @@ export default function SalonDiscoverySection() {
                       <div className="min-w-0 flex-1 p-2.5">
                         <h3 className="line-clamp-1 text-xs font-extrabold leading-4 text-[#1F2A44] sm:text-sm">{branch.name}</h3>
                         <p className="mt-1 flex items-start gap-1 text-[10px] leading-3.5 text-[#667085]"><HiOutlineMapPin className="h-3 w-3 shrink-0 text-[#C85B95]" />{branch.address}</p>
-                        <div className="mt-1.5 flex items-center gap-3 text-[9px] font-semibold text-[#C85B95]">
-                          <span>{branch.services?.length || services.length} services</span>
-                          <span>{selected ? "Showing services" : "Select branch"}</span>
-                        </div>
                       </div>
                     </button>
                   );
@@ -164,11 +159,22 @@ export default function SalonDiscoverySection() {
         )}
 
         <section id="services" className="scroll-mt-24 pb-5 pt-2">
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <h2 className="text-lg font-extrabold text-[#1F2A44]">{selectedBranch ? `Services at ${selectedBranch.name}` : normalizedQuery ? "Search results" : "Popular services"}</h2>
+            <span className="text-xs font-semibold text-[#667085]">{visibleServices.length} {visibleServices.length === 1 ? "service" : "services"}</span>
+          </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {visibleServices.map((service) => (
+            {displayedServices.map((service) => (
               <ServiceCard key={service.id} service={service} onBook={() => goToBooking(service.id, selectedBranch?.id)} />
             ))}
           </div>
+          {shouldLimitServices && visibleServices.length > 8 && (
+            <div className="mt-6 text-center">
+              <button type="button" onClick={() => setShowAllServices((current) => !current)} className="rounded-xl border border-[#E2C3D3] bg-white px-5 py-2.5 text-sm font-bold text-[#A34777] transition hover:border-[#C85B95] hover:bg-[#FFF7FB]">
+                {showAllServices ? "Show fewer" : `View all ${visibleServices.length} services`}
+              </button>
+            </div>
+          )}
           {!loading && visibleServices.length === 0 && <EmptyResults label="services" />}
         </section>
 

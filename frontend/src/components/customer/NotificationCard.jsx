@@ -4,6 +4,7 @@ import {
   HiOutlineGift,
   HiOutlineCog6Tooth,
 } from "react-icons/hi2";
+import { formatTimestamp } from "../../utils/formatTimestamp";
 
 const TYPE_CONFIG = {
   booking: { icon: HiOutlineCalendarDays, color: "text-[#22C55E]", bg: "bg-[#22C55E]/10" },
@@ -55,7 +56,7 @@ export default function NotificationCard({
           {message}
         </p>
         <span className="mt-0.5 block text-xs text-[#6B7280]">
-          {timestamp}
+          {formatTimestamp(timestamp)}
         </span>
       </span>
       {!isRead && (

@@ -1,52 +1,64 @@
-import { FaFacebookF, FaInstagram, FaTiktok } from "react-icons/fa6";
+import { Link } from "react-router-dom";
+import {
+  HiOutlineCalendarDays,
+  HiOutlineEnvelope,
+  HiOutlineMapPin,
+  HiOutlinePhone,
+} from "react-icons/hi2";
 
-const footerGroups = [
-  { title: "Popular Services", links: ["Signature Facial", "Diamond Peel", "Pico Whitening Laser", "Gel Manicure", "Hair Spa Treatment"], targets: ["#services", "#services", "#services", "#services", "#services"] },
-  { title: "Our Branches", links: ["Happy Skin Main Branch", "Happy Skin Lipa Branch", "Happy Skin Batangas City Branch"], targets: ["#branches", "#branches", "#branches"] },
-  { title: "About Happy Skin", links: ["About Us", "Our Services", "Book an Appointment", "Salon Locations"], targets: ["#about", "#services", "#services", "#branches"] },
-  { title: "Support", links: ["Contact Us", "Frequently Asked Questions", "Booking Assistance", "Customer Feedback"], targets: ["#contact", "#contact", "#contact", "#contact"] },
-];
+const footerLinkClass = "text-sm text-white/65 transition hover:text-white";
 
 export default function Footer() {
   const scrollTo = (target) => document.querySelector(target)?.scrollIntoView({ behavior: "smooth" });
 
   return (
-    <footer className="text-[#1F2A44]">
-      <div className="border-t border-[#E5DCE1] bg-[#F2F4F6]">
-        <div className="w-full max-w-none px-6 py-12 lg:px-8">
-          <button type="button" onClick={() => scrollTo("#home")} className="flex items-center gap-3 text-left">
-            <img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-16 w-16 rounded-full object-cover ring-2 ring-[#F8DCEB]" />
-            <div><p className="text-2xl font-extrabold">Happy Skin</p><p className="text-xs text-[#667085]">Aesthetic and Nails Beauty Lounge</p></div>
-          </button>
-          <div className="mt-7 border-t border-[#D9DEE3] pt-8">
-            <div className="grid gap-9 sm:grid-cols-2 lg:grid-cols-4">
-              {footerGroups.map((group) => (
-                <div key={group.title}>
-                  <h2 className="text-base font-extrabold">{group.title}</h2>
-                  <ul className="mt-4 space-y-2.5">
-                    {group.links.map((link, index) => <li key={link}><button type="button" onClick={() => scrollTo(group.targets[index])} className="text-left text-sm text-[#475467] transition hover:text-[#C85B95]">{link}</button></li>)}
-                  </ul>
-                </div>
-              ))}
+    <footer className="border-t border-[#E5DCE1] bg-[#1F2A44] text-white">
+      <div className="grid w-full gap-9 px-6 py-10 sm:grid-cols-2 lg:grid-cols-[1.35fr_0.75fr_0.85fr_1.2fr] lg:px-8">
+        <div>
+          <button type="button" onClick={() => scrollTo("#home")} className="flex items-center gap-3 text-left" aria-label="Back to top">
+            <img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-14 w-14 rounded-full object-cover ring-2 ring-white/15" />
+            <div>
+              <p className="text-lg font-extrabold">Happy Skin</p>
+              <p className="text-xs text-white/60">Aesthetic and Nails Beauty Lounge</p>
             </div>
+          </button>
+          <p className="mt-4 max-w-sm text-sm leading-6 text-white/60">
+            Professional beauty and wellness services across our Batangas branches.
+          </p>
+        </div>
+
+        <nav aria-label="Footer navigation">
+          <h2 className="text-sm font-extrabold">Explore</h2>
+          <div className="mt-4 flex flex-col items-start gap-3">
+            <button type="button" onClick={() => scrollTo("#home")} className={footerLinkClass}>Home</button>
+            <button type="button" onClick={() => scrollTo("#branches")} className={footerLinkClass}>Branches</button>
+            <button type="button" onClick={() => scrollTo("#services")} className={footerLinkClass}>Services</button>
           </div>
+        </nav>
+
+        <nav aria-label="Customer links">
+          <h2 className="text-sm font-extrabold">Customers</h2>
+          <div className="mt-4 flex flex-col items-start gap-3">
+            <Link to="/login" className={footerLinkClass}>Login</Link>
+            <Link to="/login?redirect=%2Fcustomer%2Fbook" className={footerLinkClass}>Book an appointment</Link>
+          </div>
+        </nav>
+
+        <div>
+          <h2 className="text-sm font-extrabold">Contact</h2>
+          <address className="mt-4 space-y-3 not-italic">
+            <a href="tel:09123456789" className={`flex items-center gap-2.5 ${footerLinkClass}`}><HiOutlinePhone className="h-4 w-4 shrink-0 text-[#F4A9D0]" />0912 345 6789</a>
+            <a href="mailto:happyskinops@example.com" className={`flex items-center gap-2.5 ${footerLinkClass}`}><HiOutlineEnvelope className="h-4 w-4 shrink-0 text-[#F4A9D0]" />happyskinops@example.com</a>
+            <p className="flex items-center gap-2.5 text-sm text-white/65"><HiOutlineMapPin className="h-4 w-4 shrink-0 text-[#F4A9D0]" />Lipa City, Batangas</p>
+          </address>
+          <Link to="/login?redirect=%2Fcustomer%2Fbook" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#B94B86]">
+            <HiOutlineCalendarDays className="h-4 w-4" /> Book now
+          </Link>
         </div>
       </div>
-      <div className="bg-[#1F2A44] text-white">
-        <div className="flex w-full max-w-none flex-col gap-8 px-6 py-9 lg:flex-row lg:items-end lg:justify-between lg:px-8">
-          <div>
-            <p className="font-bold">Happy Skin Beauty Lounge</p>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-white/70">Professional salon care across our Main, Lipa, and Batangas City branches.</p>
-            <p className="mt-7 text-sm text-white/60">© 2026 Happy Skin Salon Management System. All rights reserved.</p>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-white/85"><button type="button" className="hover:text-[#F4A9D0]">Terms of Service</button><span>•</span><button type="button" className="hover:text-[#F4A9D0]">Privacy Policy</button></div>
-          </div>
-          <div className="lg:text-right">
-            <p className="text-sm font-bold">Follow Happy Skin</p>
-            <div className="mt-3 flex gap-3 lg:justify-end">
-              {[[FaFacebookF, "Facebook"], [FaInstagram, "Instagram"], [FaTiktok, "TikTok"]].map(([Icon, label]) => <a key={label} href="#contact" aria-label={label} className="grid h-10 w-10 place-items-center rounded-lg bg-white text-[#1F2A44] transition hover:-translate-y-1 hover:bg-[#F8DCEB] hover:text-[#C85B95]"><Icon className="h-5 w-5" /></a>)}
-            </div>
-          </div>
-        </div>
+
+      <div className="border-t border-white/10 px-6 py-4 text-center text-xs text-white/50 lg:px-8">
+        © 2026 Happy Skin. All rights reserved.
       </div>
     </footer>
   );

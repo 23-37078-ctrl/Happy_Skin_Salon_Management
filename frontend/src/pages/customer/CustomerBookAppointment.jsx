@@ -9,7 +9,6 @@ import {
   HiOutlineMapPin,
   HiOutlineSparkles,
   HiOutlineUserGroup,
-  HiChevronDown,
 } from "react-icons/hi2";
 import {
   createAppointment,
@@ -32,8 +31,15 @@ const APPOINTMENT_SLOTS = Array.from({ length: 21 }, (_, index) => {
   const minute = totalMinutes % 60;
   const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   const displayHour = hour % 12 || 12;
-  return { value, label: `${displayHour}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}` };
+  const period = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  return { value, label: `${displayHour}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`, period };
 });
+
+const TIME_PERIODS = [
+  { value: "morning", label: "Morning", range: "9:00 AM–11:30 AM" },
+  { value: "afternoon", label: "Afternoon", range: "12:00 PM–4:30 PM" },
+  { value: "evening", label: "Evening", range: "5:00 PM–7:00 PM" },
+];
 
 export default function CustomerBookAppointment() {
   const navigate = useNavigate();
@@ -196,13 +202,13 @@ export default function CustomerBookAppointment() {
             <FormSection number="1" title="Service and location" description="Select where you’d like to visit and what you need.">
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Branch" icon={HiOutlineMapPin}>
-                  <select required value={form.branch_id} onChange={(event) => handleBranchChange(event.target.value)} disabled={isLoading} className="form-input">
+                  <select aria-label="Branch" required value={form.branch_id} onChange={(event) => handleBranchChange(event.target.value)} disabled={isLoading} className="form-input">
                     <option value="">Select a branch</option>
                     {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                   </select>
                 </Field>
                 <Field label="Service" icon={HiOutlineSparkles}>
-                  <select required value={form.service_id} onChange={(event) => setForm((previous) => ({ ...previous, service_id: event.target.value }))} disabled={isLoading || !selectedBranch} className="form-input">
+                  <select aria-label="Service" required value={form.service_id} onChange={(event) => setForm((previous) => ({ ...previous, service_id: event.target.value }))} disabled={isLoading || !selectedBranch} className="form-input">
                     <option value="">Select a service</option>
                     {availableServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
                   </select>
@@ -223,19 +229,17 @@ export default function CustomerBookAppointment() {
             </FormSection>
 
             <FormSection number="3" title="Date and time" description="Tell us when you’d prefer to come in.">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="max-w-md">
                 <Field label="Preferred date" icon={HiOutlineCalendarDays}>
-                  <ModernDatePicker value={form.appointment_date} min={today()} onChange={(value) => setForm((previous) => ({ ...previous, appointment_date: value }))} placeholder="Choose a preferred date" ariaLabel="Choose preferred appointment date" />
+                  <ModernDatePicker value={form.appointment_date} min={today()} onChange={(value) => setForm((previous) => ({ ...previous, appointment_date: value, appointment_time: "" }))} placeholder="Choose a preferred date" ariaLabel="Choose preferred appointment date" />
                 </Field>
-                <Field label="Preferred time" icon={HiOutlineClock}>
-                  <div className="relative">
-                    <select required value={form.appointment_time} onChange={(event) => setForm((previous) => ({ ...previous, appointment_time: event.target.value }))} className="form-input appearance-none pr-11">
-                      <option value="">Choose a time</option>
-                      {availableTimeSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
-                    </select>
-                    <HiChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#B94B86]" />
-                  </div>
-                </Field>
+              </div>
+              <div className="mt-5">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 text-sm font-bold text-[#344054]"><HiOutlineClock className="h-5 w-5 text-[#B94B86]" />Preferred time</span>
+                  {form.appointment_time && <span className="rounded-full bg-[#FCE7F3] px-3 py-1 text-xs font-extrabold text-[#A83F78]">Selected: {APPOINTMENT_SLOTS.find((slot) => slot.value === form.appointment_time)?.label}</span>}
+                </div>
+                <TimeSlotPicker date={form.appointment_date} value={form.appointment_time} slots={availableTimeSlots} onChange={(value) => setForm((previous) => ({ ...previous, appointment_time: value }))} />
               </div>
               <label className="mt-4 block text-sm font-bold text-[#344054]">Notes <span className="font-normal text-[#98A2B3]">(optional)</span>
                 <textarea value={form.notes} maxLength={255} onChange={(event) => setForm((previous) => ({ ...previous, notes: event.target.value }))} rows={3} placeholder="Share preferences or anything our team should know" className="form-input mt-2 resize-none" />
@@ -281,7 +285,33 @@ function FormSection({ number, title, description, children }) {
 }
 
 function Field({ label, icon: Icon, children }) {
-  return <label className="block text-sm font-bold text-[#344054]"><span className="mb-2 inline-flex items-center gap-2"><Icon className="h-5 w-5 text-[#B94B86]" />{label}</span>{children}</label>;
+  return <div className="block text-sm font-bold text-[#344054]"><span className="mb-2 inline-flex items-center gap-2"><Icon className="h-5 w-5 text-[#B94B86]" />{label}</span>{children}</div>;
+}
+
+function TimeSlotPicker({ date, value, slots, onChange }) {
+  if (!date) {
+    return <div className="grid min-h-28 place-items-center rounded-2xl border border-dashed border-[#DDB8CB] bg-[#FFFAFC] px-5 py-6 text-center"><div><span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-[#FCE7F3]"><HiOutlineCalendarDays className="h-5 w-5 text-[#B94B86]" /></span><p className="mt-2 text-sm font-bold text-[#475467]">Choose a date first</p><p className="mt-1 text-xs text-[#98A2B3]">Available appointment times will appear here.</p></div></div>;
+  }
+
+  if (!slots.length) {
+    return <div className="rounded-2xl border border-[#F0E3EA] bg-[#FFFAFC] px-5 py-6 text-center"><p className="text-sm font-bold text-[#475467]">No times available for this date</p><p className="mt-1 text-xs text-[#98A2B3]">Please choose another day.</p></div>;
+  }
+
+  return <div role="radiogroup" aria-label="Available appointment times" className="space-y-4 rounded-2xl border border-[#F0E3EA] bg-[#FFFAFC] p-3 sm:p-4">
+    {TIME_PERIODS.map((period) => {
+      const periodSlots = slots.filter((slot) => slot.period === period.value);
+      if (!periodSlots.length) return null;
+      return <section key={period.value} aria-label={period.label}>
+        <div className="mb-2 flex items-baseline justify-between gap-3"><h3 className="text-xs font-extrabold uppercase tracking-[0.1em] text-[#7A5067]">{period.label}</h3><span className="text-[10px] font-semibold text-[#98A2B3]">{period.range}</span></div>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+          {periodSlots.map((slot) => {
+            const selected = value === slot.value;
+            return <button key={slot.value} type="button" role="radio" aria-checked={selected} onClick={() => onChange(slot.value)} className={`min-h-11 rounded-xl border px-2 py-2 text-xs font-extrabold transition focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15 ${selected ? "border-[#B94B86] bg-[#B94B86] text-white shadow-[0_7px_16px_rgba(185,75,134,0.22)]" : "border-[#E8DCE3] bg-white text-[#475467] hover:border-[#D493B5] hover:bg-[#FFF3F8] hover:text-[#A83F78]"}`}>{selected && <HiOutlineCheck className="mr-1 inline h-4 w-4" />}{slot.label}</button>;
+          })}
+        </div>
+      </section>;
+    })}
+  </div>;
 }
 
 function ProviderOption({ checked, name, detail, onSelect }) {
