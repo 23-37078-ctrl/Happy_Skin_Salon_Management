@@ -16,6 +16,15 @@ import {
   getCustomerServices,
 } from "../../services/customerService";
 
+const APPOINTMENT_SLOTS = Array.from({ length: 21 }, (_, index) => {
+  const totalMinutes = 9 * 60 + index * 30;
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const displayHour = hour % 12 || 12;
+  return { value, label: `${displayHour}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}` };
+});
+
 export default function CustomerBookAppointment() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -92,6 +101,11 @@ export default function CustomerBookAppointment() {
     () => selectedBranch?.services || [],
     [selectedBranch]
   );
+  const availableTimeSlots = useMemo(() => {
+    if (!form.appointment_date) return APPOINTMENT_SLOTS;
+    const now = new Date();
+    return APPOINTMENT_SLOTS.filter((slot) => new Date(`${form.appointment_date}T${slot.value}:00`) > now);
+  }, [form.appointment_date]);
 
   const handleBranchChange = (branchId) => {
     const branch = branches.find((item) => String(item.id) === String(branchId));
@@ -199,12 +213,17 @@ export default function CustomerBookAppointment() {
             </Field>
 
             <Field label="Time" icon={HiOutlineCalendarDays}>
-              <input
-                type="time"
+              <div className="relative">
+              <select
                 value={form.appointment_time}
                 onChange={(event) => setForm((prev) => ({ ...prev, appointment_time: event.target.value }))}
-                className="form-input"
-              />
+                className="form-input appearance-none pr-11"
+              >
+                <option value="">Choose a time</option>
+                {availableTimeSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
+              </select>
+              <HiChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" />
+              </div>
             </Field>
           </div>
 
