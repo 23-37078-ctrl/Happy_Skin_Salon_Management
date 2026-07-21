@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = "mysql+pymysql://root:@localhost/happy_skin_db"
+    DATABASE_URL: str = "postgresql+psycopg2://postgres:postgres@localhost/happy_skin"
 
     # JWT
     SECRET_KEY: str = "change-this-to-a-long-random-secret"

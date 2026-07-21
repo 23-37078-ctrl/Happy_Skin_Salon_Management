@@ -36,10 +36,6 @@ export default function BranchInventory() {
     return source.filter((item) => [item.name, item.sku, item.category, item.unit].join(" ").toLowerCase().includes(term));
   }, [data, search, showLowOnly]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, showLowOnly, pageSize]);
-
   const totalPages = Math.max(1, Math.ceil(visibleItems.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const startIndex = visibleItems.length ? (safePage - 1) * pageSize : 0;
@@ -65,20 +61,20 @@ export default function BranchInventory() {
             <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" />
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => { setSearch(event.target.value); setPage(1); }}
               placeholder="Search item, SKU, category, or unit"
               className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-10 py-3 text-sm font-medium text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20"
             />
           </div>
           <div className="flex rounded-xl bg-[#FFF8FB] p-1">
-            <button type="button" onClick={() => setShowLowOnly(false)} className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${!showLowOnly ? "bg-[#C85B95] text-white" : "text-[#6B7280]"}`}>All Stock</button>
-            <button type="button" onClick={() => setShowLowOnly(true)} className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${showLowOnly ? "bg-[#C85B95] text-white" : "text-[#6B7280]"}`}>Low Stock</button>
+            <button type="button" onClick={() => { setShowLowOnly(false); setPage(1); }} className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${!showLowOnly ? "bg-[#C85B95] text-white" : "text-[#6B7280]"}`}>All Stock</button>
+            <button type="button" onClick={() => { setShowLowOnly(true); setPage(1); }} className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${showLowOnly ? "bg-[#C85B95] text-white" : "text-[#6B7280]"}`}>Low Stock</button>
           </div>
           <label className="text-sm font-bold text-[#1F2937]">
             Rows
             <select
               value={pageSize}
-              onChange={(event) => setPageSize(Number(event.target.value))}
+              onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}
               className="ml-2 min-h-10 rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 py-2 text-sm outline-none focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20"
             >
               {[5, 10, 15, 25].map((size) => <option key={size} value={size}>{size}</option>)}

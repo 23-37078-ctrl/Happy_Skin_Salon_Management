@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import Spinner from "../components/common/Spinner";
@@ -16,8 +17,8 @@ import BranchManagement from "../pages/owner/BranchManagement";
 import UserManagement from "../pages/owner/UserManagement";
 import AllBookings from "../pages/owner/AllBookings";
 import AllTransactions from "../pages/owner/AllTransactions";
-import ForcastingPage from "../pages/owner/ForcastingPage";
-import WorkforcePage from "../pages/owner/WorkforcePage";
+const ForcastingPage = lazy(() => import("../pages/owner/ForcastingPage"));
+const WorkforcePage = lazy(() => import("../pages/owner/WorkforcePage"));
 import AuditLogPage from "../pages/owner/AuditLogPage";
 import CentralizedReports from "../pages/owner/CentralizedReports";
 
@@ -26,7 +27,7 @@ import ManagerDashboard from "../pages/manager/ManagerDashboard";
 import BranchBookings from "../pages/manager/BranchBookings";
 import BranchTransactions from "../pages/manager/BranchTransactions";
 import BranchInventory from "../pages/manager/BranchInventory";
-import StaffMonitoring from "../pages/manager/StaffMonitoring";
+const StaffMonitoring = lazy(() => import("../pages/manager/StaffMonitoring"));
 import ManagerCustomerFeedback from "../pages/manager/CustomerFeedback";
 import BranchReports from "../pages/manager/BranchReports";
 import ManagerProfile from "../pages/manager/ManagerProfile";
@@ -109,7 +110,8 @@ function UnauthorizedPage() {
 
 export default function AppRoutes() {
   return (
-    <Routes>
+    <Suspense fallback={<CenteredSpinner />}>
+      <Routes>
       {/* Public */}
       <Route path="/" element={<PublicRoute><HomePage /></PublicRoute>} />
 
@@ -214,6 +216,7 @@ export default function AppRoutes() {
       {/* Utility */}
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="*"             element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }

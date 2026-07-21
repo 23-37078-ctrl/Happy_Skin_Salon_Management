@@ -15,6 +15,7 @@ from app.models.inventory import InventoryItem
 from app.models.service import Service
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.services.forecast_service import build_branch_forecast
 
 router = APIRouter(prefix="/owner", tags=["Owner"])
 
@@ -514,31 +515,19 @@ def get_owner_forecasting(
     current_user: User = Depends(require_role("owner")),
     db: Session = Depends(get_db),
 ):
-    window_start = datetime.combine(date.today() - timedelta(days=29), time.min)
-    rows = (
-        db.query(Branch.id, Branch.name, func.count(Booking.id).label("bookings"))
-        .outerjoin(Booking, (Booking.branch_id == Branch.id) & (Booking.appointment_date >= window_start))
-        .group_by(Branch.id, Branch.name)
-        .order_by(Branch.name.asc())
-        .all()
-    )
+    branch_ids = [row[0] for row in db.query(Branch.id).filter(Branch.is_active.is_(True)).order_by(Branch.name).all()]
     forecasts = []
-    for branch_id, branch_name, bookings in rows:
-        daily_average = float(bookings or 0) / 30
-        forecast_volume = round(daily_average * 7, 1)
-        if forecast_volume >= 25:
-            demand_level = "high"
-        elif forecast_volume >= 10:
-            demand_level = "moderate"
-        else:
-            demand_level = "low"
+    for branch_id in branch_ids:
+        forecast = build_branch_forecast(db, branch_id)
+        predictions = forecast["predictions"]
+        levels = [point["demand_level"] for point in predictions]
         forecasts.append({
-            "branch_id": branch_id,
-            "branch": branch_name,
-            "historical_bookings": bookings,
-            "forecast_bookings": forecast_volume,
-            "demand_level": demand_level,
-            "method": "30-day rolling average fallback",
+            **forecast,
+            "branch": forecast["branch_name"],
+            "historical_bookings": forecast["readiness"]["completed_appointments"],
+            "forecast_bookings": round(sum(point["predicted_demand"] for point in predictions), 1),
+            "demand_level": "high" if "high" in levels else "moderate" if "moderate" in levels else "low",
+            "method": forecast["model"],
         })
     return {"forecasts": forecasts}
 
@@ -551,16 +540,13 @@ def get_owner_workforce(
     forecast_data = get_owner_forecasting(current_user=current_user, db=db)["forecasts"]
     recommendations = []
     for item in forecast_data:
-        if item["demand_level"] == "high":
-            action = "Assign additional staff during peak hours and prepare high-demand service materials."
-            recommended_staff = 5
-        elif item["demand_level"] == "moderate":
-            action = "Maintain normal staffing and monitor weekend appointment load."
-            recommended_staff = 3
-        else:
-            action = "Use lean staffing and prioritize flexible scheduling."
-            recommended_staff = 2
-        recommendations.append({**item, "recommended_staff": recommended_staff, "recommendation": action})
+        actions = list(dict.fromkeys(point["recommendation"] for point in item["predictions"]))
+        recommendations.append({
+            **item,
+            "recommended_staff": None,
+            "recommendation": " ".join(actions),
+            "capacity_limitation": "Exact staffing cannot be calculated without schedules, working hours, and staff qualifications.",
+        })
     return {"recommendations": recommendations}
 
 

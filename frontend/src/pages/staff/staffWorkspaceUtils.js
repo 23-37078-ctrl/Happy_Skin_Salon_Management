@@ -44,5 +44,8 @@ export function getFirstName(value) {
 export function getApiError(error, fallback = "Something went wrong. Please try again.") {
   const detail = error?.response?.data?.detail;
   if (Array.isArray(detail)) return detail.map((item) => item.msg).join(" ");
+  if (detail && typeof detail === "object") {
+    return [detail.message, ...(detail.reasons || [])].filter(Boolean).join(" ") || fallback;
+  }
   return detail || error?.message || fallback;
 }
