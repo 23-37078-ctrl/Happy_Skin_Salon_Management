@@ -6,6 +6,11 @@ const ownerService = {
     return response.data;
   },
 
+  dashboardPerformance: async (period = "weekly") => {
+    const response = await api.get("/owner/dashboard/performance", { params: { period } });
+    return response.data;
+  },
+
   branches: async () => {
     const response = await api.get("/owner/branches");
     return response.data;

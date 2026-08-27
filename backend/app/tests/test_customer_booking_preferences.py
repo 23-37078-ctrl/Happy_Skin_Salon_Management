@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import HTTPException
@@ -6,10 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.v1.routes.customer import (
-    create_customer_appointment,
-    list_customer_branch_providers,
-)
+from app.api.v1.routes.customer import create_customer_appointment
 from app.core.database import Base
 from app.models.branch import Branch
 from app.models.service import Service
@@ -45,37 +43,37 @@ def booking_context():
     engine.dispose()
 
 
-def test_customer_can_request_branch_specialist_without_assigning_them(booking_context):
-    session, customer, branch, service, preferred, _ = booking_context
+def _tomorrow_at_ten():
+    tomorrow = datetime.now(ZoneInfo("Asia/Manila")).date() + timedelta(days=1)
+    return datetime.combine(tomorrow, time(10, 0), ZoneInfo("Asia/Manila"))
+
+
+def test_customer_booking_does_not_request_or_assign_specialist(booking_context):
+    session, customer, branch, service, _, _ = booking_context
     result = create_customer_appointment(
         BookingCreateRequest(
             branch_id=branch.id,
             service_id=service.id,
-            preferred_service_provider_id=preferred.id,
-            appointment_date=datetime.now() + timedelta(days=1),
+            appointment_date=_tomorrow_at_ten(),
         ),
         current_user=customer,
         db=session,
     )
 
-    assert result.preferred_service_provider.id == preferred.id
+    assert result.preferred_service_provider is None
     assert result.service_provider is None
-    providers = list_customer_branch_providers(branch.id, current_user=customer, db=session)
-    assert providers == [{"id": preferred.id, "full_name": "Ana Cruz", "job_title": "Nail Technician"}]
 
 
-def test_customer_cannot_request_provider_from_another_branch(booking_context):
-    session, customer, branch, service, _, wrong_branch_provider = booking_context
+def test_customer_cannot_book_a_full_time_slot(booking_context):
+    session, customer, branch, service, _, _ = booking_context
+    payload = BookingCreateRequest(
+        branch_id=branch.id,
+        service_id=service.id,
+        appointment_date=_tomorrow_at_ten(),
+    )
+    create_customer_appointment(payload, current_user=customer, db=session)
+
     with pytest.raises(HTTPException) as exc_info:
-        create_customer_appointment(
-            BookingCreateRequest(
-                branch_id=branch.id,
-                service_id=service.id,
-                preferred_service_provider_id=wrong_branch_provider.id,
-                appointment_date=datetime.now() + timedelta(days=1),
-            ),
-            current_user=customer,
-            db=session,
-        )
+        create_customer_appointment(payload, current_user=customer, db=session)
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 409

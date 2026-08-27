@@ -49,7 +49,7 @@ export default function Footer() {
           <address className="mt-4 space-y-3 not-italic">
             <a href="tel:09123456789" className={`flex items-center gap-2.5 ${footerLinkClass}`}><HiOutlinePhone className="h-4 w-4 shrink-0 text-[#F4A9D0]" />0912 345 6789</a>
             <a href="mailto:happyskinops@example.com" className={`flex items-center gap-2.5 ${footerLinkClass}`}><HiOutlineEnvelope className="h-4 w-4 shrink-0 text-[#F4A9D0]" />happyskinops@example.com</a>
-            <p className="flex items-center gap-2.5 text-sm text-white/65"><HiOutlineMapPin className="h-4 w-4 shrink-0 text-[#F4A9D0]" />Lipa City, Batangas</p>
+            <p className="flex items-center gap-2.5 text-sm text-white/65"><HiOutlineMapPin className="h-4 w-4 shrink-0 text-[#F4A9D0]" />22 Malingap Street, Teachers Village, Quezon City</p>
           </address>
           <Link to="/login?redirect=%2Fcustomer%2Fbook" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#B94B86]">
             <HiOutlineCalendarDays className="h-4 w-4" /> Book now

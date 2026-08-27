@@ -59,7 +59,7 @@ export default function AboutSection() {
           </p>
           <p className="text-[#6B7280] text-base leading-relaxed mb-8">
             Customers can view services and packages, while staff, managers, and
-            the owner can handle bookings, transactions, inventory, reports, and
+            the owner can handle bookings, transactions, reports, and
             branch monitoring.
           </p>
 

@@ -6,6 +6,11 @@ const managerService = {
     return response.data;
   },
 
+  dashboardPerformance: async (period = "weekly") => {
+    const response = await api.get("/manager/dashboard/performance", { params: { period } });
+    return response.data;
+  },
+
   bookings: async ({ page = 1, page_size = 100, status_filter = null } = {}) => {
     const params = { page, page_size };
     if (status_filter) params.status_filter = status_filter;
@@ -28,11 +33,6 @@ const managerService = {
     return response.data;
   },
 
-  inventory: async () => {
-    const response = await api.get("/manager/inventory");
-    return response.data;
-  },
-
   reports: async ({ period = "daily", start_date = null, end_date = null } = {}) => {
     const params = { period };
     if (start_date) params.start_date = start_date;
@@ -45,6 +45,11 @@ const managerService = {
     const response = await api.get("/manager/forecasting");
     return response.data;
   },
+
+  promotions: async () => (await api.get("/manager/promotions")).data,
+  createPromotion: async (payload) => (await api.post("/manager/promotions", payload)).data,
+  updatePromotion: async (promotionId, payload) => (await api.patch(`/manager/promotions/${promotionId}`, payload)).data,
+  deletePromotion: async (promotionId) => api.delete(`/manager/promotions/${promotionId}`),
 
   feedback: async () => {
     const response = await api.get("/manager/feedback");

@@ -31,7 +31,7 @@ def get_bookings_for_branch(
     total = query.count()
 
     bookings = (
-        query.order_by(Booking.appointment_date.asc())
+        query.order_by(Booking.created_at.desc(), Booking.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

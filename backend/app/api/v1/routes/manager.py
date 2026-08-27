@@ -1,13 +1,13 @@
 from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Date, cast, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
 from app.crud.booking import get_booking_by_id, get_bookings_for_branch, update_booking_status
-from app.crud.inventory import build_inventory_summary, get_inventory_for_branch, get_low_stock_for_branch
 from app.crud.transaction import create_transaction, get_transactions_for_branch
 from app.dependencies.permissions import require_manager_branch
 from app.models.booking import Booking
@@ -16,13 +16,31 @@ from app.models.feedback import Feedback
 from app.models.service import Service
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.models.promotion import Promotion
 from app.schemas.booking import BookingListResponse, BookingOut, BookingRescheduleRequest, BookingStatusUpdateRequest
-from app.schemas.inventory import InventoryItemOut, InventoryListResponse, InventorySummary
 from app.schemas.transaction import TransactionListResponse, TransactionOut
 from app.schemas.user import PasswordUpdateRequest, ProfileUpdateRequest, UserOut
 from app.services.forecast_service import build_branch_forecast
 
 router = APIRouter(prefix="/manager", tags=["Manager"])
+
+
+class PromotionRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=120)
+    subtitle: str | None = Field(default=None, max_length=80)
+    image_url: str | None = Field(default=None, max_length=500)
+    start_date: date
+    end_date: date
+    is_active: bool = True
+
+    @field_validator("title", "subtitle", "image_url")
+    @classmethod
+    def clean_promotion_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+
+def _promotion_out(item: Promotion) -> dict:
+    return {"id": item.id, "branch_id": item.branch_id, "title": item.title, "subtitle": item.subtitle, "image": item.image_url, "image_url": item.image_url, "start_date": item.start_date, "end_date": item.end_date, "is_active": item.is_active, "created_at": item.created_at}
 
 
 def _today_bounds() -> tuple[datetime, datetime]:
@@ -51,6 +69,19 @@ def _period_bounds(period: str, start_date: date | None, end_date: date | None) 
     return datetime.combine(start, time.min), datetime.combine(today + timedelta(days=1), time.min)
 
 
+def _dashboard_period_bounds(period: str) -> tuple[datetime, datetime]:
+    today = date.today()
+    if period == "weekly":
+        start = today - timedelta(days=6)
+    elif period == "monthly":
+        start = today.replace(day=1)
+    elif period == "yearly":
+        start = today.replace(month=1, day=1)
+    else:
+        raise HTTPException(status_code=400, detail="Period must be weekly, monthly, or yearly.")
+    return datetime.combine(start, time.min), datetime.combine(today + timedelta(days=1), time.min)
+
+
 @router.get("/dashboard")
 def get_manager_dashboard(
     current_user: User = Depends(require_manager_branch),
@@ -74,7 +105,6 @@ def get_manager_dashboard(
         .filter(Booking.branch_id == branch_id, Booking.status == "pending")
         .count()
     )
-    low_stock_count = len(get_low_stock_for_branch(db, branch_id))
     total_sales = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0))
         .join(Booking, Transaction.booking_id == Booking.id)
@@ -118,7 +148,7 @@ def get_manager_dashboard(
         metrics["customers"] += 1
         if row.visits >= 2:
             metrics["repeat_customers"] += 1
-    branch_providers = db.query(User).filter(User.role == "staff", User.branch_id == branch_id, User.job_title.isnot(None)).all()
+    branch_providers = db.query(User).filter(User.role == "staff", User.branch_id == branch_id, User.is_active.is_(True), User.job_title.isnot(None)).all()
     providers = {item.id: item for item in branch_providers}
     for provider_id in providers:
         provider_metrics.setdefault(provider_id, {"total_visits": 0, "customers": 0, "repeat_customers": 0})
@@ -160,7 +190,6 @@ def get_manager_dashboard(
             "completed_bookings": completed_bookings,
             "total_sales": float(total_sales or 0),
             "pending_bookings": pending_bookings,
-            "low_stock_items": low_stock_count,
         },
         "recent_bookings": [BookingOut.model_validate(booking) for booking in recent_bookings],
         "recent_transactions": [TransactionOut.model_validate(transaction) for transaction in transactions],
@@ -195,6 +224,75 @@ def list_manager_bookings(
     )
 
 
+@router.get("/dashboard/performance")
+def get_manager_dashboard_performance(
+    period: str = Query("weekly", pattern="^(weekly|monthly|yearly)$"),
+    current_user: User = Depends(require_manager_branch),
+    db: Session = Depends(get_db),
+):
+    start, end = _dashboard_period_bounds(period)
+    branch_id = current_user.branch_id
+    branch = db.query(Branch).filter(Branch.id == branch_id).first()
+
+    period_bookings = db.query(Booking).filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end)
+    booking_count = period_bookings.count()
+    completed = period_bookings.filter(Booking.status == "completed").count()
+    cancelled = period_bookings.filter(Booking.status == "cancelled").count()
+    sales = float(db.query(func.coalesce(func.sum(Transaction.amount), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
+    average_rating = float(db.query(func.avg(Feedback.branch_rating)).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Feedback.branch_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).scalar() or 0)
+
+    service_rows = db.query(Service.name, func.count(Booking.id).label("bookings")).join(Booking, Booking.service_id == Service.id).filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end).group_by(Service.name).order_by(func.count(Booking.id).desc()).limit(5).all()
+
+    transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
+    transaction_metrics = {row.provider_id: row for row in transaction_rows}
+
+    rating_rows = db.query(Feedback.service_provider_id.label("provider_id"), func.avg(Feedback.staff_rating).label("average"), func.count(Feedback.id).label("count")).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Feedback.service_provider_id.isnot(None), Feedback.staff_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).group_by(Feedback.service_provider_id).all()
+    rating_metrics = {row.provider_id: row for row in rating_rows}
+
+    customer_rows = db.query(Transaction.service_provider_id.label("provider_id"), Booking.customer_id.label("customer_id"), func.count(Transaction.id).label("visits")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id, Booking.customer_id).all()
+    repeat_metrics = {}
+    for row in customer_rows:
+        values = repeat_metrics.setdefault(row.provider_id, {"clients": 0, "repeat_clients": 0})
+        values["clients"] += 1
+        if row.visits >= 2:
+            values["repeat_clients"] += 1
+
+    staff_members = db.query(User).filter(User.role == "staff", User.branch_id == branch_id, User.is_active.is_(True), User.job_title.isnot(None)).all()
+    staff_performance = []
+    for staff in staff_members:
+        transaction = transaction_metrics.get(staff.id)
+        rating = rating_metrics.get(staff.id)
+        retention = repeat_metrics.get(staff.id, {"clients": 0, "repeat_clients": 0})
+        staff_performance.append({
+            "staff_id": staff.id,
+            "full_name": staff.full_name,
+            "job_title": staff.job_title or "Salon Specialist",
+            "services_completed": int(transaction.services if transaction else 0),
+            "revenue": float(transaction.revenue if transaction else 0),
+            "commission": float(transaction.commission if transaction else 0),
+            "average_rating": round(float(rating.average or 0), 1) if rating else 0,
+            "rating_count": int(rating.count if rating else 0),
+            "repeat_clients": retention["repeat_clients"],
+            "client_count": retention["clients"],
+        })
+    staff_performance.sort(key=lambda item: (item["revenue"], item["services_completed"], item["average_rating"]), reverse=True)
+
+    return {
+        "period": period,
+        "start_date": start.date().isoformat(),
+        "end_date": (end - timedelta(days=1)).date().isoformat(),
+        "branch": {"id": branch_id, "name": branch.name if branch else "Assigned Branch", "address": branch.address if branch else None},
+        "summary": {
+            "bookings": booking_count,
+            "completed": completed,
+            "cancelled": cancelled,
+            "completion_rate": round(completed / booking_count * 100, 1) if booking_count else 0,
+            "sales": sales,
+            "average_rating": round(average_rating, 1),
+        },
+        "services": [{"name": row.name, "bookings": row.bookings} for row in service_rows],
+        "staff": staff_performance,
+    }
 @router.patch("/bookings/{booking_id}/status", response_model=BookingOut)
 def update_manager_booking_status(
     booking_id: int,
@@ -264,20 +362,6 @@ def list_manager_transactions(
         total=total,
         page=page,
         page_size=page_size,
-    )
-
-
-@router.get("/inventory", response_model=InventoryListResponse)
-def get_manager_inventory(
-    current_user: User = Depends(require_manager_branch),
-    db: Session = Depends(get_db),
-):
-    items = get_inventory_for_branch(db, current_user.branch_id)
-    low_stock_items = get_low_stock_for_branch(db, current_user.branch_id)
-    return InventoryListResponse(
-        items=[InventoryItemOut.model_validate(item) for item in items],
-        low_stock_items=[InventoryItemOut.model_validate(item) for item in low_stock_items],
-        summary=InventorySummary(**build_inventory_summary(items, low_stock_items)),
     )
 
 
@@ -353,6 +437,46 @@ def get_manager_forecasting(
         ],
         "message": forecast["limitation"],
     }
+
+
+@router.get("/promotions")
+def list_manager_promotions(current_user: User = Depends(require_manager_branch), db: Session = Depends(get_db)):
+    items = db.query(Promotion).filter(Promotion.branch_id == current_user.branch_id).order_by(Promotion.created_at.desc()).all()
+    return {"promotions": [_promotion_out(item) for item in items]}
+
+
+@router.post("/promotions", status_code=201)
+def create_manager_promotion(payload: PromotionRequest, current_user: User = Depends(require_manager_branch), db: Session = Depends(get_db)):
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status_code=400, detail="Promotion end date cannot be earlier than its start date.")
+    item = Promotion(branch_id=current_user.branch_id, created_by_id=current_user.id, **payload.model_dump())
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return _promotion_out(item)
+
+
+@router.patch("/promotions/{promotion_id}")
+def update_manager_promotion(promotion_id: int, payload: PromotionRequest, current_user: User = Depends(require_manager_branch), db: Session = Depends(get_db)):
+    item = db.query(Promotion).filter(Promotion.id == promotion_id, Promotion.branch_id == current_user.branch_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Promotion not found for your branch.")
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status_code=400, detail="Promotion end date cannot be earlier than its start date.")
+    for field, value in payload.model_dump().items():
+        setattr(item, field, value)
+    db.commit()
+    db.refresh(item)
+    return _promotion_out(item)
+
+
+@router.delete("/promotions/{promotion_id}", status_code=204)
+def delete_manager_promotion(promotion_id: int, current_user: User = Depends(require_manager_branch), db: Session = Depends(get_db)):
+    item = db.query(Promotion).filter(Promotion.id == promotion_id, Promotion.branch_id == current_user.branch_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Promotion not found for your branch.")
+    db.delete(item)
+    db.commit()
 
 
 @router.get("/feedback")

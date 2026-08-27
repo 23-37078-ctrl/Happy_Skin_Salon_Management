@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { HiOutlineMagnifyingGlass, HiOutlinePencilSquare, HiOutlinePlus, HiOutlineUsers } from "react-icons/hi2";
 import ownerService from "../../services/ownerService";
 import { getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, EmptyState, Notice, OwnerWorkspace, StatCard } from "./OwnerWorkspace";
+import { CardSkeleton, EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
 
 const roles = ["owner", "manager", "staff", "customer"];
 const emptyForm = { full_name: "", email: "", password: "", role: "staff", branch_id: "", phone_number: "", email_verified: true };
@@ -86,15 +86,11 @@ export default function UserManagement() {
   };
 
   return (
-    <OwnerWorkspace title="User Management" eyebrow="Role-based account control">
+    <OwnerWorkspace title="User Management" eyebrow="Role-based account control" headerStats={roles.map((role) => ({ label: role, value: users.filter((user) => user.role === role).length, icon: HiOutlineUsers, tone: role === "owner" ? "pink" : role === "manager" ? "blue" : role === "staff" ? "green" : "amber" }))}>
       {error && <Notice message={error} onRetry={loadUsers} />}
       {success && <Notice tone="success" message={success} />}
 
-      <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:grid-cols-4">
-        {roles.map((role) => <StatCard key={role} label={role} value={users.filter((user) => user.role === role).length} icon={HiOutlineUsers} tone={role === "owner" ? "pink" : role === "manager" ? "blue" : role === "staff" ? "green" : "amber"} />)}
-      </section>
-
-      <form onSubmit={submit} className="mt-5 rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:rounded-[1.5rem]">
+      <form onSubmit={submit} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:rounded-[1.5rem]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Field label="Full name" value={form.full_name} onChange={(value) => setForm((prev) => ({ ...prev, full_name: value }))} required />
           <Field label="Email" type="email" value={form.email} onChange={(value) => setForm((prev) => ({ ...prev, email: value }))} required disabled={Boolean(editingId)} />

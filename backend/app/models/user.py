@@ -10,6 +10,8 @@ class User(Base):
     email                     = Column(String(255), unique=True, index=True, nullable=False)
     password_hash             = Column(String(255), nullable=False)
     role                      = Column(String(20), default="customer", nullable=False)
+    is_active                 = Column(Boolean, default=True, nullable=False)
+    session_version           = Column(Integer, default=0, nullable=False)
     branch_id                 = Column(Integer, ForeignKey("branches.id"), nullable=True)
     job_title                 = Column(String(80), nullable=True)
 
@@ -24,6 +26,9 @@ class User(Base):
     verification_code         = Column(String(6), nullable=True)
     verification_code_expires = Column(DateTime, nullable=True)
     verified_at               = Column(DateTime, nullable=True)
+    password_reset_code       = Column(String(6), nullable=True)
+    password_reset_expires    = Column(DateTime, nullable=True)
+    password_reset_attempts   = Column(Integer, default=0, nullable=False)
 
     created_at                = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at                = Column(DateTime, server_default=func.now(), onupdate=func.now())

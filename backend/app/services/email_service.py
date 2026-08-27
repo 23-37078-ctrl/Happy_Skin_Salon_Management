@@ -56,3 +56,21 @@ def send_verification_email(to_email: str, full_name: str, otp: str) -> None:
         server.starttls()
         server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
         server.sendmail(settings.EMAIL_FROM, to_email, msg.as_string())
+
+
+def send_password_reset_email(to_email: str, full_name: str, otp: str) -> None:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Happy Skin - Password Reset Code"
+    msg["From"] = f"Happy Skin <{settings.EMAIL_FROM}>"
+    msg["To"] = to_email
+    message = (
+        f"Hello {full_name},\n\nYour Happy Skin password reset code is: {otp}\n"
+        "It expires in 10 minutes. If you did not request a password reset, you can ignore this email."
+    )
+    msg.attach(MIMEText(message, "plain"))
+
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+        server.ehlo()
+        server.starttls()
+        server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+        server.sendmail(settings.EMAIL_FROM, to_email, msg.as_string())

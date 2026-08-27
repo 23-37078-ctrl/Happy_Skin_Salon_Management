@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.database import get_db
 from app.models.service import Service
 from app.models.branch import Branch
-from app.models.inventory import InventoryItem
 
 router = APIRouter(prefix="/public", tags=["Public"])
 
@@ -53,7 +52,7 @@ def get_public_branches(db: Session = Depends(get_db)):
 
 @router.get("/discovery")
 def get_public_discovery(db: Session = Depends(get_db)):
-    """Public branch catalog with bookable services and safe product availability."""
+    """Public branch catalog with bookable services."""
     branches = (
         db.query(Branch)
         .options(selectinload(Branch.services))
@@ -67,28 +66,6 @@ def get_public_discovery(db: Session = Depends(get_db)):
         .order_by(Service.name.asc())
         .all()
     )
-    inventory = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.is_active.is_(True),
-            InventoryItem.quantity > 0,
-        )
-        .order_by(InventoryItem.name.asc())
-        .all()
-    )
-
-    products_by_branch: dict[int, list[dict]] = {}
-    for item in inventory:
-        products_by_branch.setdefault(item.branch_id, []).append(
-            {
-                "id": item.id,
-                "name": item.name,
-                "category": item.category or "Beauty essential",
-                "unit": item.unit,
-                "available": True,
-            }
-        )
-
     public_services = [
         {
             "id": service.id,
@@ -114,7 +91,6 @@ def get_public_discovery(db: Session = Depends(get_db)):
                     for service in public_services
                     if service["id"] in {item.id for item in branch.services}
                 ],
-                "products": products_by_branch.get(branch.id, []),
             }
             for branch in branches
         ],

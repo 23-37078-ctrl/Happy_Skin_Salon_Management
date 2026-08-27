@@ -11,6 +11,7 @@ import managerService from "../../services/managerService";
 import { formatCurrency, formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, ManagerWorkspace, Notice, StatusBadge } from "./ManagerWorkspace";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
+import ListPagination, { PAGE_SIZE } from "../../components/common/ListPagination";
 
 const statuses = ["all", "pending", "confirmed", "completed", "cancelled"];
 const rescheduleTimes = Array.from({ length: 21 }, (_, index) => {
@@ -33,11 +34,13 @@ export default function BranchBookings() {
   const [bookings, setBookings] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
   const [editing, setEditing] = useState({ id: null, appointment_date: "" });
   const [busyId, setBusyId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [page, setPage] = useState(1);
 
   const loadBookings = useCallback(async () => {
     setIsLoading(true);
@@ -60,9 +63,16 @@ export default function BranchBookings() {
 
   const visibleBookings = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return bookings;
-    return bookings.filter((booking) => [booking.id, booking.customer?.full_name, booking.customer?.email, booking.service?.name, booking.status].join(" ").toLowerCase().includes(term));
-  }, [bookings, search]);
+    return bookings.filter((booking) => {
+      const appointmentDate = new Date(booking.appointment_date);
+      const localDate = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth() + 1).padStart(2, "0")}-${String(appointmentDate.getDate()).padStart(2, "0")}`;
+      const matchesDate = !dateFilter || localDate === dateFilter;
+      const matchesSearch = !term || [booking.id, booking.customer?.full_name, booking.customer?.email, booking.service?.name, booking.status, booking.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase().includes(term);
+      return matchesDate && matchesSearch;
+    });
+  }, [bookings, search, dateFilter]);
+  const pagedBookings = useMemo(() => visibleBookings.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [visibleBookings, page]);
+  useEffect(() => { setPage(1); }, [search, dateFilter, statusFilter]);
 
   const updateStatus = async (bookingId, status) => {
     setBusyId(bookingId);
@@ -103,11 +113,12 @@ export default function BranchBookings() {
       {success && <Notice tone="success" message={success} />}
 
       <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_15rem_auto] lg:items-center">
           <div className="relative min-w-0 flex-1">
             <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer, service, email, or booking number" className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-10 py-3 text-sm font-medium text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20" />
+            <input maxLength={80} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer, service, staff, email, or booking number" className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-10 py-3 text-sm font-medium text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20" />
           </div>
+          <ModernDatePicker value={dateFilter} onChange={setDateFilter} placeholder="Filter by date" ariaLabel="Filter branch bookings by date" />
           <div className="flex gap-2 overflow-x-auto pb-1 lg:pb-0">
             {statuses.map((status) => (
               <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`min-h-10 rounded-xl px-4 py-2 text-sm font-bold capitalize transition ${statusFilter === status ? "bg-[#C85B95] text-white shadow-[0_10px_24px_rgba(200,91,149,0.24)]" : "bg-[#FFF8FB] text-[#6B7280] hover:bg-[#FFF0F7] hover:text-[#1F2937]"}`}>
@@ -121,7 +132,7 @@ export default function BranchBookings() {
       <section className="mt-5">
         {isLoading ? <CardSkeleton rows={5} /> : visibleBookings.length ? (
           <div className="space-y-4">
-            {visibleBookings.map((booking) => (
+            {pagedBookings.map((booking) => (
               <BookingCard
                 key={booking.id}
                 booking={booking}
@@ -132,8 +143,9 @@ export default function BranchBookings() {
                 onStatus={updateStatus}
               />
             ))}
+            <ListPagination page={page} totalItems={visibleBookings.length} onPageChange={setPage} itemLabel="bookings" />
           </div>
-        ) : <EmptyState title="No matching bookings" description="Try another status tab or search term. Only bookings from your assigned branch are shown." />}
+        ) : <EmptyState title="No matching bookings" description="Try another status, date, or search term. Only bookings from your assigned branch are shown." />}
       </section>
     </ManagerWorkspace>
   );

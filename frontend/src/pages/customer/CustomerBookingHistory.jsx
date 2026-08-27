@@ -20,6 +20,11 @@ import {
 } from "../../services/customerService";
 import { CustomerShell, Notice } from "./CustomerShell";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
+import {
+  formatAppointmentDate,
+  formatAppointmentTime,
+  getAppointmentDateKey,
+} from "../../utils/appointmentTime";
 
 const statusStyles = {
   pending: "bg-[#FEF3C7] text-[#92400E]",
@@ -81,11 +86,9 @@ export default function CustomerBookingHistory() {
   const filteredAppointments = useMemo(() => {
     const term = query.trim().toLowerCase();
     return appointments.filter((appointment) => {
-      const appointmentDate = new Date(appointment.appointment_date);
-      const localDate = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth() + 1).padStart(2, "0")}-${String(appointmentDate.getDate()).padStart(2, "0")}`;
-      const matchesDate = !dateFilter || localDate === dateFilter;
+      const matchesDate = !dateFilter || getAppointmentDateKey(appointment.appointment_date) === dateFilter;
       const matchesStatus = statusFilter === "all" || appointment.status === statusFilter;
-      const searchable = [appointment.service?.name, appointment.branch?.name, appointment.status, appointment.notes, appointment.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase();
+      const searchable = [appointment.service?.name, ...(appointment.service_items || []).map((item) => item.service?.name), appointment.branch?.name, appointment.status, appointment.notes, appointment.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase();
       return matchesDate && matchesStatus && (!term || searchable.includes(term));
     });
   }, [appointments, query, dateFilter, statusFilter]);
@@ -113,7 +116,7 @@ export default function CustomerBookingHistory() {
   const clearFilters = () => { setQuery(""); setDateFilter(""); setStatusFilter("all"); setPage(1); };
 
   return (
-    <CustomerShell title="History" stats={stats} showHeading={false} backTo="/customer/dashboard">
+    <CustomerShell title="History" stats={stats} showHeading={false} backTo="/customer/dashboard" backBesideLogo>
       {error && <Notice>{error}</Notice>}
       {success && <Notice tone="success">{success}</Notice>}
 
@@ -176,15 +179,13 @@ function AppointmentCard({ appointment, busy, onCancel }) {
   const canCancel = ["pending", "confirmed"].includes(appointment.status);
   const canReview = appointment.status === "completed";
   const statusDetail = statusDetails[appointment.status] || statusDetails.pending;
-  const appointmentDate = new Date(appointment.appointment_date);
-
   return (
     <article className="group overflow-hidden rounded-[1.25rem] border border-[#EEDFE7] bg-white shadow-[0_8px_24px_rgba(31,41,55,0.045)] transition duration-200 hover:border-[#E3BDD1] hover:shadow-[0_14px_32px_rgba(31,41,55,0.08)]">
       <div className="grid lg:grid-cols-[minmax(13rem,0.8fr)_minmax(24rem,1.45fr)_minmax(18rem,0.9fr)]">
         <header className="border-b border-[#F3E8EF] p-5 lg:border-b-0 lg:border-r">
           <div className="flex items-start justify-between gap-3 lg:block">
             <div className="min-w-0">
-              <h2 className="text-lg font-extrabold leading-snug text-[#1F2937]">{appointment.service?.name || "Service"}</h2>
+              <h2 className="text-lg font-extrabold leading-snug text-[#1F2937]">{appointment.service_items?.length ? appointment.service_items.map((item) => item.service?.name).filter(Boolean).join(", ") : appointment.service?.name || "Service"}</h2>
             </div>
             <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-extrabold capitalize lg:mt-3 lg:inline-flex ${statusStyles[appointment.status] || statusStyles.pending}`}>{appointment.status}</span>
           </div>
@@ -194,8 +195,8 @@ function AppointmentCard({ appointment, busy, onCancel }) {
         <section aria-label="Appointment schedule" className="border-b border-[#F3E8EF] p-5 lg:border-b-0 lg:border-r">
           <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#9CA3AF]">Schedule and location</p>
           <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-            <span className="inline-flex items-center gap-2.5 text-sm font-bold text-[#374151]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineCalendarDays className="h-5 w-5 text-[#D65A9A]" /></span>{appointmentDate.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}</span>
-            <span className="inline-flex items-center gap-2.5 text-sm font-bold text-[#374151]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineClock className="h-5 w-5 text-[#D65A9A]" /></span>{appointmentDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+            <span className="inline-flex items-center gap-2.5 text-sm font-bold text-[#374151]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineCalendarDays className="h-5 w-5 text-[#D65A9A]" /></span>{formatAppointmentDate(appointment.appointment_date)}</span>
+            <span className="inline-flex items-center gap-2.5 text-sm font-bold text-[#374151]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineClock className="h-5 w-5 text-[#D65A9A]" /></span>{formatAppointmentTime(appointment.appointment_date)}</span>
             <span className="inline-flex items-center gap-2.5 text-sm font-semibold text-[#4B5563]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineMapPin className="h-5 w-5 text-[#D65A9A]" /></span>{appointment.branch?.name || "Branch"}</span>
             {appointment.preferred_service_provider && <span className="inline-flex items-center gap-2.5 text-sm font-semibold text-[#4B5563]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineUserGroup className="h-5 w-5 text-[#D65A9A]" /></span>{appointment.preferred_service_provider.full_name}</span>}
           </div>
@@ -205,7 +206,7 @@ function AppointmentCard({ appointment, busy, onCancel }) {
           {appointment.receipt ? (
             <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-3.5 text-sm text-[#166534]">
               <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 font-extrabold"><HiOutlineReceiptPercent className="h-5 w-5" /> Receipt</span><span className="text-base font-black">{Number(appointment.receipt.amount || 0).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span></div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-[#39734E]"><span>{appointment.receipt.service_provider || "Salon staff"}</span><span className="capitalize">{appointment.receipt.payment_method?.replace("_", " ")}</span>{appointment.receipt.additional_charges && <span className="w-full">Add-ons: {appointment.receipt.additional_charges}</span>}</div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-[#39734E]"><span>{appointment.receipt.service_provider || "Salon staff"}</span><span className="capitalize">{appointment.receipt.payment_method?.replace("_", " ")}</span>{appointment.receipt.additional_charges && <span className="w-full">Add-ons: {appointment.receipt.additional_charges}</span>}{Number(appointment.receipt.commission_amount || 0) > 0 && <span className="w-full">Staff commission / tip: {Number(appointment.receipt.commission_amount).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span>}</div>
             </div>
           ) : (
             <div className="rounded-xl border border-[#F3E8EF] bg-white p-3.5"><p className="text-sm font-extrabold text-[#374151]">{statusDetail.title}</p><p className="mt-1 text-xs leading-5 text-[#6B7280]">{statusDetail.description}</p></div>

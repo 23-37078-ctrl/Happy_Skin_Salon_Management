@@ -8,7 +8,7 @@ from google.auth.transport import requests as google_requests
 from app.schemas.user import SocialLoginRequest
 
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -21,8 +21,10 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
+from app.models.auth_event import AuthEvent
 from app.schemas.user import (
     LoginRequest, LoginResponse,
+    PasswordResetConfirmRequest, PasswordResetRequest,
     RefreshTokenRequest,
     RegisterRequest, RegisterResponse,
     ResendVerificationRequest, ResendVerificationResponse,
@@ -30,7 +32,7 @@ from app.schemas.user import (
     UserOut,
     VerifyOTPRequest, VerifyEmailResponse,
 )
-from app.services.email_service import send_verification_email
+from app.services.email_service import send_password_reset_email, send_verification_email
 from app.services.sms_service import send_verification_sms
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -42,6 +44,10 @@ def _generate_otp(length: int = 6) -> str:
 
 def _otp_expiry() -> datetime:
     return datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def _dispatch_otp(
@@ -64,6 +70,42 @@ def _dispatch_otp(
             user.full_name,
             otp,
         )
+
+
+def _record_auth_event(db: Session, request: Request, email: str, event_type: str, user: User | None = None) -> None:
+    db.add(
+        AuthEvent(
+            user_id=user.id if user else None,
+            email=email.lower(),
+            event_type=event_type,
+            ip_address=request.client.host if request.client else None,
+            user_agent=(request.headers.get("user-agent") or "")[:255] or None,
+        )
+    )
+
+
+def _issue_login_response(user: User) -> LoginResponse:
+    token_data = {"sub": str(user.id), "role": user.role, "email": user.email, "sv": user.session_version}
+    return LoginResponse(
+        access_token=create_access_token(token_data),
+        refresh_token=create_refresh_token({"sub": str(user.id), "sv": user.session_version}),
+        user=UserOut.model_validate(user),
+    )
+
+
+def _check_login_rate_limit(db: Session, email: str) -> None:
+    window_start = datetime.utcnow() - timedelta(minutes=settings.LOGIN_ATTEMPT_WINDOW_MINUTES)
+    failed_attempts = (
+        db.query(AuthEvent)
+        .filter(
+            AuthEvent.email == email.lower(),
+            AuthEvent.event_type == "login_failed",
+            AuthEvent.created_at >= window_start,
+        )
+        .count()
+    )
+    if failed_attempts >= settings.LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many failed sign-in attempts. Please try again later.")
 
 
 # ── REGISTER ─────────────────────────────────────────────────────────────────
@@ -199,31 +241,90 @@ def resend_verification(
     )
 
 
+@router.post("/password-reset/request", response_model=VerifyEmailResponse)
+def request_password_reset(
+    payload: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    message = "If an active account uses this email, a password reset code has been sent."
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not user.is_active or not user.email_verified or not user.password_hash:
+        return VerifyEmailResponse(message=message)
+
+    if user.password_reset_expires:
+        cooldown_end = (
+            _as_utc(user.password_reset_expires)
+            - timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+            + timedelta(seconds=settings.OTP_RESEND_COOLDOWN_SECONDS)
+        )
+        if datetime.now(timezone.utc) < cooldown_end:
+            return VerifyEmailResponse(message=message)
+
+    code = _generate_otp()
+    user.password_reset_code = code
+    user.password_reset_expires = _otp_expiry()
+    user.password_reset_attempts = 0
+    db.commit()
+    background_tasks.add_task(send_password_reset_email, user.email, user.full_name, code)
+    return VerifyEmailResponse(message=message)
+
+
+@router.post("/password-reset/confirm", response_model=VerifyEmailResponse)
+def confirm_password_reset(payload: PasswordResetConfirmRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not user.is_active or not user.password_reset_code or not user.password_reset_expires:
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset code.")
+
+    if datetime.now(timezone.utc) > _as_utc(user.password_reset_expires):
+        user.password_reset_code = None
+        user.password_reset_expires = None
+        db.commit()
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset code.")
+
+    if user.password_reset_attempts >= settings.PASSWORD_RESET_MAX_ATTEMPTS or user.password_reset_code != payload.code:
+        user.password_reset_attempts += 1
+        db.commit()
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset code.")
+
+    user.password_hash = hash_password(payload.new_password)
+    user.password_reset_code = None
+    user.password_reset_expires = None
+    user.password_reset_attempts = 0
+    user.session_version += 1
+    user.updated_at = datetime.utcnow()
+    db.commit()
+    return VerifyEmailResponse(message="Password reset successfully. Please sign in with your new password.")
+
+
 # ── LOGIN ─────────────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    _check_login_rate_limit(db, str(payload.email))
     user = db.query(User).filter(User.email == payload.email).first()
 
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or not user.password_hash or not verify_password(payload.password, user.password_hash):
+        _record_auth_event(db, request, str(payload.email), "login_failed", user)
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
+    if not user.is_active:
+        _record_auth_event(db, request, user.email, "login_inactive", user)
+        db.commit()
+        raise HTTPException(status_code=403, detail="This account is inactive. Please contact an administrator.")
+
     if not user.email_verified:
+        _record_auth_event(db, request, user.email, "login_unverified", user)
+        db.commit()
         raise HTTPException(
             status_code=403,
             detail="Please verify your account before logging in.",
         )
 
-    access_token = create_access_token(
-        {"sub": str(user.id), "role": user.role, "email": user.email}
-    )
-    refresh_token = create_refresh_token({"sub": str(user.id)})
-
-    return LoginResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=UserOut.model_validate(user),
-    )
+    _record_auth_event(db, request, user.email, "login_success", user)
+    db.commit()
+    return _issue_login_response(user)
 
 
 # ── REFRESH TOKEN ─────────────────────────────────────────────────────────────
@@ -247,12 +348,10 @@ def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid refresh token.") from exc
 
     user = db.query(User).filter(User.id == user_id_int).first()
-    if not user:
+    if not user or not user.is_active or token_payload.get("sv", 0) != user.session_version:
         raise HTTPException(status_code=401, detail="User no longer exists.")
 
-    access_token = create_access_token(
-        {"sub": str(user.id), "role": user.role, "email": user.email}
-    )
+    access_token = create_access_token({"sub": str(user.id), "role": user.role, "email": user.email, "sv": user.session_version})
     return TokenResponse(access_token=access_token)
 
 # ── GOOGLE LOGIN ──────────────────────────────────────────────────────────

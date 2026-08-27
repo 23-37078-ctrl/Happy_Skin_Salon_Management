@@ -3,14 +3,12 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   HiOutlineArrowLeftOnRectangle,
   HiOutlineBanknotes,
-  HiOutlineCalendarDays,
   HiOutlineChartBar,
   HiOutlineClipboardDocumentList,
-  HiOutlineCube,
   HiOutlineHome,
   HiOutlineStar,
+  HiOutlineGift,
   HiOutlineUserCircle,
-  HiOutlineUsers,
   HiOutlineBars3,
   HiOutlineXMark,
 } from "react-icons/hi2";
@@ -20,11 +18,10 @@ import SystemPopup from "../../components/common/SystemPopup";
 
 const navItems = [
   { to: "/manager/dashboard", label: "Dashboard", icon: HiOutlineHome },
-  { to: "/manager/bookings", label: "Bookings", icon: HiOutlineCalendarDays },
   { to: "/manager/transactions", label: "Sales", icon: HiOutlineBanknotes },
-  { to: "/manager/inventory", label: "Inventory", icon: HiOutlineCube },
   { to: "/manager/reports", label: "Reports", icon: HiOutlineChartBar },
   { to: "/manager/feedback", label: "Feedback", icon: HiOutlineStar },
+  { to: "/manager/promotions", label: "Promotions", icon: HiOutlineGift },
   { to: "/manager/profile", label: "Profile", icon: HiOutlineUserCircle },
 ];
 
@@ -122,6 +119,10 @@ export function ManagerWorkspace({ children, title, eyebrow, actions, headerStat
                 })}
               </div>
             )}
+            <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:max-w-56 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(currentUser?.full_name || firstName || "M").charAt(0).toUpperCase()}</span>
+              <span className="min-w-0"><span className="block truncate text-sm font-bold text-[#1F2937]">{currentUser?.full_name || firstName || "Manager"}</span><span className="block truncate text-[10px] font-semibold text-[#C85B95]">Branch Manager</span><span className="block max-w-36 truncate text-[10px] text-[#6B7280]">{currentUser?.email}</span></span>
+            </div>
             {actions && <div className="flex w-full flex-wrap gap-2 [&>*]:flex-1 sm:[&>*]:flex-none xl:w-auto">{actions}</div>}
           </header>
           {children}

@@ -45,3 +45,67 @@
     color: #C85B95;
   }
 }
+
+/* Print only the completed payment receipt, never the surrounding portal page. */
+@media print {
+  @page {
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .payment-receipt-print,
+  .payment-receipt-print *,
+  .day-end-print,
+  .day-end-print * {
+    visibility: visible !important;
+  }
+
+  .payment-receipt-print {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .day-end-print {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .payment-receipt-print button,
+  .day-end-print button {
+    display: none !important;
+  }
+}
+/* Staff payment forms open as centered popups for both online and walk-in bookings. */
+form.rounded-\[1\.5rem\].border-2.border-\[\#D65A9A\]\/30.bg-white.p-5.shadow-lg {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 100;
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  margin: 0;
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 100vmax rgb(31 41 55 / 55%), 0 24px 70px rgb(31 41 55 / 30%);
+}

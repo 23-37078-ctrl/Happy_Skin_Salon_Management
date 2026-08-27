@@ -13,7 +13,8 @@ class TransactionCreateRequest(BaseModel):
     service_provider_id: Optional[int] = None
     amount_tendered: Optional[float] = None
     additional_charges: list[dict] = Field(default_factory=list)
-    commission_rate: float = 10
+    commission_rate: float = 0
+    commission_amount: float = 0
 
     @field_validator("payment_method")
     @classmethod
@@ -38,6 +39,13 @@ class TransactionCreateRequest(BaseModel):
             raise ValueError("Commission rate must be between 0 and 100.")
         return value
 
+    @field_validator("commission_amount")
+    @classmethod
+    def booking_commission_amount_is_valid(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("Commission amount cannot be negative.")
+        return value
+
 
 class AdditionalChargeItem(BaseModel):
     reason: str
@@ -59,6 +67,37 @@ class AdditionalChargeItem(BaseModel):
         return value
 
 
+class WalkInBookingRequest(BaseModel):
+    customer_name: str
+    phone_number: str
+    service_id: int
+    service_provider_id: int
+    service_ids: list[int] = Field(default_factory=list)
+    service_provider_ids: dict[int, int] = Field(default_factory=dict)
+    notes: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("customer_name")
+    @classmethod
+    def customer_name_is_required(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("Customer name must contain at least 2 characters.")
+        return value
+
+    @field_validator("phone_number")
+    @classmethod
+    def phone_number_is_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Phone number is required.")
+        return value
+
+
+class OnlineBookingConfirmRequest(BaseModel):
+    service_provider_id: int
+    service_provider_ids: dict[int, int] = Field(default_factory=dict)
+
+
 class WalkInCheckoutRequest(BaseModel):
     customer_name: str
     phone_number: Optional[str] = None
@@ -71,7 +110,8 @@ class WalkInCheckoutRequest(BaseModel):
     # Legacy aggregate fields remain accepted for older clients.
     additional_charge: float = 0
     charge_reason: Optional[str] = None
-    commission_rate: float = 10
+    commission_rate: float = 0
+    commission_amount: float = 0
 
     @field_validator("customer_name")
     @classmethod
@@ -110,6 +150,13 @@ class WalkInCheckoutRequest(BaseModel):
             raise ValueError("Commission rate must be between 0 and 100.")
         return value
 
+    @field_validator("commission_amount")
+    @classmethod
+    def commission_amount_is_valid(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("Commission amount cannot be negative.")
+        return value
+
     @model_validator(mode="after")
     def charge_reason_is_required(self):
         if self.additional_charges:
@@ -125,6 +172,7 @@ class WalkInCheckoutRequest(BaseModel):
 class TransactionStaffOut(BaseModel):
     id: int
     full_name: str
+    phone_number: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -136,12 +184,21 @@ class TransactionServiceOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TransactionBranchOut(BaseModel):
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
 class TransactionBookingOut(BaseModel):
     id: int
     appointment_date: datetime
     status: str
+    notes: Optional[str] = None
     customer: Optional[TransactionStaffOut] = None
     service: Optional[TransactionServiceOut] = None
+    branch: Optional[TransactionBranchOut] = None
 
     model_config = {"from_attributes": True}
 

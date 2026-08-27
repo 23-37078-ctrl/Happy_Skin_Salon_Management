@@ -55,4 +55,19 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account is inactive.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token_session_version = payload.get("sv", 0)
+    if token_session_version != user.session_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This session has been revoked.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user

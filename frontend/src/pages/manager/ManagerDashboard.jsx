@@ -1,46 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  HiOutlineBanknotes,
-  HiOutlineCalendarDays,
-  HiOutlineCheckCircle,
-  HiOutlineClock,
-  HiOutlineExclamationTriangle,
-  HiOutlineShoppingBag,
-  HiOutlineSparkles,
-  HiOutlineUserGroup,
-  HiOutlineArrowPath,
-} from "react-icons/hi2";
+import { HiOutlineBanknotes, HiOutlineCalendarDays, HiOutlineCheckCircle, HiOutlineClock, HiOutlineMapPin, HiOutlineSparkles, HiOutlineStar, HiOutlineTrophy, HiOutlineXMark } from "react-icons/hi2";
 import managerService from "../../services/managerService";
-import { formatCurrency, formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, EmptyState, ManagerWorkspace, Notice, StatCard, StatusBadge } from "./ManagerWorkspace";
+import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
+import { CardSkeleton, EmptyState, ManagerWorkspace, Notice } from "./ManagerWorkspace";
+
+const periods = ["weekly", "monthly", "yearly"];
 
 export default function ManagerDashboard() {
   const [data, setData] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
   const [forecast, setForecast] = useState({ demand_forecast: [], workforce_recommendations: [] });
+  const [performance, setPerformance] = useState(null);
+  const [period, setPeriod] = useState("weekly");
+  const [selectedStaff, setSelectedStaff] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [performanceLoading, setPerformanceLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [performanceError, setPerformanceError] = useState("");
 
   const loadDashboard = useCallback(async () => {
-    setIsLoading(true);
-    setError("");
+    setIsLoading(true); setError("");
     try {
-      const [dashboardPayload, forecastPayload] = await Promise.all([
-        managerService.dashboard(),
-        managerService.forecasting(),
-      ]);
-      setData(dashboardPayload);
-      setForecast(forecastPayload || { demand_forecast: [], workforce_recommendations: [] });
-    } catch (err) {
-      setError(getApiError(err, "We couldn't load the manager dashboard."));
-    } finally {
-      setIsLoading(false);
-    }
+      const [dashboardPayload, forecastPayload] = await Promise.all([managerService.dashboard(), managerService.forecasting()]);
+      setData(dashboardPayload); setForecast(forecastPayload || { demand_forecast: [], workforce_recommendations: [] });
+    } catch (err) { setError(getApiError(err, "We couldn't load the manager dashboard.")); }
+    finally { setIsLoading(false); }
   }, []);
 
-  useEffect(() => {
-    Promise.resolve().then(() => loadDashboard());
-  }, [loadDashboard]);
+  const loadPerformance = useCallback(async () => {
+    setPerformanceLoading(true); setPerformanceError("");
+    try { setPerformance(await managerService.dashboardPerformance(period)); }
+    catch (err) { setPerformanceError(getApiError(err, "We couldn't load branch performance.")); }
+    finally { setPerformanceLoading(false); }
+  }, [period]);
+
+  useEffect(() => { Promise.resolve().then(loadDashboard); }, [loadDashboard]);
+  useEffect(() => { Promise.resolve().then(loadPerformance); }, [loadPerformance]);
 
   const stats = useMemo(() => {
     const source = data?.stats || {};
@@ -49,98 +43,43 @@ export default function ManagerDashboard() {
       { label: "Completed", value: source.completed_bookings || 0, icon: HiOutlineCheckCircle, tone: "green" },
       { label: "Total Sales", value: formatCurrency(source.total_sales), icon: HiOutlineBanknotes, tone: "blue" },
       { label: "Pending", value: source.pending_bookings || 0, icon: HiOutlineClock, tone: "amber" },
-      { label: "Low Stock", value: source.low_stock_items || 0, icon: HiOutlineExclamationTriangle, tone: "red" },
     ];
   }, [data]);
 
   return (
-    <ManagerWorkspace
-      title="Manager Dashboard"
-      eyebrow={data?.branch?.name || "Assigned branch"}
-      brandOnly
-      headerStats={stats}
-      actions={
-        <Link to="/manager/bookings" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white shadow-[0_10px_24px_rgba(200,91,149,0.24)]">
-          <HiOutlineCalendarDays className="h-5 w-5" />
-          Manage Bookings
-        </Link>
-      }
-    >
+    <ManagerWorkspace title="Manager Dashboard" eyebrow={data?.branch?.name || "Assigned branch"} brandOnly headerStats={stats}>
       {error && <Notice message={error} onRetry={loadDashboard} />}
-
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <section>
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <h2 className="text-lg font-bold text-[#1F2937]">Recent Bookings</h2>
-            <Link to="/manager/bookings" className="text-sm font-bold text-[#C85B95] hover:underline">View all</Link>
-          </div>
-          {isLoading ? <CardSkeleton rows={4} /> : data?.recent_bookings?.length ? (
-            <div className="space-y-3">
-              {data.recent_bookings.map((booking) => <BookingPreview key={booking.id} booking={booking} />)}
-            </div>
-          ) : <EmptyState title="No branch bookings yet" description="Customer appointments for your assigned branch will appear here." />}
-        </section>
-
-        <section>
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <h2 className="text-lg font-bold text-[#1F2937]">Branch Performance</h2>
-            <Link to="/manager/reports" className="text-sm font-bold text-[#C85B95] hover:underline">Reports</Link>
-          </div>
-          <div className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-            {data?.branch_performance?.length ? data.branch_performance.map((row) => (
-              <div key={row.date} className="flex flex-wrap items-center justify-between gap-4 border-b border-[#F3E8EF] py-3 last:border-0">
-                <span className="text-sm font-bold text-[#1F2937]">{row.date}</span>
-                <span className="inline-flex items-center gap-2 text-sm text-[#6B7280]"><HiOutlineShoppingBag className="h-4 w-4 text-[#D65A9A]" /> {row.bookings} bookings</span>
-                <span className="text-sm font-bold text-[#166534]">{formatCurrency(row.sales)}</span>
-              </div>
-            )) : <EmptyState icon={HiOutlineSparkles} title="No performance data" description="Daily sales and bookings will build up as branch activity is recorded." />}
-          </div>
-        </section>
-      </div>
+      {performanceError && <Notice message={performanceError} onRetry={loadPerformance} />}
+      <PerformanceWorkspace data={performance} loading={performanceLoading} period={period} onPeriod={setPeriod} onStaff={setSelectedStaff} />
 
       <section className="mt-6">
-        <div className="mb-4"><h2 className="flex items-center gap-2 text-lg font-bold text-[#1F2937]"><HiOutlineArrowPath className="h-5 w-5 text-[#D65A9A]" /> Staff Customers Return To</h2><p className="mt-1 text-xs text-[#6B7280]">Based on repeat paying customers handled by each provider in this branch.</p></div>
-        {isLoading ? <CardSkeleton rows={3} /> : data?.staff_retention?.length ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {data.staff_retention.map((staff, index) => (
-              <article key={staff.staff_id} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-                <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-full bg-[#FFF0F7] font-extrabold text-[#D65A9A]">{staff.full_name.slice(0, 1)}</span><div><p className="font-bold text-[#1F2937]">{staff.full_name}</p><p className="text-xs text-[#6B7280]">{staff.job_title}</p></div></div>{index === 0 && staff.total_visits > 0 && <span className="rounded-full bg-[#FEF3C7] px-2.5 py-1 text-[10px] font-bold text-[#92400E]">Top provider</span>}</div>
-                <div className="mt-4 grid grid-cols-4 gap-2 text-center"><div className="rounded-xl bg-[#FFF8FB] p-2"><p className="font-extrabold">{staff.repeat_customers}</p><p className="text-[9px] uppercase text-[#6B7280]">Repeat clients</p></div><div className="rounded-xl bg-[#FFF8FB] p-2"><p className="font-extrabold">{staff.total_visits}</p><p className="text-[9px] uppercase text-[#6B7280]">Visits</p></div><div className="rounded-xl bg-[#FFF8FB] p-2"><p className="font-extrabold text-[#D97706]">★ {staff.average_rating || "—"}</p><p className="text-[9px] uppercase text-[#6B7280]">{staff.rating_count} ratings</p></div><div className="rounded-xl bg-[#FFF8FB] p-2"><p className="font-extrabold text-[#C85B95]">{formatCurrency(staff.commission_earned)}</p><p className="text-[9px] uppercase text-[#6B7280]">Commission</p></div></div>
-              </article>
-            ))}
-          </div>
-        ) : <EmptyState icon={HiOutlineUserGroup} title="No repeat-customer data yet" description="Provider retention will appear after customers return using the same phone number and complete another paid visit." />}
+        <div className="mb-4"><h2 className="text-lg font-bold text-[#1F2937]">Demand Forecast</h2><p className="mt-1 text-xs text-[#6B7280]">Staffing and demand guidance for this assigned branch.</p></div>
+        {isLoading ? <CardSkeleton rows={2} /> : forecast.workforce_recommendations?.length || forecast.demand_forecast?.length ? <div className="grid gap-4 lg:grid-cols-2">{(forecast.demand_forecast || []).slice(0, 2).map((item, index) => <ForecastCard key={item.id || index} item={item} type="Demand" />)}{(forecast.workforce_recommendations || []).slice(0, 2).map((item, index) => <ForecastCard key={item.id || index} item={item} type="Workforce" />)}</div> : <EmptyState icon={HiOutlineSparkles} title="No forecast available" description={forecast.message || "Forecasts will appear as branch activity grows."} />}
       </section>
-
-      <section className="mt-6">
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <div><h2 className="text-lg font-bold text-[#1F2937]">Demand Forecast</h2><p className="mt-1 text-xs text-[#6B7280]">Workforce and service-demand guidance for this branch.</p></div>
-        </div>
-        {isLoading ? <CardSkeleton rows={2} /> : forecast.workforce_recommendations?.length || forecast.demand_forecast?.length ? (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {(forecast.demand_forecast || []).slice(0, 3).map((item, index) => <ForecastCard key={item.id || `demand-${index}`} item={item} type="Demand" />)}
-            {(forecast.workforce_recommendations || []).slice(0, 3).map((item, index) => <ForecastCard key={item.id || `staff-${index}`} item={item} type="Workforce" />)}
-          </div>
-        ) : <EmptyState icon={HiOutlineSparkles} title="No forecast available" description={forecast.message || "Demand and staffing recommendations will appear as branch activity grows."} />}
-      </section>
+      {selectedStaff && <StaffDrawer staff={selectedStaff} period={period} onClose={() => setSelectedStaff(null)} />}
     </ManagerWorkspace>
   );
 }
 
-function ForecastCard({ item, type }) {
-  return <article className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]"><span className="text-[10px] font-bold uppercase tracking-wide text-[#C85B95]">{type}</span><p className="mt-2 font-bold text-[#1F2937]">{item.title || item.service_name || item.date || item.recommendation || `${type} insight`}</p><p className="mt-2 text-sm leading-6 text-[#6B7280]">{item.description || item.reason || item.recommendation || (item.predicted_bookings != null ? `${item.predicted_bookings} expected bookings` : "Review branch staffing and appointment demand.")}</p></article>;
+function PerformanceWorkspace({ data, loading, period, onPeriod, onStaff }) {
+  const summary = data?.summary || {};
+  return <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C9558F]">Assigned branch performance</p><h2 className="mt-1 text-xl font-extrabold text-[#1F2937]">{data?.branch?.name || "Branch performance"}</h2><p className="mt-1 inline-flex items-center gap-1 text-xs text-[#6B7280]"><HiOutlineMapPin className="h-4 w-4 text-[#D65A9A]" /> {data?.branch?.address || "Your assigned branch only"}</p></div><div className="flex rounded-xl bg-[#FFF8FB] p-1 ring-1 ring-[#F3E8EF]">{periods.map((item) => <button key={item} type="button" onClick={() => onPeriod(item)} className={`rounded-lg px-3 py-2 text-xs font-bold capitalize transition ${period === item ? "bg-[#C9558F] text-white shadow-sm" : "text-[#6B7280] hover:text-[#C9558F]"}`}>{item}</button>)}</div></div>
+    {loading ? <div className="mt-5"><CardSkeleton rows={3} /></div> : <>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Metric label="Bookings" value={summary.bookings || 0} /><Metric label="Completed" value={summary.completed || 0} /><Metric label="Completion rate" value={`${summary.completion_rate || 0}%`} /><Metric label="Sales" value={formatCurrency(summary.sales)} /><Metric label="Branch rating" value={summary.average_rating ? `${summary.average_rating}/5` : "—"} /></div>
+      <div className="mt-5 grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
+        <div><h3 className="mb-3 font-bold text-[#1F2937]">Top services</h3><div className="space-y-2">{data?.services?.length ? data.services.map((service, index) => <div key={service.name} className="flex items-center gap-3 rounded-xl bg-[#FFF8FB] p-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-white text-xs font-extrabold text-[#C9558F]">{index + 1}</span><span className="min-w-0 flex-1 truncate text-sm font-bold text-[#374151]">{service.name}</span><span className="text-xs font-semibold text-[#6B7280]">{service.bookings} bookings</span></div>) : <p className="rounded-xl bg-[#FFF8FB] p-5 text-center text-sm text-[#6B7280]">No service activity this period.</p>}</div></div>
+        <div><div className="mb-3 flex items-center justify-between"><h3 className="font-bold text-[#1F2937]">Staff performance</h3><span className="text-xs text-[#6B7280]">Click a staff member for details</span></div><div className="grid gap-3 md:grid-cols-2">{data?.staff?.length ? data.staff.map((staff, index) => <button key={staff.staff_id} type="button" onClick={() => onStaff(staff)} className="rounded-xl border border-[#F3E8EF] p-3 text-left transition hover:border-[#D65A9A]/40 hover:bg-[#FFF8FB]"><div className="flex items-start justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#FFF0F7] font-extrabold text-[#C9558F]">{staff.full_name.slice(0, 1)}</span><div className="min-w-0"><p className="truncate text-sm font-bold text-[#1F2937]">{staff.full_name}</p><p className="truncate text-[10px] text-[#6B7280]">{staff.job_title}</p></div></div>{index === 0 && staff.services_completed > 0 && <HiOutlineTrophy className="h-5 w-5 text-[#D97706]" />}</div><div className="mt-3 grid grid-cols-3 gap-1 text-center"><MiniMetric value={staff.services_completed} label="Services" /><MiniMetric value={formatCurrency(staff.revenue)} label="Revenue" /><MiniMetric value={staff.average_rating || "—"} label="Rating" /></div></button>) : <p className="rounded-xl bg-[#FFF8FB] p-5 text-center text-sm text-[#6B7280] md:col-span-2">No staff activity this period.</p>}</div></div>
+      </div>
+    </>}
+  </section>;
 }
 
-function BookingPreview({ booking }) {
-  return (
-    <article className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="truncate text-base font-bold text-[#1F2937]">{booking.service?.name || "Service"}</p>
-          <p className="mt-1 text-sm text-[#6B7280]">{booking.customer?.full_name || "Customer"} • {formatDateTime(booking.appointment_date)}</p>
-        </div>
-        <StatusBadge status={booking.status} />
-      </div>
-    </article>
-  );
+function Metric({ label, value }) { return <div className="rounded-xl bg-[#FFF8FB] p-3 ring-1 ring-[#F3E8EF]"><p className="text-lg font-extrabold text-[#1F2937]">{value}</p><p className="mt-1 text-[10px] font-bold uppercase text-[#6B7280]">{label}</p></div>; }
+function MiniMetric({ label, value }) { return <div className="rounded-lg bg-[#FFF8FB] p-2"><p className="truncate text-xs font-extrabold text-[#1F2937]">{value}</p><p className="mt-1 text-[8px] uppercase text-[#6B7280]">{label}</p></div>; }
+
+function StaffDrawer({ staff, period, onClose }) {
+  return <div className="fixed inset-0 z-[230] bg-[#172033]/30 backdrop-blur-[2px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside role="dialog" aria-modal="true" aria-label={`${staff.full_name} performance`} className="ml-auto flex h-full w-full max-w-md flex-col bg-white p-5 shadow-2xl"><div className="flex items-start justify-between"><div className="flex items-center gap-3"><span className="grid h-12 w-12 place-items-center rounded-full bg-[#FFF0F7] text-lg font-extrabold text-[#C9558F]">{staff.full_name.slice(0, 1)}</span><div><h2 className="font-extrabold text-[#1F2937]">{staff.full_name}</h2><p className="text-xs text-[#6B7280]">{staff.job_title}</p></div></div><button type="button" onClick={onClose} aria-label="Close staff details" className="grid h-10 w-10 place-items-center rounded-xl hover:bg-[#FFF0F7]"><HiOutlineXMark className="h-6 w-6" /></button></div><span className="mt-5 self-start rounded-full bg-[#FFF0F7] px-3 py-1 text-xs font-bold capitalize text-[#C9558F]">{period} performance</span><div className="mt-5 grid grid-cols-2 gap-3"><Metric label="Services completed" value={staff.services_completed} /><Metric label="Revenue generated" value={formatCurrency(staff.revenue)} /><Metric label="Commission earned" value={formatCurrency(staff.commission)} /><Metric label="Repeat clients" value={staff.repeat_clients} /><Metric label="Average rating" value={staff.average_rating ? `${staff.average_rating}/5` : "—"} /><Metric label="Ratings received" value={staff.rating_count} /></div><div className="mt-5 rounded-2xl bg-[#FFF8FB] p-4"><p className="flex items-center gap-2 font-bold text-[#1F2937]"><HiOutlineStar className="h-5 w-5 text-[#D97706]" /> Client retention</p><p className="mt-2 text-sm leading-6 text-[#6B7280]">{staff.repeat_clients} of {staff.client_count} unique clients returned to this provider during the selected period.</p></div></aside></div>;
 }
+
+function ForecastCard({ item, type }) { return <article className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-sm"><span className="text-[10px] font-bold uppercase text-[#C85B95]">{type}</span><p className="mt-2 font-bold text-[#1F2937]">{item.title || item.service_name || item.date || `${type} insight`}</p><p className="mt-2 text-sm leading-6 text-[#6B7280]">{item.description || item.reason || item.recommendation || "Review branch staffing and demand."}</p></article>; }

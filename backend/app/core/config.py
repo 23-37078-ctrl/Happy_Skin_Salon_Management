@@ -9,12 +9,19 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:postgres@localhost/happy_skin"
+    DATABASE_CONNECT_TIMEOUT_SECONDS: int = 10
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_MAX_OVERFLOW: int = 10
+    DATABASE_POOL_RECYCLE_SECONDS: int = 1800
 
     # JWT
     SECRET_KEY: str = "change-this-to-a-long-random-secret"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    LOGIN_MAX_ATTEMPTS: int = 5
+    LOGIN_ATTEMPT_WINDOW_MINUTES: int = 15
+    PASSWORD_RESET_MAX_ATTEMPTS: int = 5
 
     # SMTP
     SMTP_HOST: str = "smtp.gmail.com"
@@ -33,6 +40,9 @@ class Settings(BaseSettings):
 
     # OAuth
     GOOGLE_CLIENT_ID: str = "1052189554415-0tr5qpn1bhr3n7ldojhuddf9u93ddhnd.apps.googleusercontent.com"
+
+    # Runtime
+    ENVIRONMENT: str = "development"
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",

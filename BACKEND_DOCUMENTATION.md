@@ -8,12 +8,13 @@ The backend is a FastAPI application using SQLAlchemy, Alembic migrations, Postg
 
 - API root: `http://localhost:8000`
 - API prefix: `/api/v1`
+- Health check: `http://localhost:8000/api/v1/health`
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
 ## Environment configuration
 
-Create `backend/.env`. Never commit this file or share real credentials in documentation or chat.
+Copy `backend/.env.example` to `backend/.env`, then replace each placeholder. Never commit this file or share real credentials in documentation or chat.
 
 ```dotenv
 # Database
@@ -76,20 +77,36 @@ python -m venv .venv
 pip install fastapi uvicorn sqlalchemy alembic psycopg2-binary pydantic-settings python-jose passlib bcrypt email-validator requests httpx google-auth
 ```
 
-The repository's `backend/requirements.txt` is currently empty. Until it is populated, the explicit package installation above is required for a clean environment.
+Or install the pinned project dependencies:
+
+```powershell
+pip install -r requirements.txt
+```
 
 ## Database migrations
 
-The application reads `DATABASE_URL` from `backend/.env`, but the current Alembic configuration still contains a local MySQL URL. Before applying migrations to Supabase, update Alembic to consume the application database URL; otherwise `alembic upgrade head` targets the MySQL URL in `backend/alembic.ini`.
-
-After Alembic is configured for the environment URL:
+Alembic reads the same `DATABASE_URL` as the application. Confirm the connected database before applying migrations:
 
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
+alembic current
 alembic upgrade head
 python seed_services.py
 ```
+
+The health endpoint returns `200` when the database is reachable and `503` with a safe response when it is unavailable.
+
+## Database backups
+
+Install PostgreSQL command-line tools so `pg_dump` is available, then run:
+
+```powershell
+cd backend
+.\scripts\backup_database.ps1
+```
+
+Backups are written to `backend/backups/`, which is ignored by Git. Store a copy in secure external storage before database migrations or production changes.
 
 ## Run the backend
 
@@ -145,7 +162,5 @@ The backend currently allows local Vite origins on ports `5173` and `5174`, over
 
 ## Known configuration gaps
 
-- `backend/requirements.txt` is empty.
-- Alembic currently points to a local MySQL database instead of `DATABASE_URL`.
 - The supplied `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` are not declared in `backend/app/core/config.py`; the current Facebook login implementation only uses the client-supplied access token.
 - Several route modules exist but are not mounted in `backend/app/api/v1/api.py`; only public, auth, customer, bookings, transactions, manager, and owner routers are currently active.

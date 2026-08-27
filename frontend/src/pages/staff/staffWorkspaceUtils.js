@@ -21,17 +21,10 @@ export function formatCurrency(value) {
 }
 
 export function formatDateTime(value) {
-  if (!value) return "Not scheduled";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not scheduled";
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  return formatAppointmentDateTime(value);
 }
+
+export { getAppointmentDateKey };
 
 export function getFirstName(value) {
   if (!value) return "";
@@ -49,3 +42,7 @@ export function getApiError(error, fallback = "Something went wrong. Please try 
   }
   return detail || error?.message || fallback;
 }
+import {
+  formatAppointmentDateTime,
+  getAppointmentDateKey,
+} from "../../utils/appointmentTime";

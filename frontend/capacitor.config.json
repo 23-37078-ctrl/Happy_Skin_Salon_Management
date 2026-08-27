@@ -1,0 +1,8 @@
+{
+  "appId": "com.happyskinsalon.app",
+  "appName": "Happy Skin Salon",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

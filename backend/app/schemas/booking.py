@@ -1,6 +1,17 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, Field, field_serializer, field_validator
+
+
+BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
+
+
+def normalize_appointment_date(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=BUSINESS_TIMEZONE)
+    return value.astimezone(timezone.utc)
 
 
 # ── Request Schemas ──────────────────────────────────────────────
@@ -8,9 +19,14 @@ from pydantic import BaseModel, Field, field_validator
 class BookingCreateRequest(BaseModel):
     branch_id: int
     service_id: int
+    service_ids: list[int] = Field(default_factory=list)
     appointment_date: datetime
-    preferred_service_provider_id: Optional[int] = None
     notes: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("appointment_date")
+    @classmethod
+    def normalize_appointment_time(cls, value: datetime) -> datetime:
+        return normalize_appointment_date(value)
 
     @field_validator("notes")
     @classmethod
@@ -18,6 +34,14 @@ class BookingCreateRequest(BaseModel):
         if value is None:
             return None
         return value.strip() or None
+
+    @field_validator("service_ids")
+    @classmethod
+    def validate_service_ids(cls, value: list[int]) -> list[int]:
+        unique = list(dict.fromkeys(value))
+        if len(unique) > 20:
+            raise ValueError("A booking can contain at most 20 services.")
+        return unique
 
 
 class BookingStatusUpdateRequest(BaseModel):
@@ -36,6 +60,11 @@ class BookingStatusUpdateRequest(BaseModel):
 class BookingRescheduleRequest(BaseModel):
     appointment_date: datetime
 
+    @field_validator("appointment_date")
+    @classmethod
+    def normalize_appointment_time(cls, value: datetime) -> datetime:
+        return normalize_appointment_date(value)
+
 
 # ── Response Schemas ─────────────────────────────────────────────
 
@@ -43,6 +72,7 @@ class BookingCustomerOut(BaseModel):
     id: int
     full_name: str
     email: str
+    phone_number: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -71,6 +101,14 @@ class BookingProviderOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BookingServiceItemOut(BaseModel):
+    id: int
+    service: BookingServiceOut
+    service_provider: Optional[BookingProviderOut] = None
+
+    model_config = {"from_attributes": True}
+
+
 class BookingOut(BaseModel):
     id: int
     customer: BookingCustomerOut
@@ -78,6 +116,7 @@ class BookingOut(BaseModel):
     service: BookingServiceOut
     service_provider: Optional[BookingProviderOut] = None
     preferred_service_provider: Optional[BookingProviderOut] = None
+    service_items: list[BookingServiceItemOut] = Field(default_factory=list)
     appointment_date: datetime
     status: str
     notes: Optional[str] = None
@@ -85,6 +124,14 @@ class BookingOut(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("appointment_date")
+    def serialize_appointment_time(self, value: datetime) -> str:
+        if value.tzinfo is not None:
+            value = value.astimezone(BUSINESS_TIMEZONE)
+        else:
+            value = value.replace(tzinfo=BUSINESS_TIMEZONE)
+        return value.isoformat()
 
 
 class BookingListResponse(BaseModel):

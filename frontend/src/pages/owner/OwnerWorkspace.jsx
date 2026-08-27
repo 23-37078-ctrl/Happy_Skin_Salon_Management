@@ -22,7 +22,6 @@ const navItems = [
   { to: "/owner/dashboard", label: "Dashboard", icon: HiOutlineHome },
   { to: "/owner/branches", label: "Branches", icon: HiOutlineBuildingStorefront },
   { to: "/owner/users", label: "Users", icon: HiOutlineUsers },
-  { to: "/owner/bookings", label: "Bookings", icon: HiOutlineCalendarDays },
   { to: "/owner/transactions", label: "Transactions", icon: HiOutlineBanknotes },
   { to: "/owner/reports", label: "Reports", icon: HiOutlineChartBar },
   { to: "/owner/forecasting", label: "Forecasting", icon: HiOutlinePresentationChartLine },
@@ -30,11 +29,12 @@ const navItems = [
   { to: "/owner/audit-logs", label: "Audit Logs", icon: HiOutlineClipboardDocumentList },
 ];
 
-export function OwnerWorkspace({ children, title, eyebrow, actions, brandOnly = false }) {
+export function OwnerWorkspace({ children, title, eyebrow, actions, headerStats, brandOnly = false }) {
   const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
   const firstName = useMemo(() => getFirstName(currentUser?.full_name || currentUser?.email), [currentUser]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const toggleSidebar = () => setSidebarOpen((current) => !current);
 
   useEffect(() => {
     if (!sidebarOpen) return undefined;
@@ -57,11 +57,11 @@ export function OwnerWorkspace({ children, title, eyebrow, actions, brandOnly = 
 
   return (
     <main className="min-h-screen bg-[#FFF8FB] text-[#1F2937]" style={{ fontFamily: "'Poppins', sans-serif" }}>
-      {sidebarOpen && <button type="button" aria-label="Close owner menu" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-40 bg-[#1F2937]/45 backdrop-blur-sm lg:hidden" />}
-      <div className="mx-auto flex min-h-screen w-full max-w-[110rem] px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pt-5 lg:gap-5 lg:px-6 xl:gap-7 xl:px-8">
-        <aside aria-label="Owner menu" className={`fixed inset-y-0 left-0 z-50 w-[min(19rem,88vw)] transform p-3 transition-transform duration-300 ease-out lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)] lg:w-64 lg:flex-none lg:translate-x-0 lg:p-0 xl:w-72 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-          <div className="flex h-full flex-col overflow-hidden rounded-r-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_18px_50px_rgba(31,41,55,0.09)] sm:rounded-[1.5rem] lg:bg-white/92 lg:shadow-[0_18px_50px_rgba(31,41,55,0.07)] lg:backdrop-blur">
-            <div className="flex items-center gap-1"><button type="button" onClick={() => setSidebarOpen(false)} aria-label="Close owner menu" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] hover:bg-[#FFF0F7] lg:hidden"><HiOutlineXMark className="h-6 w-6" /></button>
+      {sidebarOpen && <button type="button" aria-label="Close owner menu" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-40 bg-[#1F2937]/40 backdrop-blur-sm" />}
+      <div className="flex min-h-screen w-full max-w-none flex-col px-4 py-4 sm:px-6 lg:flex-row lg:gap-6 lg:px-8">
+        <aside aria-label="Owner menu" className={`fixed inset-y-0 left-0 z-50 w-[min(19rem,86vw)] transform p-3 transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+          <div className="flex h-full flex-col overflow-hidden rounded-[1.5rem] border border-[#F3E8EF] bg-white/90 p-4 shadow-[0_18px_50px_rgba(31,41,55,0.09)] backdrop-blur">
+            <div className="flex items-center gap-1"><button type="button" onClick={() => setSidebarOpen(false)} aria-label="Close owner menu" className="grid h-10 w-10 place-items-center rounded-xl text-[#D65A9A] hover:bg-[#FFF0F7]"><HiOutlineXMark className="h-6 w-6" /></button>
             <Link to="/owner/dashboard" onClick={() => setSidebarOpen(false)} className="flex flex-1 items-center gap-3 rounded-2xl px-2 py-2">
               <img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-12 w-12 rounded-full object-cover shadow-sm ring-2 ring-[#F8DCEB]" />
               <span>
@@ -71,7 +71,7 @@ export function OwnerWorkspace({ children, title, eyebrow, actions, brandOnly = 
             </Link>
             </div>
 
-            <nav className="mt-5 flex-1 space-y-1.5 overflow-y-auto overscroll-contain pr-1" aria-label="Owner navigation">
+            <nav className="mt-5 grid grid-cols-2 gap-2 overflow-y-auto lg:grid-cols-1" aria-label="Owner navigation">
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}
@@ -89,7 +89,7 @@ export function OwnerWorkspace({ children, title, eyebrow, actions, brandOnly = 
               ))}
             </nav>
 
-            <div className="mt-4 rounded-2xl border border-[#F3E8EF] bg-[#FFF8FB] p-3.5">
+            <div className="mt-4 rounded-2xl border border-[#F3E8EF] bg-[#FFF8FB] p-3.5 lg:mt-auto">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#D65A9A]">Signed in as</p>
               <p className="mt-1 truncate text-sm font-bold text-[#1F2937]">{currentUser?.full_name || firstName || "Owner"}</p>
               <p className="mt-1 truncate text-xs text-[#6B7280]">{currentUser?.email}</p>
@@ -101,11 +101,16 @@ export function OwnerWorkspace({ children, title, eyebrow, actions, brandOnly = 
           </div>
         </aside>
 
-        <section className="w-full min-w-0 flex-1 lg:py-5">
-          <header className="sticky top-2 z-30 mb-4 flex w-full flex-col gap-3 rounded-[1.25rem] border border-[#F3E8EF] bg-white/95 px-3 py-3 shadow-[0_12px_34px_rgba(31,41,55,0.07)] backdrop-blur-xl sm:mb-5 sm:px-5 sm:py-4 lg:static lg:flex-row lg:items-center lg:justify-between lg:rounded-[1.5rem]">
+        <section className="w-full min-w-0 flex-1 py-5 lg:py-0">
+          <header className="mb-5 flex w-full flex-col gap-4 rounded-[1.5rem] border border-[#F3E8EF] bg-white/86 px-4 py-4 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur sm:px-6 sm:py-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-2">
-              <button type="button" onClick={() => setSidebarOpen(true)} aria-label="Open owner menu" aria-expanded={sidebarOpen} className="grid h-11 w-11 flex-none place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30 lg:hidden"><HiOutlineBars3 className="h-7 w-7" /></button>
+              <button type="button" onClick={toggleSidebar} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} aria-expanded={sidebarOpen} className="grid h-11 w-11 flex-none place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"><HiOutlineBars3 className="h-7 w-7" /></button>
               {brandOnly ? <Link to="/owner/dashboard" className="flex min-w-0 items-center gap-3"><img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-11 w-11 flex-none rounded-full ring-2 ring-[#F8DCEB] sm:h-12 sm:w-12" /><span className="min-w-0"><span className="block truncate text-sm font-bold">Happy Skin</span><span className="block truncate text-[10px] font-semibold uppercase tracking-wide text-[#D65A9A]">Admin Portal</span></span></Link> : <div className="min-w-0">{eyebrow && <p className="truncate text-[10px] font-bold uppercase tracking-wide text-[#D65A9A] sm:text-xs">{eyebrow}</p>}<h1 className="mt-0.5 truncate text-xl font-bold text-[#1F2937] sm:mt-1 sm:text-3xl" style={{ fontFamily: "'Playfair Display', serif" }}>{title}</h1></div>}
+            </div>
+            {headerStats?.length > 0 && <div className={`grid w-full flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:mx-4 ${headerStats.length >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>{headerStats.map(({ icon: Icon, label, value, tone = "pink" }) => { const colors = { pink: "bg-[#FFF0F7] text-[#D65A9A]", green: "bg-[#DCFCE7] text-[#16A34A]", blue: "bg-[#DBEAFE] text-[#2563EB]", amber: "bg-[#FEF3C7] text-[#D97706]", red: "bg-[#FEE2E2] text-[#DC2626]" }; return <div key={label} className="flex min-w-0 items-center gap-2 rounded-xl bg-[#FFF8FB] px-2.5 py-2 ring-1 ring-[#F3E8EF]"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${colors[tone] || colors.pink}`}><Icon className="h-4 w-4" /></span><span className="min-w-0"><span className="block truncate text-sm font-extrabold leading-tight text-[#1F2937]">{value}</span><span className="block truncate text-[8px] font-bold uppercase tracking-wide text-[#6B7280]">{label}</span></span></div>; })}</div>}
+            <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:ml-auto xl:max-w-56 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(currentUser?.full_name || firstName || "O").charAt(0).toUpperCase()}</span>
+              <span className="min-w-0"><span className="block truncate text-sm font-bold text-[#1F2937]">{currentUser?.full_name || firstName || "Owner"}</span><span className="block truncate text-[10px] font-semibold text-[#C85B95]">Super Admin</span><span className="block max-w-36 truncate text-[10px] text-[#6B7280]">{currentUser?.email}</span></span>
             </div>
             {actions && <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2 sm:flex sm:flex-wrap sm:[&>*]:flex-none lg:w-auto [&>*]:w-full sm:[&>*]:w-auto">{actions}</div>}
           </header>

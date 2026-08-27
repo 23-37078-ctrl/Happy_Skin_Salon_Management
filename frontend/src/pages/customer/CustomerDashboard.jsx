@@ -10,7 +10,6 @@ import {
   HiOutlineMapPin,
   HiOutlinePhone,
   HiOutlineSparkles,
-  HiOutlineHome,
   HiOutlineArrowRightOnRectangle,
   HiChevronDown,
 } from "react-icons/hi2";
@@ -127,21 +126,6 @@ export default function CustomerDashboard() {
     navigate(`/customer/book${parameters.size ? `?${parameters.toString()}` : ""}`);
   };
 
-  const quickActions = [
-    {
-      icon: HiOutlineCalendar,
-      title: "Book",
-      description: "Request an appointment.",
-      onClick: () => navigate("/customer/book"),
-    },
-    {
-      icon: HiOutlineClock,
-      title: "History",
-      description: "Review past visits.",
-      onClick: () => navigate("/customer/history"),
-    },
-  ];
-
   const customerFirstName = getFirstName(
     data?.user?.first_name ||
       data?.user?.full_name ||
@@ -158,7 +142,7 @@ export default function CustomerDashboard() {
         <CustomerHeader
           name={customerFirstName}
           email={data?.user?.email || currentUser?.email}
-          actions={quickActions}
+          onHistory={() => navigate("/customer/history")}
           onLogout={handleLogout}
           recentActivity={data?.recent_activity || []}
           notifications={data?.notifications || []}
@@ -260,7 +244,7 @@ export default function CustomerDashboard() {
       <Footer />
 
       {showPromotions && (
-        <PromotionModal promotions={data?.promotions || []} onClose={() => setShowPromotions(false)} onBook={() => navigate("/customer/book")} />
+        <PromotionModal promotions={data?.promotions || []} onClose={() => setShowPromotions(false)} onBook={(promo) => navigate(`/customer/book?branch=${encodeURIComponent(promo.branch_id)}`)} />
       )}
 
       <motion.button
@@ -276,7 +260,7 @@ export default function CustomerDashboard() {
   );
 }
 
-function CustomerHeader({ name, email, actions, onLogout, recentActivity, notifications, isLoading, onShowPromotions, promotionCount }) {
+function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, notifications, isLoading, onShowPromotions, promotionCount }) {
   const [activityOpen, setActivityOpen] = useState(false);
   const activityRef = useRef(null);
   const unreadCount = notifications.filter((item) => !item.is_read).length;
@@ -308,16 +292,10 @@ function CustomerHeader({ name, email, actions, onLogout, recentActivity, notifi
           </div>
         </button>
 
-        <nav className="order-3 col-span-2 grid grid-cols-3 gap-1 border-t border-[#F3E8EF] pt-3 lg:order-none lg:col-span-1 lg:mx-auto lg:flex lg:w-fit lg:border-0 lg:bg-[#FFF8FB] lg:p-1" aria-label="Customer navigation">
-          <button type="button" aria-current="page" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-3 text-xs font-extrabold text-white shadow-sm focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/15 sm:text-sm"><HiOutlineHome className="h-5 w-5" />Home</button>
-            {actions.map(({ icon: Icon, title, onClick }) => (
-              <button key={title} type="button" onClick={onClick} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-3 text-xs font-extrabold text-[#667085] transition hover:bg-[#FFF0F7] hover:text-[#A34777] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/15 sm:text-sm">
-                <Icon className="h-5 w-5 shrink-0" />{title}
-              </button>
-            ))}
-        </nav>
+        <div className="hidden lg:block" />
 
         <div ref={activityRef} className="relative flex shrink-0 items-center justify-self-end gap-0.5">
+          <button type="button" onClick={onHistory} aria-label="Booking history" title="Booking history" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineClock className="h-6 w-6" /></button>
           <div>
             <button type="button" aria-label={unreadCount ? `${unreadCount} unread notifications` : "Activity and notifications"} aria-expanded={activityOpen} aria-controls="customer-activity-menu" onClick={() => setActivityOpen((current) => !current)} className={`relative grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20 ${activityOpen ? "bg-[#FFF0F7] ring-1 ring-[#E8B7D0]" : "hover:bg-[#FFF0F7]"}`}>
               <HiOutlineBell className="h-6 w-6" />
@@ -351,14 +329,14 @@ function CustomerHeader({ name, email, actions, onLogout, recentActivity, notifi
               </button>
             </div>
           </details>
-          {activityOpen && <ActivityMenu recentActivity={recentActivity} notifications={notifications} unreadCount={unreadCount} isLoading={isLoading} onClose={() => setActivityOpen(false)} />}
+          {activityOpen && <ActivityMenu recentActivity={recentActivity} notifications={notifications} unreadCount={unreadCount} isLoading={isLoading} onClose={() => setActivityOpen(false)} onOpenHistory={onHistory} />}
         </div>
       </div>
     </header>
   );
 }
 
-function ActivityMenu({ recentActivity, notifications, unreadCount, isLoading, onClose }) {
+function ActivityMenu({ recentActivity, notifications, unreadCount, isLoading, onClose, onOpenHistory }) {
   return (
     <div id="customer-activity-menu" role="dialog" aria-label="Activity and notifications" className="fixed inset-x-4 top-24 z-[80] flex max-h-[min(28rem,calc(100vh-7rem))] flex-col overflow-hidden rounded-2xl border border-[#E9D9E2] bg-white shadow-[0_24px_65px_rgba(31,41,55,0.22)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-[calc(100%+0.65rem)] sm:w-[22rem]">
       <div className="flex items-center justify-between border-b border-[#F3E8EF] px-4 py-3">
@@ -385,7 +363,7 @@ function ActivityMenu({ recentActivity, notifications, unreadCount, isLoading, o
               <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#C85B95]">Notifications</p>
               <div className="space-y-1 rounded-xl bg-[#FFF8FB] p-1">
                 {notifications.slice(0, 3).map((notification) => (
-                  <NotificationCard key={notification.id} type={notification.type} message={notification.message} timestamp={notification.timestamp} isRead={notification.is_read} />
+                  <NotificationCard key={notification.id} type={notification.type} message={notification.message} timestamp={notification.timestamp} isRead={notification.is_read} onClick={notification.type === "receipt" ? () => { onClose(); onOpenHistory(); } : undefined} />
                 ))}
               </div>
             </div>
@@ -413,7 +391,7 @@ function PromotionModal({ promotions, onClose, onBook }) {
         </div>
         {promotions.length ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            {promotions.map((promo) => <PromotionCard key={promo.id} title={promo.title} subtitle={promo.subtitle || "Limited Offer"} image={promo.image} onBook={onBook} />)}
+            {promotions.map((promo) => <PromotionCard key={promo.id} title={promo.title} subtitle={promo.subtitle || "Limited Offer"} image={promo.image} onBook={() => onBook(promo)} />)}
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-[#E8C9D9] bg-white px-6 py-12 text-center">

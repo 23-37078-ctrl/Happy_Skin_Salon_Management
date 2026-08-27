@@ -3,6 +3,7 @@ import { HiOutlineCalendarDays, HiOutlineClock, HiOutlineMagnifyingGlass } from 
 import ownerService from "../../services/ownerService";
 import { formatCurrency, formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, Notice, OwnerWorkspace, StatusBadge } from "./OwnerWorkspace";
+import ListPagination, { PAGE_SIZE } from "../../components/common/ListPagination";
 
 const statuses = ["all", "pending", "confirmed", "completed", "cancelled"];
 
@@ -13,6 +14,7 @@ export default function AllBookings() {
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
 
   const loadBookings = useCallback(async () => {
     setIsLoading(true);
@@ -37,6 +39,8 @@ export default function AllBookings() {
     if (!term) return bookings;
     return bookings.filter((booking) => [booking.id, booking.customer?.full_name, booking.branch?.name, booking.service?.name, booking.status].join(" ").toLowerCase().includes(term));
   }, [bookings, search]);
+  const pagedBookings = useMemo(() => visibleBookings.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [visibleBookings, page]);
+  useEffect(() => { setPage(1); }, [search, branchId, statusFilter]);
 
   return (
     <OwnerWorkspace title="All Bookings" eyebrow="Centralized appointment monitoring">
@@ -45,7 +49,7 @@ export default function AllBookings() {
       <section className="mt-5">
         {isLoading ? <CardSkeleton rows={5} /> : visibleBookings.length ? (
           <div className="space-y-4">
-            {visibleBookings.map((booking) => (
+            {pagedBookings.map((booking) => (
               <article key={booking.id} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr_auto] lg:items-center">
                   <div>
@@ -62,6 +66,7 @@ export default function AllBookings() {
                 </div>
               </article>
             ))}
+            <ListPagination page={page} totalItems={visibleBookings.length} onPageChange={setPage} itemLabel="bookings" />
           </div>
         ) : <EmptyState title="No bookings found" description="Appointments from every branch will appear here with customer, service, and status details." />}
       </section>

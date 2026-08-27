@@ -14,7 +14,7 @@ PROVIDERS = [
     (2, "Jasmine Torres", "Lash and Brow Artist", "jasmine.torres"),
     (2, "Kristine Ramos", "Nail Technician", "kristine.ramos"),
     (2, "Marielle Flores", "Hair and Scalp Specialist", "marielle.flores"),
-    # Batangas City Branch
+    # Cavite Branch
     (3, "Alyssa Bautista", "Laser Treatment Specialist", "alyssa.bautista"),
     (3, "Danica Villanueva", "Lash Technician", "danica.villanueva"),
     (3, "Francesca Lim", "Aesthetician", "francesca.lim"),

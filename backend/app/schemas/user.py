@@ -75,11 +75,36 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+    @field_validator("code")
+    @classmethod
+    def code_is_six_digits(cls, value: str) -> str:
+        if not value.isdigit() or len(value) != 6:
+            raise ValueError("Reset code must be 6 digits.")
+        return value
+
+    @field_validator("new_password")
+    @classmethod
+    def password_min_length(cls, value: str) -> str:
+        if len(value) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+        return value
+
+
 class UserOut(BaseModel):
     id: int
     full_name: str
     email: str
     role: str
+    is_active: bool
     branch_id: Optional[int] = None
     email_verified: bool
     phone_number: Optional[str] = None

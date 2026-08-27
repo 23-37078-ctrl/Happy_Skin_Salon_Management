@@ -35,7 +35,7 @@ const CONTACT_INFO = [
   {
     icon: "📍",
     label: "Location",
-    value: "Lipa City, Batangas",
+    value: "22 Malingap Street, Teachers Village, Quezon City",
     href: "#",
   },
 ];

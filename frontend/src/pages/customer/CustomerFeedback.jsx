@@ -117,7 +117,7 @@ export default function CustomerFeedback() {
   };
 
   return (
-    <CustomerShell title="Submit Feedback" showHeading={false} backTo="/customer/dashboard">
+    <CustomerShell title="Submit Feedback" showHeading={false} backTo="/customer/dashboard" backBesideLogo>
       {error && <Notice>{error}</Notice>}
       {success && <Notice tone="success">{success}</Notice>}
 

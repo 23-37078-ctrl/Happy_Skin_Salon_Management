@@ -23,19 +23,12 @@ SERVICES = [
     {"name": "Underarm Whitening", "description": "A gentle brightening treatment for smoother and more even-looking underarms.", "price": 999.00, "duration_minutes": 45, "image_url": "/images/services/generated/underarm-whitening.jpg", "is_active": True},
 ]
 
+ALL_SERVICE_NAMES = [service["name"] for service in SERVICES]
+
 BRANCH_SERVICES = {
-    "Happy Skin Main Branch": [
-        "Signature Facial", "Diamond Peel", "Foot Spa with Massage",
-        "Swedish Body Massage", "Deep Tissue Massage",
-    ],
-    "Happy Skin Lipa Branch": [
-        "Brow Care", "Hair Rebond", "Gel Manicure",
-        "Hair Spa Treatment", "Classic Pedicure",
-    ],
-    "Happy Skin Batangas City Branch": [
-        "Pico Whitening Laser", "Classic Eyelash Extension", "Carbon Laser Facial",
-        "Lash Lift and Tint", "Underarm Whitening",
-    ],
+    "Happy Skin Main Branch": ALL_SERVICE_NAMES,
+    "Happy Skin Lipa Branch": ALL_SERVICE_NAMES,
+    "Happy Skin Cavite Branch": ALL_SERVICE_NAMES,
 }
 
 db = SessionLocal()

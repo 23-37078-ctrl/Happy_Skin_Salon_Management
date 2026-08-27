@@ -16,8 +16,9 @@ import SystemPopup from "../../components/common/SystemPopup";
 
 const navItems = [
   { to: "/staff/dashboard", label: "Dashboard", icon: HiOutlineHome },
-  { to: "/staff/bookings", label: "Bookings", icon: HiOutlineCalendarDays },
+  { to: "/staff/online-bookings", label: "Bookings", icon: HiOutlineCalendarDays },
   { to: "/staff/transactions", label: "Transactions", icon: HiOutlineBanknotes },
+  { to: "/staff/day-end", label: "Day End", icon: HiOutlineChartBar },
 ];
 
 export function StaffWorkspace({ children, title, eyebrow, actions, brandOnly = false, headerStats, identity }) {
@@ -101,12 +102,10 @@ export function StaffWorkspace({ children, title, eyebrow, actions, brandOnly = 
                 })}
               </div>
             )}
-            {brandOnly && identity && (
-              <div className="flex min-w-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:max-w-56 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(identity.staff_name || "S").charAt(0).toUpperCase()}</span>
-                <span className="min-w-0 text-left"><span className="block truncate text-sm font-bold text-[#1F2937]">{identity.staff_name}</span><span className="block truncate text-[10px] font-semibold text-[#C85B95]">{identity.job_title}</span><span className="block truncate text-[10px] text-[#6B7280]">{identity.branch_name}</span></span>
-              </div>
-            )}
+            <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:max-w-56 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(identity?.staff_name || currentUser?.full_name || firstName || "S").charAt(0).toUpperCase()}</span>
+              <span className="min-w-0 text-left"><span className="block truncate text-sm font-bold text-[#1F2937]">{identity?.staff_name || currentUser?.full_name || firstName || "Staff"}</span><span className="block truncate text-[10px] font-semibold text-[#C85B95]">{identity?.job_title || currentUser?.job_title || "Salon Staff"}</span><span className="block max-w-36 truncate text-[10px] text-[#6B7280]">{identity?.branch_name || currentUser?.email}</span></span>
+            </div>
             {actions && <div className="flex w-full flex-wrap gap-2 [&>*]:flex-1 sm:[&>*]:flex-none xl:w-auto">{actions}</div>}
           </header>
           {children}
@@ -157,8 +156,8 @@ export function EmptyState({ icon: Icon = HiOutlineClipboardDocumentList, title,
   );
 }
 
-export function ErrorNotice({ message, onRetry }) {
-  return <SystemPopup message={message} tone="error" onRetry={onRetry} />;
+export function ErrorNotice({ message, tone = "error", onRetry }) {
+  return <SystemPopup message={message} tone={tone} onRetry={onRetry} />;
 }
 
 export function CardSkeleton({ rows = 3 }) {

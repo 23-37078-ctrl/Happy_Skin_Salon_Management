@@ -4,21 +4,24 @@ import {
   HiOutlineBanknotes,
   HiOutlineBuildingStorefront,
   HiOutlineCalendarDays,
-  HiOutlineChartBar,
   HiOutlineClock,
-  HiOutlineExclamationTriangle,
   HiOutlineUsers,
   HiOutlineTrophy,
   HiOutlineCheckBadge,
+  HiOutlineMapPin,
 } from "react-icons/hi2";
 import ownerService from "../../services/ownerService";
-import { formatCurrency, formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, EmptyState, Notice, OwnerWorkspace, StatCard, StatusBadge } from "./OwnerWorkspace";
+import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
+import { CardSkeleton, EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
 
 export default function OwnerDashboard() {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [period, setPeriod] = useState("weekly");
+  const [performance, setPerformance] = useState(null);
+  const [performanceLoading, setPerformanceLoading] = useState(true);
+  const [selectedBranchId, setSelectedBranchId] = useState(null);
 
   const loadDashboard = useCallback(async () => {
     setIsLoading(true);
@@ -32,9 +35,26 @@ export default function OwnerDashboard() {
     }
   }, []);
 
+  const loadPerformance = useCallback(async () => {
+    setPerformanceLoading(true);
+    try {
+      const payload = await ownerService.dashboardPerformance(period);
+      setPerformance(payload);
+      setSelectedBranchId((current) => current && payload.branches.some((branch) => branch.branch_id === current) ? current : payload.branches[0]?.branch_id || null);
+    } catch (err) {
+      setError(getApiError(err, "We couldn't load multi-branch performance."));
+    } finally {
+      setPerformanceLoading(false);
+    }
+  }, [period]);
+
   useEffect(() => {
     Promise.resolve().then(() => loadDashboard());
   }, [loadDashboard]);
+
+  useEffect(() => {
+    Promise.resolve().then(loadPerformance);
+  }, [loadPerformance]);
 
   const stats = useMemo(() => {
     const source = data?.stats || {};
@@ -44,7 +64,6 @@ export default function OwnerDashboard() {
       { label: "Today's Bookings", value: source.today_bookings || 0, icon: HiOutlineCalendarDays, tone: "amber" },
       { label: "Pending", value: source.pending_bookings || 0, icon: HiOutlineClock, tone: "red" },
       { label: "Total Sales", value: formatCurrency(source.total_sales), icon: HiOutlineBanknotes, tone: "green" },
-      { label: "Low Stock", value: source.low_stock_items || 0, icon: HiOutlineExclamationTriangle, tone: "red" },
     ];
   }, [data]);
 
@@ -53,27 +72,13 @@ export default function OwnerDashboard() {
       title="Owner Dashboard"
       eyebrow="Centralized multi-branch monitoring"
       brandOnly
-      actions={
-        <Link to="/owner/reports" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white shadow-[0_10px_24px_rgba(200,91,149,0.24)]">
-          <HiOutlineChartBar className="h-5 w-5" />
-          View Reports
-        </Link>
-      }
+      headerStats={stats}
     >
       {error && <Notice message={error} onRetry={loadDashboard} />}
 
-      <section className="rounded-[1.25rem] bg-gradient-to-br from-[#B94B86] via-[#D968A3] to-[#F4AFCF] p-4 text-white shadow-[0_20px_55px_rgba(214,90,154,0.22)] sm:rounded-[1.5rem] sm:p-7">
-        <span className="inline-flex rounded-full border border-white/45 bg-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide shadow-sm backdrop-blur">Owner control</span>
-        <h2 className="mt-4 max-w-3xl text-2xl font-bold leading-tight sm:mt-5 sm:text-4xl" style={{ fontFamily: "'Playfair Display', serif" }}>
-          Monitor bookings, transactions, branch performance, and demand trends in one centralized view.
-        </h2>
-      </section>
+      <MultiBranchPerformance data={performance} loading={performanceLoading} period={period} onPeriod={setPeriod} selectedBranchId={selectedBranchId} onBranch={setSelectedBranchId} />
 
-      <section className="mt-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:mt-5 sm:gap-4 xl:grid-cols-6">
-        {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
-      </section>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+      <div className="mt-6">
         <section>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-[#1F2937]">Branch Performance</h2>
@@ -92,28 +97,6 @@ export default function OwnerDashboard() {
           ) : <EmptyState title="No branch activity yet" description="Multi-branch bookings and sales will appear here once staff record operations." />}
         </section>
 
-        <section>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-bold text-[#1F2937]">Recent Bookings</h2>
-            <Link to="/owner/bookings" className="min-h-10 rounded-xl px-2 py-2.5 text-sm font-bold text-[#C85B95] hover:bg-[#FFF0F7]">View all</Link>
-          </div>
-          {isLoading ? <CardSkeleton rows={4} /> : data?.recent_bookings?.length ? (
-            <div className="space-y-3">
-              {data.recent_bookings.map((booking) => (
-                <article key={booking.id} className="rounded-[1.25rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate text-base font-bold text-[#1F2937]">{booking.service?.name || "Service"}</p>
-                      <p className="mt-1 text-sm text-[#6B7280]">{booking.branch?.name || "Branch"} - {booking.customer?.full_name || "Customer"}</p>
-                      <p className="mt-1 text-xs font-semibold text-[#9CA3AF]">{formatDateTime(booking.appointment_date)}</p>
-                    </div>
-                    <StatusBadge status={booking.status} />
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : <EmptyState title="No recent bookings" description="Customer appointments across branches will appear here." />}
-        </section>
       </div>
 
       <section className="mt-6">
@@ -133,3 +116,16 @@ export default function OwnerDashboard() {
     </OwnerWorkspace>
   );
 }
+
+function MultiBranchPerformance({ data, loading, period, onPeriod, selectedBranchId, onBranch }) {
+  const selected = data?.branches?.find((branch) => branch.branch_id === selectedBranchId);
+  return <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C9558F]">Super Admin · All locations</p><h2 className="mt-1 text-xl font-extrabold text-[#1F2937]">Three-branch performance</h2><p className="mt-1 text-xs text-[#6B7280]">Compare every active branch, then select one to review its staff.</p></div><div className="flex self-start rounded-xl bg-[#FFF8FB] p-1 ring-1 ring-[#F3E8EF]">{["weekly", "monthly", "yearly"].map((item) => <button key={item} type="button" onClick={() => onPeriod(item)} className={`rounded-lg px-3 py-2 text-xs font-bold capitalize ${period === item ? "bg-[#C9558F] text-white shadow-sm" : "text-[#6B7280] hover:text-[#C9558F]"}`}>{item}</button>)}</div></div>
+    {loading ? <div className="mt-5"><CardSkeleton rows={3} /></div> : <>
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">{data?.branches?.map((branch, index) => <button key={branch.branch_id} type="button" onClick={() => onBranch(branch.branch_id)} className={`rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg ${selectedBranchId === branch.branch_id ? "border-[#D65A9A] bg-[#FFF8FB] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF] bg-white"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-extrabold text-[#1F2937]">{branch.name}</p><p className="mt-1 flex items-start gap-1 text-[10px] text-[#6B7280]"><HiOutlineMapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#D65A9A]" /> {branch.address}</p></div>{index === 0 && branch.completed > 0 && <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#FEF3C7] text-[#D97706]"><HiOutlineTrophy className="h-5 w-5" /></span>}</div><p className="mt-4 text-xl font-extrabold text-[#166534]">{formatCurrency(branch.sales)}</p><p className="text-[9px] font-bold uppercase text-[#6B7280]">Period sales</p><div className="mt-3 grid grid-cols-3 gap-2 text-center"><OwnerMini value={branch.bookings} label="Bookings" /><OwnerMini value={`${branch.completion_rate}%`} label="Completed" /><OwnerMini value={branch.average_rating || "—"} label="Rating" /></div></button>)}</div>
+      {selected && <div className="mt-5 border-t border-[#F3E8EF] pt-5"><div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-extrabold text-[#1F2937]">{selected.name} staff performance</h3><p className="mt-1 text-xs text-[#6B7280]">Performance for the selected {period} period.</p></div><span className="text-xs font-bold text-[#C9558F]">{selected.staff.length} staff members</span></div>{selected.staff.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{selected.staff.map((staff, index) => <article key={staff.staff_id} className="rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-3"><div className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-full bg-white font-extrabold text-[#C9558F]">{staff.full_name.slice(0, 1)}</span><div className="min-w-0"><p className="truncate text-sm font-bold text-[#1F2937]">{staff.full_name}</p><p className="truncate text-[9px] text-[#6B7280]">{staff.job_title}</p></div>{index === 0 && staff.services_completed > 0 && <HiOutlineTrophy className="ml-auto h-4 w-4 text-[#D97706]" />}</div><div className="mt-3 grid grid-cols-2 gap-2"><OwnerMini value={staff.services_completed} label="Services" /><OwnerMini value={formatCurrency(staff.revenue)} label="Revenue" /><OwnerMini value={formatCurrency(staff.commission)} label="Commission" /><OwnerMini value={staff.average_rating ? `${staff.average_rating}/5` : "—"} label={`${staff.rating_count} ratings`} /></div></article>)}</div> : <p className="rounded-xl bg-[#FFF8FB] p-6 text-center text-sm text-[#6B7280]">No staff activity for this period.</p>}</div>}
+    </>}
+  </section>;
+}
+
+function OwnerMini({ value, label }) { return <div className="rounded-lg bg-white p-2"><p className="truncate text-xs font-extrabold text-[#1F2937]">{value}</p><p className="mt-1 text-[8px] font-bold uppercase text-[#6B7280]">{label}</p></div>; }

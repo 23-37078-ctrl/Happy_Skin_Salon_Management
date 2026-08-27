@@ -13,7 +13,7 @@ class Booking(Base):
     service_provider_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     preferred_service_provider_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
-    appointment_date = Column(DateTime, nullable=False)
+    appointment_date = Column(DateTime(timezone=True), nullable=False)
     status           = Column(String(20), default="pending", nullable=False)
     # status values: pending | confirmed | completed | cancelled
 
@@ -27,3 +27,15 @@ class Booking(Base):
     service          = relationship("Service")
     service_provider = relationship("User", foreign_keys=[service_provider_id])
     preferred_service_provider = relationship("User", foreign_keys=[preferred_service_provider_id])
+    service_items = relationship("BookingServiceItem", back_populates="booking", cascade="all, delete-orphan", order_by="BookingServiceItem.id")
+
+
+class BookingServiceItem(Base):
+    __tablename__ = "booking_service_items"
+    id = Column(Integer, primary_key=True)
+    booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False, index=True)
+    service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
+    service_provider_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    booking = relationship("Booking", back_populates="service_items")
+    service = relationship("Service")
+    service_provider = relationship("User", foreign_keys=[service_provider_id])

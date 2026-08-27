@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HiOutlineBanknotes, HiOutlineCalendarDays, HiOutlineCheckCircle, HiOutlineClock, HiOutlineXCircle } from "react-icons/hi2";
 import ownerService from "../../services/ownerService";
 import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, EmptyState, Notice, OwnerWorkspace, StatCard } from "./OwnerWorkspace";
+import { CardSkeleton, EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
 
 const periods = ["daily", "weekly", "monthly"];
@@ -33,7 +33,7 @@ export default function CentralizedReports() {
   const summary = report?.summary || {};
 
   return (
-    <OwnerWorkspace title="Centralized Reports" eyebrow="Consolidated multi-branch reporting">
+    <OwnerWorkspace title="Centralized Reports" eyebrow="Consolidated multi-branch reporting" headerStats={[{ label: "Bookings", value: summary.bookings || 0, icon: HiOutlineCalendarDays, tone: "pink" }, { label: "Completed", value: summary.completed || 0, icon: HiOutlineCheckCircle, tone: "green" }, { label: "Pending", value: summary.pending || 0, icon: HiOutlineClock, tone: "amber" }, { label: "Cancelled", value: summary.cancelled || 0, icon: HiOutlineXCircle, tone: "red" }, { label: "Sales", value: formatCurrency(summary.sales), icon: HiOutlineBanknotes, tone: "blue" }]}>
       {error && <Notice message={error} onRetry={loadReport} />}
       <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
         <div className="grid gap-3 lg:grid-cols-[auto_1fr_1fr_auto] lg:items-end">
@@ -44,14 +44,6 @@ export default function CentralizedReports() {
           <DateInput label="End" value={range.end_date} onChange={(value) => setRange((prev) => ({ ...prev, end_date: value }))} />
           <button type="button" onClick={loadReport} className="min-h-11 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white">Apply</button>
         </div>
-      </section>
-
-      <section className="mt-5 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Bookings" value={summary.bookings || 0} icon={HiOutlineCalendarDays} tone="pink" />
-        <StatCard label="Completed" value={summary.completed || 0} icon={HiOutlineCheckCircle} tone="green" />
-        <StatCard label="Pending" value={summary.pending || 0} icon={HiOutlineClock} tone="amber" />
-        <StatCard label="Cancelled" value={summary.cancelled || 0} icon={HiOutlineXCircle} tone="red" />
-        <StatCard label="Sales" value={formatCurrency(summary.sales)} icon={HiOutlineBanknotes} tone="blue" />
       </section>
 
       <div className="mt-5 grid gap-6 xl:grid-cols-2">

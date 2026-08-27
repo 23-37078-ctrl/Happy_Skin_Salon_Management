@@ -15,6 +15,27 @@ export default function SystemPopup({ message, children, tone = "error", title, 
   const Icon = variant.icon;
 
   useEffect(() => {
+    if (content) setVisible(true);
+  }, [content, tone]);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setVisible(false);
+        onClose?.();
+      }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, visible]);
+
+  useEffect(() => {
     if (!autoClose || !visible) return undefined;
     const timer = window.setTimeout(() => { setVisible(false); onClose?.(); }, 4000);
     return () => window.clearTimeout(timer);

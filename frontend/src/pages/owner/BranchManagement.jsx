@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HiOutlineBuildingStorefront, HiOutlinePencilSquare, HiOutlinePlus } from "react-icons/hi2";
 import ownerService from "../../services/ownerService";
 import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, EmptyState, Notice, OwnerWorkspace, StatCard } from "./OwnerWorkspace";
+import { CardSkeleton, EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
 
 const emptyForm = { name: "", address: "", phone: "", is_active: true };
 
@@ -57,17 +57,11 @@ export default function BranchManagement() {
   };
 
   return (
-    <OwnerWorkspace title="Branch Management" eyebrow="Create and maintain salon branches">
+    <OwnerWorkspace title="Branch Management" eyebrow="Create and maintain salon branches" headerStats={[{ label: "Branches", value: branches.length, icon: HiOutlineBuildingStorefront, tone: "pink" }, { label: "Active", value: branches.filter((branch) => branch.is_active).length, icon: HiOutlineBuildingStorefront, tone: "green" }, { label: "Sales", value: formatCurrency(branches.reduce((sum, branch) => sum + Number(branch.sales || 0), 0)), icon: HiOutlineBuildingStorefront, tone: "blue" }]}>
       {error && <Notice message={error} onRetry={loadBranches} />}
       {success && <Notice tone="success" message={success} />}
 
-      <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:grid-cols-3 sm:gap-4">
-        <StatCard label="Branches" value={branches.length} icon={HiOutlineBuildingStorefront} tone="pink" />
-        <StatCard label="Active" value={branches.filter((branch) => branch.is_active).length} icon={HiOutlineBuildingStorefront} tone="green" />
-        <StatCard label="Sales" value={formatCurrency(branches.reduce((sum, branch) => sum + Number(branch.sales || 0), 0))} icon={HiOutlineBuildingStorefront} tone="blue" />
-      </section>
-
-      <form onSubmit={submit} className="mt-5 rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
+      <form onSubmit={submit} className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
         <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr_0.8fr_auto_auto] lg:items-end">
           <Field label="Branch name" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} required />
           <Field label="Address" value={form.address} onChange={(value) => setForm((prev) => ({ ...prev, address: value }))} required />
@@ -108,7 +102,7 @@ export default function BranchManagement() {
               </article>
             ))}
           </div>
-        ) : <EmptyState title="No branches yet" description="Create branches so bookings, transactions, inventory, and managers can be assigned accurately." />}
+        ) : <EmptyState title="No branches yet" description="Create branches so bookings, transactions, and managers can be assigned accurately." />}
       </section>
     </OwnerWorkspace>
   );

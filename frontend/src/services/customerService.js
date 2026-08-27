@@ -96,6 +96,15 @@ export async function getBranchProviders(branchId, signal) {
   return data;
 }
 
+export async function getBookingAvailability(branchId, serviceId, bookingDate, signal, serviceIds = []) {
+  const { data } = await api.get("/customer/availability", {
+    params: { branch_id: branchId, service_id: serviceId, service_ids: serviceIds, booking_date: bookingDate },
+    paramsSerializer: { indexes: null },
+    signal,
+  });
+  return data;
+}
+
 export async function createAppointment(payload) {
   const { data } = await api.post("/customer/appointments", payload);
   return data;

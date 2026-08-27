@@ -3,6 +3,7 @@ import {
   HiOutlineCalendarDays,
   HiOutlineGift,
   HiOutlineCog6Tooth,
+  HiOutlineReceiptPercent,
 } from "react-icons/hi2";
 import { formatTimestamp } from "../../utils/formatTimestamp";
 
@@ -11,6 +12,7 @@ const TYPE_CONFIG = {
   reminder: { icon: HiOutlineBellAlert, color: "text-[#F59E0B]", bg: "bg-[#F59E0B]/10" },
   promotion: { icon: HiOutlineGift, color: "text-[#D65A9A]", bg: "bg-[#FFE9F3]" },
   system: { icon: HiOutlineCog6Tooth, color: "text-[#6B7280]", bg: "bg-gray-100" },
+  receipt: { icon: HiOutlineReceiptPercent, color: "text-[#15803D]", bg: "bg-[#DCFCE7]" },
 };
 
 /**

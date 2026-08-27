@@ -24,7 +24,7 @@ def _authorize_branch(user: User, branch_id: int) -> None:
 @router.get("/branches/{branch_id}", response_model=BranchForecastResponse)
 def get_branch_forecast(
     branch_id: int,
-    horizon: int = Query(default=7, ge=1, le=14),
+    horizon: int = Query(default=7, ge=1, le=365),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

@@ -11,7 +11,6 @@ from app.dependencies.permissions import require_role
 from app.models.booking import Booking
 from app.models.branch import Branch
 from app.models.feedback import Feedback
-from app.models.inventory import InventoryItem
 from app.models.service import Service
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -98,8 +97,10 @@ def _period_bounds(period: str, start_date: date | None, end_date: date | None) 
         start = today - timedelta(days=6)
     elif period == "monthly":
         start = today.replace(day=1)
+    elif period == "yearly":
+        start = today.replace(month=1, day=1)
     else:
-        raise HTTPException(status_code=400, detail="Period must be daily, weekly, or monthly.")
+        raise HTTPException(status_code=400, detail="Period must be daily, weekly, monthly, or yearly.")
     return datetime.combine(start, time.min), datetime.combine(today + timedelta(days=1), time.min)
 
 
@@ -167,18 +168,27 @@ def _serialize_transaction(transaction: Transaction) -> dict:
         "id": transaction.id,
         "amount": transaction.amount,
         "payment_method": transaction.payment_method,
+        "additional_charge": transaction.additional_charge,
+        "charge_reason": transaction.charge_reason,
+        "commission_rate": transaction.commission_rate,
+        "commission_amount": transaction.commission_amount,
         "created_at": transaction.created_at,
         "staff": {
             "id": transaction.staff.id,
             "full_name": transaction.staff.full_name,
         } if transaction.staff else None,
+        "service_provider": {
+            "id": transaction.service_provider.id,
+            "full_name": transaction.service_provider.full_name,
+            "job_title": transaction.service_provider.job_title,
+        } if transaction.service_provider else None,
         "booking": {
             "id": booking.id,
             "appointment_date": booking.appointment_date,
             "status": booking.status,
             "branch": {"id": booking.branch.id, "name": booking.branch.name} if booking and booking.branch else None,
             "service": {"id": booking.service.id, "name": booking.service.name} if booking and booking.service else None,
-            "customer": {"id": booking.customer.id, "full_name": booking.customer.full_name} if booking and booking.customer else None,
+            "customer": {"id": booking.customer.id, "full_name": booking.customer.full_name, "phone_number": booking.customer.phone_number} if booking and booking.customer else None,
         } if booking else None,
     }
 
@@ -196,6 +206,7 @@ def _booking_query(db: Session):
 def _transaction_query(db: Session):
     return db.query(Transaction).options(
         joinedload(Transaction.staff),
+        joinedload(Transaction.service_provider),
         joinedload(Transaction.booking).joinedload(Booking.branch),
         joinedload(Transaction.booking).joinedload(Booking.service),
         joinedload(Transaction.booking).joinedload(Booking.customer),
@@ -226,10 +237,6 @@ def get_owner_dashboard(
         "today_bookings": today_bookings,
         "transactions": db.query(Transaction).count(),
         "total_sales": float(total_sales),
-        "low_stock_items": db.query(InventoryItem).filter(
-            InventoryItem.is_active.is_(True),
-            InventoryItem.quantity <= InventoryItem.minimum_stock,
-        ).count(),
     }
 
     branch_rows = (
@@ -460,7 +467,7 @@ def list_owner_transactions(
 
 @router.get("/reports")
 def get_owner_reports(
-    period: str = Query("weekly", pattern="^(daily|weekly|monthly)$"),
+    period: str = Query("weekly", pattern="^(daily|weekly|monthly|yearly)$"),
     start_date: date | None = None,
     end_date: date | None = None,
     branch_id: int | None = None,
@@ -520,6 +527,37 @@ def get_owner_reports(
         "branches": [{"name": row.name, "bookings": row.bookings, "sales": float(row.sales or 0)} for row in branch_rows],
         "services": [{"name": row.name, "bookings": row.bookings, "sales": float(row.sales or 0)} for row in service_rows],
     }
+
+
+@router.get("/dashboard/performance")
+def get_owner_dashboard_performance(
+    period: str = Query("weekly", pattern="^(weekly|monthly|yearly)$"),
+    current_user: User = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+):
+    start, end = _period_bounds(period, None, None)
+    branches = db.query(Branch).filter(Branch.is_active.is_(True)).order_by(Branch.name).all()
+    results = []
+    for branch in branches:
+        bookings = db.query(Booking).filter(Booking.branch_id == branch.id, Booking.appointment_date >= start, Booking.appointment_date < end)
+        booking_count = bookings.count()
+        completed = bookings.filter(Booking.status == "completed").count()
+        sales = float(db.query(func.coalesce(func.sum(Transaction.amount), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
+        branch_rating = float(db.query(func.avg(Feedback.branch_rating)).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Feedback.branch_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).scalar() or 0)
+        transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
+        transaction_metrics = {row.provider_id: row for row in transaction_rows}
+        rating_rows = db.query(Feedback.service_provider_id.label("provider_id"), func.avg(Feedback.staff_rating).label("average"), func.count(Feedback.id).label("count")).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Feedback.service_provider_id.isnot(None), Feedback.staff_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).group_by(Feedback.service_provider_id).all()
+        rating_metrics = {row.provider_id: row for row in rating_rows}
+        staff_rows = db.query(User).filter(User.role == "staff", User.branch_id == branch.id, User.is_active.is_(True), User.job_title.isnot(None)).all()
+        staff = []
+        for member in staff_rows:
+            activity = transaction_metrics.get(member.id)
+            rating = rating_metrics.get(member.id)
+            staff.append({"staff_id": member.id, "full_name": member.full_name, "job_title": member.job_title or "Salon Specialist", "services_completed": int(activity.services if activity else 0), "revenue": float(activity.revenue if activity else 0), "commission": float(activity.commission if activity else 0), "average_rating": round(float(rating.average or 0), 1) if rating else 0, "rating_count": int(rating.count if rating else 0)})
+        staff.sort(key=lambda item: (item["revenue"], item["services_completed"], item["average_rating"]), reverse=True)
+        results.append({"branch_id": branch.id, "name": branch.name, "address": branch.address, "bookings": booking_count, "completed": completed, "completion_rate": round(completed / booking_count * 100, 1) if booking_count else 0, "sales": sales, "average_rating": round(branch_rating, 1), "staff": staff})
+    results.sort(key=lambda item: (item["sales"], item["completed"]), reverse=True)
+    return {"period": period, "start_date": start.date().isoformat(), "end_date": (end - timedelta(days=1)).date().isoformat(), "branches": results}
 
 
 @router.get("/forecasting")
