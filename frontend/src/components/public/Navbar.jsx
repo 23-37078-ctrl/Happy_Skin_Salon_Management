@@ -4,6 +4,7 @@ import { HiOutlineArrowRightOnRectangle, HiOutlineBars3, HiOutlineXMark } from "
 
 const NAV_ITEMS = [
   { label: "Home", href: "#home" },
+  { label: "About", href: "#about" },
   { label: "Branches", href: "#branches" },
   { label: "Services", href: "#services" },
 ];
@@ -76,8 +77,8 @@ export default function Navbar() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => navigate("/login")} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 text-sm font-extrabold text-white shadow-[0_8px_18px_rgba(200,91,149,0.2)] transition hover:bg-[#B94B86] focus:outline-none focus:ring-4 focus:ring-[#C85B95]/20 sm:px-5">
-            <HiOutlineArrowRightOnRectangle className="hidden h-5 w-5 sm:block" /> Login
+          <button type="button" onClick={() => navigate("/login")} aria-label="Login" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold text-[#766A67] transition hover:bg-[#FBF4F2] hover:text-[#9F5E5C] focus:outline-none focus:ring-4 focus:ring-[#C85B95]/20 sm:px-4 sm:text-sm">
+            <HiOutlineArrowRightOnRectangle className="h-4 w-4" /> Login
           </button>
           <button type="button" onClick={() => setMenuOpen((current) => !current)} aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={menuOpen} aria-controls="mobile-navigation" className="grid h-10 w-10 place-items-center rounded-xl text-[#1F2A44] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#C85B95]/15 lg:hidden">
             {menuOpen ? <HiOutlineXMark className="h-6 w-6" /> : <HiOutlineBars3 className="h-6 w-6" />}

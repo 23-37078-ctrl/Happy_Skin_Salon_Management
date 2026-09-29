@@ -27,6 +27,7 @@ const fallbackServices = SALON_SERVICES.map((service) => ({
   duration_minutes: service.duration,
   image: service.img,
 }));
+const serviceCategories = new Map(SALON_SERVICES.map(({ name, category }) => [name, category]));
 
 export default function SalonDiscoverySection() {
   const navigate = useNavigate();
@@ -49,7 +50,10 @@ export default function SalonDiscoverySection() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
         setBranches(payload.branches || []);
-        setServices(payload.services?.length ? payload.services : fallbackServices);
+        setServices((payload.services?.length ? payload.services : fallbackServices).map((service) => ({
+          ...service,
+          category: service.category || serviceCategories.get(service.name) || "Salon Service",
+        })));
       } catch (error) {
         if (error.name === "AbortError") return;
         setServices(fallbackServices);
@@ -93,24 +97,55 @@ export default function SalonDiscoverySection() {
   };
 
   return (
-    <section id="home" className="min-h-screen bg-[#FCFAFB] pb-20 pt-[72px]">
-      <div className="border-b border-[#F1E7EC] bg-white">
-        <div className="w-full max-w-none px-4 py-3 sm:px-6 lg:px-8">
-          <label className="flex min-h-11 items-center gap-2.5 rounded-xl border border-[#EAE7E9] bg-[#F7F7F8] px-4 transition focus-within:border-[#D65A9A] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#D65A9A]/10">
-            <HiOutlineMagnifyingGlass className="h-5 w-5 shrink-0 text-[#667085]" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search for a salon service"
-              className="w-full bg-transparent text-sm text-[#1F2A44] outline-none placeholder:text-[#8B8B92] sm:text-base"
-            />
-          </label>
+    <div className="min-h-screen bg-[#FCFAFB] pb-16 pt-[72px]">
+      <section id="home" className="scroll-mt-20 overflow-hidden border-b border-[#F1E7EC] bg-[#FBF4F2]">
+        <div className="mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-12 sm:px-8 sm:py-16 lg:grid-cols-[1fr_0.9fr] lg:gap-16 lg:px-12 lg:py-20">
+          <div className="relative z-10">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#EBD2CD] bg-white/80 px-3.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#AA6665] sm:text-xs">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#BD7772]" /> Happy Skin · Aesthetic & Beauty Lounge
+            </span>
+            <h1 className="mt-6 max-w-2xl font-serif text-4xl font-medium leading-[1.08] tracking-tight text-[#282523] sm:text-5xl lg:text-6xl">
+              Care for your skin.<br /><span className="italic text-[#B96F6D]">Confidence for you.</span>
+            </h1>
+            <p className="mt-5 max-w-xl text-sm leading-7 text-[#706765] sm:text-base">
+              Explore our 2026 menu of facials, aesthetic treatments, spa, hair, nails, lash and brow services. Find a branch and book the care that feels right for you.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <button type="button" onClick={() => goToBooking(null)} className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-[#B96F6D] px-5 text-sm font-bold text-white shadow-lg shadow-[#B96F6D]/20 transition hover:bg-[#A9605E]">
+                <HiOutlineCalendarDays className="h-4 w-4" /> Book appointment <HiArrowRight className="h-4 w-4" />
+              </button>
+              <button type="button" onClick={() => document.querySelector("#services")?.scrollIntoView({ behavior: "smooth" })} className="min-h-12 rounded-lg border border-[#C8918A] bg-white/70 px-5 text-sm font-bold text-[#9F5E5C] transition hover:bg-white">
+                Explore services
+              </button>
+            </div>
+            <div className="mt-9 flex flex-wrap gap-x-7 gap-y-3 border-t border-[#E7D8D4] pt-5 text-xs font-semibold text-[#625956]">
+              <span><strong className="text-[#AA6665]">{SALON_SERVICES.length}+</strong> services</span>
+              <span><strong className="text-[#AA6665]">{branches.length}</strong> branches</span>
+              <span>Online appointment booking</span>
+            </div>
+          </div>
+          <div className="relative mx-auto w-full max-w-[610px]">
+            <div className="absolute -left-8 -top-8 h-32 w-32 rounded-full bg-[#EBD2CD]/70 blur-2xl" />
+            <div className="relative h-[300px] overflow-hidden rounded-[2rem] shadow-[0_25px_70px_rgba(91,58,54,0.18)] sm:h-[390px] lg:h-[450px]">
+              <img src="/images/services/signature-facial.jpg" alt="A relaxing facial treatment at Happy Skin" className="h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#352522]/35 via-transparent to-transparent" />
+              <div className="absolute bottom-5 left-5 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-lg backdrop-blur">
+                <p className="text-[9px] font-extrabold uppercase tracking-[0.17em] text-[#B96F6D]">Care that fits you</p>
+                <p className="mt-1 font-serif text-lg text-[#302927]">Skin · Hair · Beauty</p>
+              </div>
+            </div>
+            <div className="absolute -right-2 top-6 hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-lg backdrop-blur sm:block">
+              <p className="text-xs font-bold text-[#302927]">Find your service</p>
+              <p className="mt-1 text-[10px] text-[#77706D]">Browse the complete menu below</p>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="w-full max-w-none px-4 sm:px-6 lg:px-8">
-        <section id="branches" className="scroll-mt-24 py-4">
-          <h2 className="text-base font-extrabold text-[#1F2A44] sm:text-lg">Choose a branch</h2>
+      <div className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-10">
+        <section id="branches" className="scroll-mt-24 py-8">
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#B96F6D]">Visit us</p>
+          <h2 className="mt-1 font-serif text-2xl text-[#302927] sm:text-3xl">Choose a branch</h2>
 
           {notice && <p className="mt-4 rounded-xl bg-[#FFF0F7] px-4 py-3 text-sm text-[#9D3C70]">{notice}</p>}
 
@@ -159,13 +194,21 @@ export default function SalonDiscoverySection() {
         )}
 
         <section id="services" className="scroll-mt-24 pb-5 pt-2">
-          <div className="mb-3 flex items-center justify-between gap-4">
-            <h2 className="text-lg font-extrabold text-[#1F2A44]">{selectedBranch ? `Services at ${selectedBranch.name}` : normalizedQuery ? "Search results" : "Popular services"}</h2>
+          <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#B96F6D]">Our treatments</p>
+              <h2 className="mt-1 font-serif text-3xl text-[#302927] sm:text-4xl">{selectedBranch ? `Services at ${selectedBranch.name}` : normalizedQuery ? "Search results" : "Find the right care for you"}</h2>
+              {!selectedBranch && !normalizedQuery && <p className="mt-2 max-w-2xl text-sm leading-6 text-[#77706D]">Explore the full 2026 menu, see prices, choose a branch, and book directly.</p>}
+            </div>
             <span className="text-xs font-semibold text-[#667085]">{visibleServices.length} {visibleServices.length === 1 ? "service" : "services"}</span>
           </div>
+          <label className="mb-5 flex min-h-12 max-w-xl items-center gap-2.5 rounded-xl border border-[#E8DCD8] bg-white px-4 transition focus-within:border-[#B96F6D] focus-within:ring-2 focus-within:ring-[#B96F6D]/10">
+            <HiOutlineMagnifyingGlass className="h-5 w-5 shrink-0 text-[#B96F6D]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search treatments and services" className="w-full bg-transparent text-sm text-[#302927] outline-none placeholder:text-[#9A918E]" />
+          </label>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {displayedServices.map((service) => (
-              <ServiceCard key={service.id} service={service} onBook={() => goToBooking(service.id, selectedBranch?.id)} />
+              <ServiceCard key={service.id} service={{ ...service, category: service.category || serviceCategories.get(service.name) || "Salon Service" }} onBook={() => goToBooking(service.id, selectedBranch?.id)} />
             ))}
           </div>
           {shouldLimitServices && visibleServices.length > 8 && (
@@ -179,7 +222,27 @@ export default function SalonDiscoverySection() {
         </section>
 
       </div>
-    </section>
+      <section id="about" className="mx-4 mt-12 max-w-[1440px] scroll-mt-24 overflow-hidden rounded-[2rem] border border-[#F0E6EC] bg-white sm:mx-6 lg:mx-10">
+        <div className="grid lg:grid-cols-2">
+          <div className="grid min-h-[320px] grid-cols-2 gap-3 p-4 sm:p-6">
+            <img src="/images/services/generated/carbon-laser-facial.jpg" alt="Personalized aesthetic care" className="h-full min-h-64 w-full rounded-2xl object-cover" />
+            <div className="grid gap-3">
+              <img src="/images/services/generated/hair-spa-treatment.jpg" alt="Hair spa treatment" className="h-40 w-full rounded-2xl object-cover" />
+              <img src="/images/services/generated/gel-manicure.jpg" alt="Nail care service" className="h-40 w-full rounded-2xl object-cover" />
+            </div>
+          </div>
+          <div className="flex flex-col justify-center px-6 pb-8 sm:px-10 lg:py-10">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#B96F6D]">About Happy Skin</p>
+            <h2 className="mt-2 max-w-lg font-serif text-3xl leading-tight text-[#302927] sm:text-4xl">A little time for yourself can go a long way.</h2>
+            <p className="mt-4 max-w-xl text-sm leading-7 text-[#77706D]">Happy Skin brings together skin, aesthetic, spa, hair, nail, lash and brow services in one easy to browse menu. Choose from our participating branches, compare service prices, and request an appointment online.</p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              {["Skin care", "Aesthetic treatments", "Spa & body", "Hair & nails"].map((item) => <span key={item} className="rounded-full border border-[#E9D7D1] bg-[#FBF4F2] px-3 py-1.5 text-[10px] font-bold text-[#9F5E5C]">{item}</span>)}
+            </div>
+            <button type="button" onClick={() => goToBooking(null)} className="mt-7 inline-flex min-h-11 w-fit items-center gap-2 rounded-lg bg-[#B96F6D] px-4 text-sm font-bold text-white transition hover:bg-[#A9605E]">Book your visit <HiArrowRight className="h-4 w-4" /></button>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -188,14 +251,15 @@ function ServiceCard({ service, onBook }) {
     <article className="group overflow-hidden rounded-2xl border border-[#EAE7E9] bg-white transition hover:-translate-y-1 hover:shadow-xl">
       <div className="relative h-44 overflow-hidden bg-[#FFF0F7]">
         <img src={service.image} alt={service.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-        <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#1F2A44] shadow"><HiOutlineClock className="h-4 w-4 text-[#C85B95]" /> {service.duration_minutes || 0} min</span>
+        <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#302927] shadow"><HiOutlineClock className="h-4 w-4 text-[#B96F6D]" /> {service.duration_minutes || 0} min</span>
       </div>
       <div className="p-4">
-        <h3 className="line-clamp-1 text-base font-extrabold text-[#1F2A44]">{service.name}</h3>
+        <h3 className="line-clamp-1 text-base font-extrabold text-[#302927]">{service.name}</h3>
+        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-[#6B3F5D]">{service.category}</p>
         <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-[#667085]">{service.description || "Professional salon care by Happy Skin specialists."}</p>
         <div className="mt-4 flex items-center justify-between gap-3">
-          <span className="font-extrabold text-[#C85B95]">{formatServicePrice(service.price)}</span>
-          <button onClick={onBook} className="inline-flex items-center gap-1 rounded-xl bg-[#C85B95] px-3.5 py-2 text-xs font-bold text-white transition hover:bg-[#B94B86]">Book now <HiArrowRight className="h-4 w-4" /></button>
+          <span className="font-extrabold text-[#A9605E]">{formatServicePrice(service.price)}</span>
+          <button onClick={onBook} className="inline-flex items-center gap-1 rounded-lg bg-[#B96F6D] px-3.5 py-2 text-xs font-bold text-white transition hover:bg-[#A9605E]">Book now <HiArrowRight className="h-4 w-4" /></button>
         </div>
       </div>
     </article>

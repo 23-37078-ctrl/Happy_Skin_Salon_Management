@@ -31,6 +31,7 @@ export default function Footer() {
           <h2 className="text-sm font-extrabold">Explore</h2>
           <div className="mt-4 flex flex-col items-start gap-3">
             <button type="button" onClick={() => scrollTo("#home")} className={footerLinkClass}>Home</button>
+            <button type="button" onClick={() => scrollTo("#about")} className={footerLinkClass}>About</button>
             <button type="button" onClick={() => scrollTo("#branches")} className={footerLinkClass}>Branches</button>
             <button type="button" onClick={() => scrollTo("#services")} className={footerLinkClass}>Services</button>
           </div>

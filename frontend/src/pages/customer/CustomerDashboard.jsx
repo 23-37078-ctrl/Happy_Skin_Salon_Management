@@ -10,11 +10,13 @@ import {
   HiOutlineMapPin,
   HiOutlinePhone,
   HiOutlineSparkles,
+  HiOutlineTag,
   HiOutlineArrowRightOnRectangle,
   HiChevronDown,
 } from "react-icons/hi2";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
+import { getSalonServiceCategory, SALON_SERVICE_CATEGORIES } from "../../constants/salonServices";
 
 import EmptyState from "../../components/customer/EmptyState";
 import NotificationCard from "../../components/customer/NotificationCard";
@@ -117,6 +119,19 @@ export default function CustomerDashboard() {
   const selectedServices = selectedBranch
     ? (selectedBranch.services || []).map((service) => ({ ...service, branch_id: selectedBranch.id, branch_name: selectedBranch.name }))
     : allBranchServices;
+  const serviceGroups = useMemo(() => {
+    const grouped = new Map();
+    selectedServices.forEach((service) => {
+      const category = service.category || getSalonServiceCategory(service.name);
+      if (!grouped.has(category)) grouped.set(category, []);
+      grouped.get(category).push(service);
+    });
+    return [...grouped.entries()].sort(([first], [second]) => {
+      const firstOrder = SALON_SERVICE_CATEGORIES.indexOf(first);
+      const secondOrder = SALON_SERVICE_CATEGORIES.indexOf(second);
+      return (firstOrder < 0 ? Number.MAX_SAFE_INTEGER : firstOrder) - (secondOrder < 0 ? Number.MAX_SAFE_INTEGER : secondOrder);
+    });
+  }, [selectedServices]);
   const openServiceBooking = (service) => {
     const parameters = new URLSearchParams();
     const branchId = Number(service?.branch_id);
@@ -124,6 +139,9 @@ export default function CustomerDashboard() {
     if (Number.isInteger(branchId) && branchId > 0) parameters.set("branch", String(branchId));
     if (Number.isInteger(serviceId) && serviceId > 0) parameters.set("service", String(serviceId));
     navigate(`/customer/book${parameters.size ? `?${parameters.toString()}` : ""}`);
+  };
+  const goToCustomerSection = (sectionId) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const customerFirstName = getFirstName(
@@ -153,7 +171,61 @@ export default function CustomerDashboard() {
 
         {error && <SystemPopup message={error} tone="error" onRetry={fetchDashboard} />}
 
+        <div className="mb-5 mt-4">
+          <p className="text-sm font-medium text-[#667085]">Customer Portal</p>
+          <h1 className="mt-1 text-2xl font-extrabold text-[#1F2A44]">{customerFirstName}</h1>
+        </div>
+
+        <Section className="mb-7" title={selectedBranch ? `Recommended at ${selectedBranch.name}` : "Recommended for you"} description="A curated starting point with transparent pricing and appointment duration.">
+          {isLoading ? (
+            <CardRailSkeleton />
+          ) : selectedServices.length ? (
+            <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 pr-4 scroll-smooth">
+              {selectedServices.slice(0, 4).map((service) => (
+                <div key={service.id} className="w-[82vw] min-w-[17.5rem] max-w-[22rem] snap-start sm:w-[22rem]">
+                  <RecommendedServiceCard
+                    name={service.name}
+                    image={service.image}
+                    reason={service.reason}
+                    description={service.description}
+                    branchName={service.branch_name}
+                    price={service.price}
+                    duration={service.duration_minutes}
+                    onBook={() => openServiceBooking(service)}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Nothing to recommend yet"
+              description="Book your first treatment and personalized suggestions will appear here."
+              icon={<HiOutlineSparkles className="h-9 w-9" />}
+            />
+          )}
+        </Section>
+
+        <section aria-labelledby="customer-explore-title" className="mb-9">
+          <h2 id="customer-explore-title" className="mb-3 text-lg font-bold text-[#1F2937]">Explore</h2>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Services", icon: HiOutlineSparkles, action: () => goToCustomerSection("customer-services") },
+              { label: "Price list", icon: HiOutlineTag, action: () => goToCustomerSection("customer-services") },
+              { label: "Promotions", icon: HiOutlineGift, action: () => setShowPromotions(true) },
+              { label: "Reservations", icon: HiOutlineCalendar, action: () => navigate("/customer/book") },
+              { label: "My appointments", icon: HiOutlineClock, action: () => navigate("/customer/history") },
+              { label: "Contact", icon: HiOutlinePhone, action: () => goToCustomerSection("customer-branches") },
+            ].map(({ label, icon: Icon, action }) => (
+              <button key={label} type="button" onClick={action} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-[#F3E8EF] bg-white px-2 py-3 text-center shadow-sm transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/15">
+                <Icon className="h-7 w-7 text-[#D65A9A]" />
+                <span className="text-[11px] font-semibold leading-tight text-[#344054]">{label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
         <Section
+          id="customer-branches"
           title="Choose a Branch"
           action={selectedBranch && (
             <button
@@ -188,46 +260,23 @@ export default function CustomerDashboard() {
           )}
         </Section>
 
-        <Section className="mt-10" title={selectedBranch ? `Recommended at ${selectedBranch.name}` : "Recommended for you"} description="A curated starting point with transparent pricing and appointment duration.">
-          {isLoading ? (
-            <CardRailSkeleton />
-          ) : selectedServices.length ? (
-            <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 pr-4 scroll-smooth">
-              {selectedServices.slice(0, 4).map((service) => (
-                <div key={service.id} className="w-[82vw] min-w-[17.5rem] max-w-[22rem] snap-start sm:w-[22rem]">
-                  <RecommendedServiceCard
-                    name={service.name}
-                    image={service.image}
-                    reason={service.reason}
-                    description={service.description}
-                    branchName={service.branch_name}
-                    price={service.price}
-                    duration={service.duration_minutes}
-                    onBook={() => openServiceBooking(service)}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="Nothing to recommend yet"
-              description="Book your first treatment and personalized suggestions will appear here."
-              icon={<HiOutlineSparkles className="h-9 w-9" />}
-            />
-          )}
-        </Section>
-
-        <Section className="mt-10" title={selectedBranch ? `Explore services at ${selectedBranch.name}` : "Explore all services"} description="Compare services at your own pace. Availability is confirmed after you send a request.">
+        <Section id="customer-services" className="mt-8" title={selectedBranch ? `Explore services at ${selectedBranch.name}` : "Explore all services"} description="Compare services at your own pace. Availability is confirmed after you send a request.">
           {isLoading ? (
             <AllServicesSkeleton />
-          ) : selectedServices.length ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {selectedServices.map((service) => (
-                <AllServiceCard
-                  key={service.id}
-                  service={service}
-                  onBook={() => openServiceBooking(service)}
-                />
+          ) : serviceGroups.length ? (
+            <div className="space-y-8">
+              {serviceGroups.map(([category, categoryServices]) => (
+                <section key={category} aria-labelledby={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 id={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="text-base font-extrabold text-[#1F2937] sm:text-lg">{category}</h3>
+                    <span className="text-[11px] font-semibold text-[#667085]">{categoryServices.length} {categoryServices.length === 1 ? "service" : "services"}</span>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {categoryServices.map((service) => (
+                      <AllServiceCard key={service.id} service={service} onBook={() => openServiceBooking(service)} />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           ) : (
@@ -247,15 +296,7 @@ export default function CustomerDashboard() {
         <PromotionModal promotions={data?.promotions || []} onClose={() => setShowPromotions(false)} onBook={(promo) => navigate(`/customer/book?branch=${encodeURIComponent(promo.branch_id)}`)} />
       )}
 
-      <motion.button
-        onClick={() => navigate("/customer/book")}
-        whileHover={{ y: -3, scale: 1.02 }}
-        whileTap={{ scale: 0.96 }}
-        aria-label="Book appointment"
-        className="fixed bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#D65A9A] to-[#C85B95] text-white shadow-[0_18px_40px_rgba(214,90,154,0.42)] transition-all focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/35 focus:ring-offset-2 sm:bottom-7 sm:right-7 sm:h-16 sm:w-16"
-      >
-        <HiOutlineCalendar className="h-6 w-6" />
-      </motion.button>
+
     </main>
   );
 }
@@ -533,7 +574,7 @@ function BranchListSkeleton() {
   );
 }
 
-function Section({ title, description, action, className = "", children }) {
+function Section({ id, title, description, action, className = "", children }) {
   return (
     <motion.section
       initial="hidden"
@@ -541,6 +582,7 @@ function Section({ title, description, action, className = "", children }) {
       viewport={{ once: true, margin: "-60px" }}
       variants={fadeUp}
       transition={{ duration: 0.45, ease: "easeOut" }}
+      id={id}
       className={className}
     >
       {title && (
