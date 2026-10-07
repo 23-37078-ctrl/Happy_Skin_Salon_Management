@@ -62,6 +62,10 @@ export const staffTransactionService = {
     const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/treatment-done`);
     return response.data;
   },
+  cancelOnlineBooking: async (bookingId, reason) => {
+    const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/cancel`, { reason });
+    return response.data;
+  },
 
   dayEndSummary: async (reportDate) => {
     const response = await api.get("/staff/transactions/day-end/summary", { params: { report_date: reportDate } });

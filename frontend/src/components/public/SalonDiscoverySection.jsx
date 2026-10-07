@@ -36,7 +36,7 @@ export default function SalonDiscoverySection() {
   const [services, setServices] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
   const [query, setQuery] = useState("");
-  const [showAllServices, setShowAllServices] = useState(false);
+  const [activeCategory, setActiveCategory] = useState("All Services");
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
 
@@ -49,6 +49,7 @@ export default function SalonDiscoverySection() {
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
+        await new Promise((resolve) => setTimeout(resolve, 350));
         setBranches(payload.branches || []);
         setServices((payload.services?.length ? payload.services : fallbackServices).map((service) => ({
           ...service,
@@ -72,17 +73,15 @@ export default function SalonDiscoverySection() {
   );
 
   const normalizedQuery = query.trim().toLowerCase();
+  const availableCategories = useMemo(() => ["All Services", ...new Set(services.map((service) => service.category || serviceCategories.get(service.name) || "Salon Service"))], [services]);
   const visibleServices = useMemo(() => {
     const source = selectedBranch?.services?.length ? selectedBranch.services : services;
-    if (!normalizedQuery) return source;
-    return source.filter((service) =>
+    const categoryFiltered = activeCategory === "All Services" ? source : source.filter((service) => (service.category || serviceCategories.get(service.name) || "Salon Service") === activeCategory);
+    if (!normalizedQuery) return categoryFiltered;
+    return categoryFiltered.filter((service) =>
       [service.name, service.description].join(" ").toLowerCase().includes(normalizedQuery)
     );
-  }, [normalizedQuery, selectedBranch, services]);
-  const shouldLimitServices = !normalizedQuery && !selectedBranch;
-  const displayedServices = shouldLimitServices && !showAllServices
-    ? visibleServices.slice(0, 8)
-    : visibleServices;
+  }, [activeCategory, normalizedQuery, selectedBranch, services]);
 
   const goToBooking = (serviceId, branchId = selectedBranch?.id) => {
     const params = new URLSearchParams();
@@ -97,30 +96,30 @@ export default function SalonDiscoverySection() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FCFAFB] pb-16 pt-[72px]">
-      <section id="home" className="scroll-mt-20 overflow-hidden border-b border-[#F1E7EC] bg-[#FBF4F2]">
+    <div className="landing-pink min-h-screen bg-[#FFF7FA] pb-16 pt-[72px]" style={{ fontFamily: "'Poppins', sans-serif" }}>
+      <section id="home" className="scroll-mt-20 overflow-hidden border-b border-[#F1E7EC] bg-gradient-to-br from-[#FFF7FA] via-[#FCE4EC] to-[#F8BBD0]">
         <div className="mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-12 sm:px-8 sm:py-16 lg:grid-cols-[1fr_0.9fr] lg:gap-16 lg:px-12 lg:py-20">
           <div className="relative z-10">
-            <span className="inline-flex items-center gap-2 rounded-full border border-[#EBD2CD] bg-white/80 px-3.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#AA6665] sm:text-xs">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#E8C9D9] bg-white/80 px-3.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#C2185B] sm:text-xs">
               <span className="h-1.5 w-1.5 rounded-full bg-[#BD7772]" /> Happy Skin · Aesthetic & Beauty Lounge
             </span>
-            <h1 className="mt-6 max-w-2xl font-serif text-4xl font-medium leading-[1.08] tracking-tight text-[#282523] sm:text-5xl lg:text-6xl">
-              Care for your skin.<br /><span className="italic text-[#B96F6D]">Confidence for you.</span>
+            <h1 className="mt-6 max-w-2xl font-serif text-4xl font-medium leading-[1.08] tracking-tight text-[#6B3F5D] sm:text-5xl lg:text-6xl">
+              Care for your skin.<br /><span className="italic text-[#C2185B]">Confidence for you.</span>
             </h1>
-            <p className="mt-5 max-w-xl text-sm leading-7 text-[#706765] sm:text-base">
+            <p className="mt-5 max-w-xl text-sm leading-7 text-[#6B3F5D] sm:text-base">
               Explore our 2026 menu of facials, aesthetic treatments, spa, hair, nails, lash and brow services. Find a branch and book the care that feels right for you.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <button type="button" onClick={() => goToBooking(null)} className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-[#B96F6D] px-5 text-sm font-bold text-white shadow-lg shadow-[#B96F6D]/20 transition hover:bg-[#A9605E]">
+              <button type="button" onClick={() => goToBooking(null)} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}>
                 <HiOutlineCalendarDays className="h-4 w-4" /> Book appointment <HiArrowRight className="h-4 w-4" />
               </button>
-              <button type="button" onClick={() => document.querySelector("#services")?.scrollIntoView({ behavior: "smooth" })} className="min-h-12 rounded-lg border border-[#C8918A] bg-white/70 px-5 text-sm font-bold text-[#9F5E5C] transition hover:bg-white">
+              <button type="button" onClick={() => document.querySelector("#services")?.scrollIntoView({ behavior: "smooth" })} className="min-h-12 rounded-lg border border-[#E8C9D9] bg-white/70 px-5 text-sm font-bold text-[#C2185B] transition hover:bg-[#FCE4EC]">
                 Explore services
               </button>
             </div>
             <div className="mt-9 flex flex-wrap gap-x-7 gap-y-3 border-t border-[#E7D8D4] pt-5 text-xs font-semibold text-[#625956]">
-              <span><strong className="text-[#AA6665]">{SALON_SERVICES.length}+</strong> services</span>
-              <span><strong className="text-[#AA6665]">{branches.length}</strong> branches</span>
+            <span><strong className="text-[#C2185B]">{SALON_SERVICES.length}+</strong> services</span>
+              <span><strong className="text-[#C2185B]">{branches.length}</strong> branches</span>
               <span>Online appointment booking</span>
             </div>
           </div>
@@ -130,12 +129,12 @@ export default function SalonDiscoverySection() {
               <img src="/images/services/signature-facial.jpg" alt="A relaxing facial treatment at Happy Skin" className="h-full w-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-[#352522]/35 via-transparent to-transparent" />
               <div className="absolute bottom-5 left-5 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-lg backdrop-blur">
-                <p className="text-[9px] font-extrabold uppercase tracking-[0.17em] text-[#B96F6D]">Care that fits you</p>
-                <p className="mt-1 font-serif text-lg text-[#302927]">Skin · Hair · Beauty</p>
+                <p className="text-[9px] font-extrabold uppercase tracking-[0.17em] text-[#C2185B]">Care that fits you</p>
+                <p className="mt-1 font-serif text-lg text-[#6B3F5D]">Skin · Hair · Beauty</p>
               </div>
             </div>
             <div className="absolute -right-2 top-6 hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-lg backdrop-blur sm:block">
-              <p className="text-xs font-bold text-[#302927]">Find your service</p>
+              <p className="text-xs font-bold text-[#6B3F5D]">Find your service</p>
               <p className="mt-1 text-[10px] text-[#77706D]">Browse the complete menu below</p>
             </div>
           </div>
@@ -144,8 +143,8 @@ export default function SalonDiscoverySection() {
 
       <div className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-10">
         <section id="branches" className="scroll-mt-24 py-8">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#B96F6D]">Visit us</p>
-          <h2 className="mt-1 font-serif text-2xl text-[#302927] sm:text-3xl">Choose a branch</h2>
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C2185B]">Visit us</p>
+          <h2 className="mt-1 font-serif text-2xl text-[#6B3F5D] sm:text-3xl">Choose a branch</h2>
 
           {notice && <p className="mt-4 rounded-xl bg-[#FFF0F7] px-4 py-3 text-sm text-[#9D3C70]">{notice}</p>}
 
@@ -158,9 +157,7 @@ export default function SalonDiscoverySection() {
                     <button
                       key={branch.id}
                       type="button"
-                      onClick={() => setSelectedBranchId((current) =>
-                        String(current) === String(branch.id) ? null : branch.id
-                      )}
+                      onClick={() => setSelectedBranchId((current) => String(current) === String(branch.id) ? null : branch.id)}
                       className={`group flex min-h-20 overflow-hidden rounded-xl border bg-white text-left transition hover:-translate-y-0.5 hover:shadow-md ${
                         selected ? "border-[#C85B95] ring-2 ring-[#C85B95]/10" : "border-[#EAE7E9]"
                       }`}
@@ -188,7 +185,7 @@ export default function SalonDiscoverySection() {
             </div>
             <div className="flex flex-wrap gap-2">
               {selectedBranch.phone && <a href={`tel:${selectedBranch.phone}`} className="inline-flex items-center gap-2 rounded-xl border border-[#E8C9D9] bg-white px-4 py-2.5 text-sm font-bold text-[#1F2A44]"><HiOutlinePhone className="h-4 w-4 text-[#C85B95]" /> Call branch</a>}
-              <button onClick={() => goToBooking(null, selectedBranch.id)} className="inline-flex items-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2.5 text-sm font-bold text-white"><HiOutlineCalendarDays className="h-4 w-4" /> Book here</button>
+              <button onClick={() => goToBooking(null, selectedBranch.id)} className="inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}><HiOutlineCalendarDays className="h-4 w-4" /> Book here</button>
             </div>
           </div>
         )}
@@ -196,28 +193,23 @@ export default function SalonDiscoverySection() {
         <section id="services" className="scroll-mt-24 pb-5 pt-2">
           <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#B96F6D]">Our treatments</p>
-              <h2 className="mt-1 font-serif text-3xl text-[#302927] sm:text-4xl">{selectedBranch ? `Services at ${selectedBranch.name}` : normalizedQuery ? "Search results" : "Find the right care for you"}</h2>
-              {!selectedBranch && !normalizedQuery && <p className="mt-2 max-w-2xl text-sm leading-6 text-[#77706D]">Explore the full 2026 menu, see prices, choose a branch, and book directly.</p>}
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C2185B]">Our treatments</p>
+              <h2 className="mt-1 font-serif text-3xl text-[#6B3F5D] sm:text-4xl">{selectedBranch ? `Services at ${selectedBranch.name}` : normalizedQuery ? "Search results" : "Our services"}</h2>
             </div>
             <span className="text-xs font-semibold text-[#667085]">{visibleServices.length} {visibleServices.length === 1 ? "service" : "services"}</span>
           </div>
-          <label className="mb-5 flex min-h-12 max-w-xl items-center gap-2.5 rounded-xl border border-[#E8DCD8] bg-white px-4 transition focus-within:border-[#B96F6D] focus-within:ring-2 focus-within:ring-[#B96F6D]/10">
-            <HiOutlineMagnifyingGlass className="h-5 w-5 shrink-0 text-[#B96F6D]" />
+          <div className="mb-5 flex flex-nowrap gap-5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <label className="flex min-h-12 w-[min(390px,85vw)] shrink-0 items-center gap-2.5 rounded-xl border border-[#E8D7E1] bg-white px-4 transition focus-within:border-[#C2185B] focus-within:ring-2 focus-within:ring-[#C2185B]/10">
+            <HiOutlineMagnifyingGlass className="h-5 w-5 shrink-0 text-[#C2185B]" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search treatments and services" className="w-full bg-transparent text-sm text-[#302927] outline-none placeholder:text-[#9A918E]" />
           </label>
+          {availableCategories.map((category) => <button key={category} type="button" onClick={() => setActiveCategory(category)} className={`min-h-12 shrink-0 rounded-xl px-5 text-sm font-semibold transition-all duration-200 ${activeCategory === category ? "text-white shadow-md hover:-translate-y-0.5 hover:shadow-lg" : "text-[#6B3F5D] hover:bg-[#FCE4EC]"}`} style={activeCategory === category ? { background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" } : { fontFamily: "'Poppins', sans-serif" }}>{category}</button>)}
+          </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {displayedServices.map((service) => (
+            {visibleServices.map((service) => (
               <ServiceCard key={service.id} service={{ ...service, category: service.category || serviceCategories.get(service.name) || "Salon Service" }} onBook={() => goToBooking(service.id, selectedBranch?.id)} />
             ))}
           </div>
-          {shouldLimitServices && visibleServices.length > 8 && (
-            <div className="mt-6 text-center">
-              <button type="button" onClick={() => setShowAllServices((current) => !current)} className="rounded-xl border border-[#E2C3D3] bg-white px-5 py-2.5 text-sm font-bold text-[#A34777] transition hover:border-[#C85B95] hover:bg-[#FFF7FB]">
-                {showAllServices ? "Show fewer" : `View all ${visibleServices.length} services`}
-              </button>
-            </div>
-          )}
           {!loading && visibleServices.length === 0 && <EmptyResults label="services" />}
         </section>
 
@@ -232,13 +224,13 @@ export default function SalonDiscoverySection() {
             </div>
           </div>
           <div className="flex flex-col justify-center px-6 pb-8 sm:px-10 lg:py-10">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#B96F6D]">About Happy Skin</p>
-            <h2 className="mt-2 max-w-lg font-serif text-3xl leading-tight text-[#302927] sm:text-4xl">A little time for yourself can go a long way.</h2>
-            <p className="mt-4 max-w-xl text-sm leading-7 text-[#77706D]">Happy Skin brings together skin, aesthetic, spa, hair, nail, lash and brow services in one easy to browse menu. Choose from our participating branches, compare service prices, and request an appointment online.</p>
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C2185B]">About Happy Skin</p>
+            <h2 className="mt-2 max-w-lg font-serif text-3xl leading-tight text-[#6B3F5D] sm:text-4xl">A little time for yourself can go a long way.</h2>
+            <p className="mt-4 max-w-xl text-sm leading-7 text-[#6B3F5D]">Happy Skin brings together skin, aesthetic, spa, hair, nail, lash and brow services in one easy to browse menu. Choose from our participating branches, compare service prices, and request an appointment online.</p>
             <div className="mt-6 flex flex-wrap gap-2">
-              {["Skin care", "Aesthetic treatments", "Spa & body", "Hair & nails"].map((item) => <span key={item} className="rounded-full border border-[#E9D7D1] bg-[#FBF4F2] px-3 py-1.5 text-[10px] font-bold text-[#9F5E5C]">{item}</span>)}
+              {["Skin care", "Aesthetic treatments", "Spa & body", "Hair & nails"].map((item) => <span key={item} className="rounded-full border border-[#E8C9D9] bg-[#FCE4EC] px-3 py-1.5 text-[10px] font-bold text-[#6B3F5D]">{item}</span>)}
             </div>
-            <button type="button" onClick={() => goToBooking(null)} className="mt-7 inline-flex min-h-11 w-fit items-center gap-2 rounded-lg bg-[#B96F6D] px-4 text-sm font-bold text-white transition hover:bg-[#A9605E]">Book your visit <HiArrowRight className="h-4 w-4" /></button>
+            <button type="button" onClick={() => goToBooking(null)} className="mt-7 inline-flex min-h-11 w-fit items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}>Book your visit <HiArrowRight className="h-4 w-4" /></button>
           </div>
         </div>
       </section>
@@ -254,12 +246,12 @@ function ServiceCard({ service, onBook }) {
         <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#302927] shadow"><HiOutlineClock className="h-4 w-4 text-[#B96F6D]" /> {service.duration_minutes || 0} min</span>
       </div>
       <div className="p-4">
-        <h3 className="line-clamp-1 text-base font-extrabold text-[#302927]">{service.name}</h3>
+        <h3 className="line-clamp-1 text-base font-extrabold text-[#6B3F5D]">{service.name}</h3>
         <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-[#6B3F5D]">{service.category}</p>
         <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-[#667085]">{service.description || "Professional salon care by Happy Skin specialists."}</p>
         <div className="mt-4 flex items-center justify-between gap-3">
-          <span className="font-extrabold text-[#A9605E]">{formatServicePrice(service.price)}</span>
-          <button onClick={onBook} className="inline-flex items-center gap-1 rounded-lg bg-[#B96F6D] px-3.5 py-2 text-xs font-bold text-white transition hover:bg-[#A9605E]">Book now <HiArrowRight className="h-4 w-4" /></button>
+          <span className="font-extrabold text-[#C2185B]">{formatServicePrice(service.price)}</span>
+              <button onClick={onBook} className="inline-flex items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}>Book now <HiArrowRight className="h-4 w-4" /></button>
         </div>
       </div>
     </article>

@@ -77,7 +77,7 @@ export default function Navbar() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => navigate("/login")} aria-label="Login" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold text-[#766A67] transition hover:bg-[#FBF4F2] hover:text-[#9F5E5C] focus:outline-none focus:ring-4 focus:ring-[#C85B95]/20 sm:px-4 sm:text-sm">
+          <button type="button" onClick={() => navigate("/login")} aria-label="Login" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-pink-300 focus:ring-offset-2 sm:px-5 sm:text-sm" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}>
             <HiOutlineArrowRightOnRectangle className="h-4 w-4" /> Login
           </button>
           <button type="button" onClick={() => setMenuOpen((current) => !current)} aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={menuOpen} aria-controls="mobile-navigation" className="grid h-10 w-10 place-items-center rounded-xl text-[#1F2A44] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#C85B95]/15 lg:hidden">

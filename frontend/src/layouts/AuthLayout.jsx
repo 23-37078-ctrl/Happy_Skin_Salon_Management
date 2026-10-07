@@ -14,7 +14,7 @@ export default function AuthLayout({ children }) {
 
   return (
     <div
-      className="relative h-dvh w-full overflow-hidden flex flex-col lg:flex-row"
+      className="auth-layout relative h-dvh w-full overflow-hidden flex flex-col lg:flex-row"
       style={{
         background:
           "linear-gradient(135deg, #FFF7FA 0%, #FCE4EC 45%, #F8BBD0 100%)",
@@ -81,7 +81,7 @@ export default function AuthLayout({ children }) {
           initial={{ opacity: 0, y: 24 }}
           animate={mounted ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.7, delay: 0.15 }}
-          className="w-full max-w-[440px] max-h-full overflow-y-auto rounded-3xl p-6 sm:p-8 lg:p-8"
+          className="auth-card w-full max-w-[440px] max-h-full overflow-y-auto rounded-3xl p-6 sm:p-8 lg:p-8"
           style={{
             background: "rgba(255, 255, 255, 0.7)",
             backdropFilter: "blur(20px)",

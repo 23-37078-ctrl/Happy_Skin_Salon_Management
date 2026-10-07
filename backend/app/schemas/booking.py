@@ -56,6 +56,9 @@ class BookingStatusUpdateRequest(BaseModel):
             raise ValueError(f"Status must be one of: {', '.join(sorted(allowed))}")
         return v
 
+class BookingCancellationRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=255)
+
 
 class BookingRescheduleRequest(BaseModel):
     appointment_date: datetime

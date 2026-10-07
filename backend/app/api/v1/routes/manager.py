@@ -24,6 +24,21 @@ from app.services.forecast_service import build_branch_forecast
 
 router = APIRouter(prefix="/manager", tags=["Manager"])
 
+@router.get("/audit-logs")
+def get_manager_audit_logs(current_user: User = Depends(require_manager_branch), db: Session = Depends(get_db)):
+    events = []
+    bookings = db.query(Booking).filter(Booking.branch_id == current_user.branch_id).order_by(Booking.updated_at.desc()).limit(50).all()
+    for booking in bookings:
+        events.append({"type": "booking", "action": f"Booking marked {booking.status}", "actor": booking.customer.full_name if booking.customer else "Customer", "created_at": booking.updated_at or booking.created_at})
+    transactions = (db.query(Transaction)
+        .join(Booking, Transaction.booking_id == Booking.id)
+        .filter(Booking.branch_id == current_user.branch_id)
+        .order_by(Transaction.created_at.desc()).limit(50).all())
+    for transaction in transactions:
+        events.append({"type": "transaction", "action": f"Payment recorded via {transaction.payment_method}", "actor": transaction.staff.full_name if transaction.staff else "Staff", "created_at": transaction.created_at})
+    events.sort(key=lambda event: event["created_at"] or datetime.min, reverse=True)
+    return {"audit_logs": events[:100]}
+
 
 class PromotionRequest(BaseModel):
     title: str = Field(min_length=3, max_length=120)

@@ -24,6 +24,7 @@ from app.schemas.transaction import (
     WalkInBookingRequest,
     WalkInCheckoutRequest,
 )
+from app.schemas.booking import BookingCancellationRequest
 
 router = APIRouter(prefix="/staff/transactions", tags=["Staff - Transactions"])
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
@@ -249,13 +250,25 @@ def list_online_bookings(
         .filter(
             Booking.branch_id == current_user.branch_id,
             or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
-            Booking.status.in_(["pending", "confirmed", "treatment_done"]),
+            Booking.status.in_(["pending", "confirmed", "treatment_done", "cancelled"]),
             ~Booking.id.in_(paid_booking_ids),
         )
         .order_by(Booking.appointment_date.asc())
         .all()
     )
     return [_serialize_walk_in_booking(booking) for booking in bookings]
+
+@router.patch("/online-bookings/{booking_id}/cancel")
+def cancel_online_booking(booking_id: int, payload: BookingCancellationRequest, current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
+    booking = db.query(Booking).filter(Booking.id == booking_id, Booking.branch_id == current_user.branch_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Appointment not found.")
+    if booking.status in {"cancelled", "completed", "treatment_done"}:
+        raise HTTPException(status_code=400, detail="This appointment cannot be cancelled.")
+    booking.status = "cancelled"
+    booking.notes = f"{booking.notes or ''}\nCancellation reason: {payload.reason.strip()}\nCancelled by: {current_user.full_name}".strip()
+    db.commit()
+    return {"id": booking.id, "status": booking.status}
 
 
 @router.patch("/online-bookings/{booking_id}/confirm")

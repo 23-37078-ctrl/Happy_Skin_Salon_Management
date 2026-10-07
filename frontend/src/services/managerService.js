@@ -60,6 +60,7 @@ const managerService = {
     const response = await api.get("/manager/profile");
     return response.data;
   },
+  auditLogs: async () => (await api.get("/manager/audit-logs")).data,
 
   updateProfile: async ({ full_name, phone_number }) => {
     const response = await api.patch("/manager/profile", { full_name, phone_number });

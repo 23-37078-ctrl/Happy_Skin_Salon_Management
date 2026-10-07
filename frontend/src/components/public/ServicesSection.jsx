@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { HiOutlineClock, HiOutlineSparkles } from "react-icons/hi2";
 import { SALON_SERVICES, formatServicePrice } from "../../constants/salonServices";
 import { useAuth } from "../../hooks/useAuth";
+import ListPagination, { PAGE_SIZE } from "../common/ListPagination";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
@@ -118,6 +119,7 @@ export default function ServicesSection() {
   const [services, setServices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -131,6 +133,8 @@ export default function ServicesSection() {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        // Keep the landing-page transition calm and consistent with the portal.
+        await new Promise((resolve) => setTimeout(resolve, 350));
 
         // If API returns data use it, otherwise fall back to constants
         setServices(data.length > 0 ? data : SALON_SERVICES.map(s => ({
@@ -158,6 +162,8 @@ export default function ServicesSection() {
     return () => controller.abort();
   }, []);
 
+  const visibleServices = services.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const handleBook = (serviceId) => {
     const bookingPath = `/customer/book?service=${serviceId}`;
     if (isAuthenticated && currentUser?.role === "customer") {
@@ -168,7 +174,7 @@ export default function ServicesSection() {
   };
 
   return (
-    <section id="services" className="bg-white rounded-3xl border border-[#F0E6EC] p-5 lg:p-6 shadow-sm">
+    <section id="services" className="rounded-3xl border border-[#F3E8EF] bg-[#FFF8FB] p-5 shadow-sm lg:p-6">
       <div>
 
         {/* Header */}
@@ -177,7 +183,7 @@ export default function ServicesSection() {
             <span className="inline-block text-[#C85B95] text-xs font-bold uppercase tracking-[0.18em]">
               Our Services
             </span>
-            <h2 className="text-2xl font-extrabold text-[#1F2A44] mt-1">
+            <h2 className="mt-1 text-2xl font-extrabold text-[#202534]">
               Popular salon services
             </h2>
             <p className="text-[#6B7280] text-xs leading-relaxed mt-1.5">
@@ -202,8 +208,8 @@ export default function ServicesSection() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {services.slice(0, 4).map((service, index) => (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {visibleServices.map((service, index) => (
               <ServiceCard
                 key={service.id}
                 service={service}
@@ -212,6 +218,16 @@ export default function ServicesSection() {
               />
             ))}
           </div>
+        )}
+
+        {!isLoading && services.length > 0 && (
+          <ListPagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            totalItems={services.length}
+            onPageChange={setPage}
+            itemLabel="services"
+          />
         )}
 
         {/* Bottom CTA */}

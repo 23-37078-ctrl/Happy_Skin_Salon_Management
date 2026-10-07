@@ -17,6 +17,31 @@
   }
 }
 
+/* Keep every public landing section on the same soft pink palette as auth. */
+.landing-pink [class*="text-[#282523]"],
+.landing-pink [class*="text-[#302927]"],
+.landing-pink [class*="text-[#1F2A44]"],
+.landing-pink [class*="text-[#625956]"],
+.landing-pink [class*="text-[#706765]"],
+.landing-pink [class*="text-[#77706D]"],
+.landing-pink [class*="text-[#667085]"] { color: #6B3F5D !important; }
+.landing-pink [class*="bg-[#FBF4F2]"],
+.landing-pink [class*="bg-[#FFF7FB]"] { background-color: #FCE4EC !important; }
+.landing-pink [class*="border-[#EBD2CD]"],
+.landing-pink [class*="border-[#E7D8D4]"],
+.landing-pink [class*="border-[#E9D7D1]"] { border-color: #E8C9D9 !important; }
+.landing-pink [class*="bg-[#B96F6D]"],
+.landing-pink [class*="bg-[#A9605E]"],
+.landing-pink [class*="bg-[#C85B95]"],
+.landing-pink [class*="bg-[#C04A86]"] { background-color: #C2185B !important; }
+.landing-pink [class*="text-[#A9605E]"],
+.landing-pink [class*="text-[#9F5E5C]"],
+.landing-pink [class*="text-[#AA6665]"],
+.landing-pink [class*="text-[#B96F6D]"] { color: #C2185B !important; }
+.landing-pink [class*="border-[#C8918A]"],
+.landing-pink [class*="border-[#C85B95]"] { border-color: #C2185B !important; }
+.landing-pink .font-serif { font-family: "Playfair Display", Georgia, serif; }
+
 .hero {
   position: relative;
 
@@ -167,7 +192,7 @@
 
   &::before,
   &::after {
-    content: '';
+    content: 
     position: absolute;
     top: -4.5px;
     border: 5px solid transparent;

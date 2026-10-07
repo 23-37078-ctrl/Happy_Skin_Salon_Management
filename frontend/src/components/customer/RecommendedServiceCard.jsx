@@ -45,7 +45,7 @@ export default function RecommendedServiceCard({
       transition={{ duration: 0.22 }}
       className="group flex h-full flex-col overflow-hidden rounded-[1.5rem] border border-[#ECDDE5] bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)] transition hover:border-[#DCA9C4] hover:shadow-[0_18px_42px_rgba(214,90,154,0.13)]"
     >
-      <div className="relative h-44 overflow-hidden bg-[#FFF0F7]">
+      <div className="relative h-36 overflow-hidden bg-[#FFF0F7]">
         <img
           src={safeImageSource(image)}
           alt=""
@@ -54,11 +54,11 @@ export default function RecommendedServiceCard({
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
         <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-extrabold text-[#B94B86] shadow-sm backdrop-blur">
-          <HiOutlineSparkles className="h-4 w-4" /> Recommended
+          <HiOutlineSparkles className="h-4 w-4" /> For you
         </span>
       </div>
 
-      <div className="flex flex-1 flex-col p-4 sm:p-5">
+      <div className="flex flex-1 flex-col p-3.5 sm:p-4">
         <h3 className="line-clamp-2 text-lg font-extrabold leading-snug text-[#202534]">{name || "Salon service"}</h3>
         {branchName && <p className="mt-2 flex items-start gap-1.5 text-xs font-bold text-[#A34777]"><HiOutlineMapPin className="mt-0.5 h-4 w-4 shrink-0" /><span className="line-clamp-1">{branchName}</span></p>}
         <p className="mt-3 line-clamp-2 min-h-10 text-sm leading-5 text-[#667085]">

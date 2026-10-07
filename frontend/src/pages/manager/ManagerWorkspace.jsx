@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../../hooks/useAuth";
 import { getFirstName, statusStyles } from "../staff/staffWorkspaceUtils";
 import SystemPopup from "../../components/common/SystemPopup";
+import ThemeToggle from "../../components/common/ThemeToggle";
 
 const navItems = [
   { to: "/manager/dashboard", label: "Dashboard", icon: HiOutlineHome },
@@ -23,6 +24,7 @@ const navItems = [
   { to: "/manager/feedback", label: "Feedback", icon: HiOutlineStar },
   { to: "/manager/promotions", label: "Promotions", icon: HiOutlineGift },
   { to: "/manager/profile", label: "Profile", icon: HiOutlineUserCircle },
+  { to: "/manager/audit-logs", label: "Audit Logs", icon: HiOutlineClipboardDocumentList },
 ];
 
 export function ManagerWorkspace({ children, title, eyebrow, actions, headerStats, brandOnly = false }) {
@@ -119,7 +121,8 @@ export function ManagerWorkspace({ children, title, eyebrow, actions, headerStat
                 })}
               </div>
             )}
-            <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:max-w-56 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+            <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:max-w-72 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+              <ThemeToggle />
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(currentUser?.full_name || firstName || "M").charAt(0).toUpperCase()}</span>
               <span className="min-w-0"><span className="block truncate text-sm font-bold text-[#1F2937]">{currentUser?.full_name || firstName || "Manager"}</span><span className="block truncate text-[10px] font-semibold text-[#C85B95]">Branch Manager</span><span className="block max-w-36 truncate text-[10px] text-[#6B7280]">{currentUser?.email}</span></span>
             </div>

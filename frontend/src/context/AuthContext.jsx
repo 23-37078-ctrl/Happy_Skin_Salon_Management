@@ -96,6 +96,9 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     authService.logout();
+    // Clear the in-memory session immediately. Delaying this allows protected
+    // pages to render again after navigation while their requests are already
+    // unauthorized, which produces a misleading dashboard error popup.
     setCurrentUser(null);
   };
 

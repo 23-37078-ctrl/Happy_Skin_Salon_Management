@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  HiArrowRight,
-  HiOutlineCalendar,
   HiOutlineClock,
   HiOutlineGift,
   HiOutlineBell,
@@ -10,9 +8,10 @@ import {
   HiOutlineMapPin,
   HiOutlinePhone,
   HiOutlineSparkles,
-  HiOutlineTag,
   HiOutlineArrowRightOnRectangle,
+  HiOutlineMagnifyingGlass,
   HiChevronDown,
+  HiChevronRight,
 } from "react-icons/hi2";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
@@ -25,6 +24,7 @@ import RecentActivityCard from "../../components/customer/RecentActivityCard";
 import RecommendedServiceCard from "../../components/customer/RecommendedServiceCard";
 import Footer from "../../components/public/Footer";
 import SystemPopup from "../../components/common/SystemPopup";
+import ThemeToggle from "../../components/common/ThemeToggle";
 
 import {
   CardRailSkeleton,
@@ -69,6 +69,10 @@ export default function CustomerDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showPromotions, setShowPromotions] = useState(false);
+  const [serviceSearch, setServiceSearch] = useState("");
+  const [activeServiceCategory, setActiveServiceCategory] = useState("All Services");
+  const dashboardRequestRef = useRef(null);
+  const loggingOutRef = useRef(false);
 
   const fetchDashboard = useCallback((signal) => {
     setIsLoading(true);
@@ -83,7 +87,7 @@ export default function CustomerDashboard() {
         if (dashboardPayload?.promotions?.length) setShowPromotions(true);
       })
       .catch((err) => {
-        if (err.name !== "CanceledError" && err.code !== "ERR_CANCELED") {
+        if (!loggingOutRef.current && err.name !== "CanceledError" && err.code !== "ERR_CANCELED") {
           setError(
             "We couldn't load your dashboard right now. Please try again."
           );
@@ -94,11 +98,19 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     const controller = new AbortController();
+    dashboardRequestRef.current = controller;
     Promise.resolve().then(() => fetchDashboard(controller.signal));
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (dashboardRequestRef.current === controller) dashboardRequestRef.current = null;
+    };
   }, [fetchDashboard]);
 
   const handleLogout = () => {
+    loggingOutRef.current = true;
+    // Cancel in-flight dashboard calls before the auth token is cleared.
+    // This prevents the expected cancellation from being shown as an error popup.
+    dashboardRequestRef.current?.abort();
     logout();
     navigate("/", { replace: true });
   };
@@ -119,6 +131,15 @@ export default function CustomerDashboard() {
   const selectedServices = selectedBranch
     ? (selectedBranch.services || []).map((service) => ({ ...service, branch_id: selectedBranch.id, branch_name: selectedBranch.name }))
     : allBranchServices;
+  const recommendedServices = useMemo(() => {
+    const activity = data?.recent_activity || [];
+    const counts = activity.reduce((map, item) => {
+      const name = item.service_name || item.service?.name || item.service;
+      if (name) map.set(String(name).toLowerCase(), (map.get(String(name).toLowerCase()) || 0) + 1);
+      return map;
+    }, new Map());
+    return [...selectedServices].sort((a, b) => (counts.get(String(b.name).toLowerCase()) || 0) - (counts.get(String(a.name).toLowerCase()) || 0));
+  }, [data?.recent_activity, selectedServices]);
   const serviceGroups = useMemo(() => {
     const grouped = new Map();
     selectedServices.forEach((service) => {
@@ -132,6 +153,22 @@ export default function CustomerDashboard() {
       return (firstOrder < 0 ? Number.MAX_SAFE_INTEGER : firstOrder) - (secondOrder < 0 ? Number.MAX_SAFE_INTEGER : secondOrder);
     });
   }, [selectedServices]);
+  const availableServiceCategories = useMemo(
+    () => ["All Services", ...serviceGroups.map(([category]) => category)],
+    [serviceGroups]
+  );
+  const visibleServiceGroups = useMemo(() => {
+    const searchTerm = serviceSearch.trim().toLowerCase();
+    return serviceGroups
+      .filter(([category]) => activeServiceCategory === "All Services" || category === activeServiceCategory)
+      .map(([category, categoryServices]) => [
+        category,
+        categoryServices.filter((service) => !searchTerm || [service.name, service.description, service.branch_name]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(searchTerm))),
+      ])
+      .filter(([, categoryServices]) => categoryServices.length);
+  }, [activeServiceCategory, serviceGroups, serviceSearch]);
   const openServiceBooking = (service) => {
     const parameters = new URLSearchParams();
     const branchId = Number(service?.branch_id);
@@ -140,10 +177,6 @@ export default function CustomerDashboard() {
     if (Number.isInteger(serviceId) && serviceId > 0) parameters.set("service", String(serviceId));
     navigate(`/customer/book${parameters.size ? `?${parameters.toString()}` : ""}`);
   };
-  const goToCustomerSection = (sectionId) => {
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   const customerFirstName = getFirstName(
     data?.user?.first_name ||
       data?.user?.full_name ||
@@ -171,18 +204,13 @@ export default function CustomerDashboard() {
 
         {error && <SystemPopup message={error} tone="error" onRetry={fetchDashboard} />}
 
-        <div className="mb-5 mt-4">
-          <p className="text-sm font-medium text-[#667085]">Customer Portal</p>
-          <h1 className="mt-1 text-2xl font-extrabold text-[#1F2A44]">{customerFirstName}</h1>
-        </div>
-
-        <Section className="mb-7" title={selectedBranch ? `Recommended at ${selectedBranch.name}` : "Recommended for you"} description="A curated starting point with transparent pricing and appointment duration.">
+        <Section className="mb-7" title={selectedBranch ? `Recommendations at ${selectedBranch.name}` : "Recommendations for you"}>
           {isLoading ? (
             <CardRailSkeleton />
           ) : selectedServices.length ? (
             <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 pr-4 scroll-smooth">
-              {selectedServices.slice(0, 4).map((service) => (
-                <div key={service.id} className="w-[82vw] min-w-[17.5rem] max-w-[22rem] snap-start sm:w-[22rem]">
+              {recommendedServices.slice(0, 4).map((service) => (
+                <div key={service.id} className="w-[76vw] min-w-[16rem] max-w-[20rem] snap-start sm:w-[20rem]">
                   <RecommendedServiceCard
                     name={service.name}
                     image={service.image}
@@ -204,25 +232,6 @@ export default function CustomerDashboard() {
             />
           )}
         </Section>
-
-        <section aria-labelledby="customer-explore-title" className="mb-9">
-          <h2 id="customer-explore-title" className="mb-3 text-lg font-bold text-[#1F2937]">Explore</h2>
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Services", icon: HiOutlineSparkles, action: () => goToCustomerSection("customer-services") },
-              { label: "Price list", icon: HiOutlineTag, action: () => goToCustomerSection("customer-services") },
-              { label: "Promotions", icon: HiOutlineGift, action: () => setShowPromotions(true) },
-              { label: "Reservations", icon: HiOutlineCalendar, action: () => navigate("/customer/book") },
-              { label: "My appointments", icon: HiOutlineClock, action: () => navigate("/customer/history") },
-              { label: "Contact", icon: HiOutlinePhone, action: () => goToCustomerSection("customer-branches") },
-            ].map(({ label, icon: Icon, action }) => (
-              <button key={label} type="button" onClick={action} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-[#F3E8EF] bg-white px-2 py-3 text-center shadow-sm transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/15">
-                <Icon className="h-7 w-7 text-[#D65A9A]" />
-                <span className="text-[11px] font-semibold leading-tight text-[#344054]">{label}</span>
-              </button>
-            ))}
-          </div>
-        </section>
 
         <Section
           id="customer-branches"
@@ -260,18 +269,45 @@ export default function CustomerDashboard() {
           )}
         </Section>
 
-        <Section id="customer-services" className="mt-8" title={selectedBranch ? `Explore services at ${selectedBranch.name}` : "Explore all services"} description="Compare services at your own pace. Availability is confirmed after you send a request.">
+        <Section id="customer-services" className="mt-8">
+          <div className="mb-8 border-b border-[#ECDDE5] pb-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+              <label className="relative block w-full shrink-0 lg:w-[19.5rem]">
+                <span className="sr-only">Search services</span>
+                <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#667085]" />
+                <input
+                  type="search"
+                  value={serviceSearch}
+                  onChange={(event) => setServiceSearch(event.target.value)}
+                  placeholder="Search services"
+                  className="h-12 w-full rounded-xl border border-[#D9D9DE] bg-white pl-12 pr-4 text-sm font-medium text-[#202534] outline-none transition placeholder:text-[#7B8190] focus:border-[#B94B86] focus:ring-4 focus:ring-[#B94B86]/10"
+                />
+              </label>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {availableServiceCategories.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => setActiveServiceCategory(category)}
+                      className={`min-h-12 shrink-0 rounded-xl px-4 text-sm font-extrabold transition focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15 ${activeServiceCategory === category ? "bg-[#B94B86] text-white shadow-sm" : "text-[#667085] hover:bg-[#FFF0F7] hover:text-[#A83F78]"}`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+                <HiChevronRight className="h-5 w-5 shrink-0 text-[#667085]" aria-hidden="true" />
+              </div>
+            </div>
+          </div>
           {isLoading ? (
             <AllServicesSkeleton />
-          ) : serviceGroups.length ? (
-            <div className="space-y-8">
-              {serviceGroups.map(([category, categoryServices]) => (
+          ) : visibleServiceGroups.length ? (
+            <div className="space-y-10">
+              {visibleServiceGroups.map(([category, categoryServices]) => (
                 <section key={category} aria-labelledby={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h3 id={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="text-base font-extrabold text-[#1F2937] sm:text-lg">{category}</h3>
-                    <span className="text-[11px] font-semibold text-[#667085]">{categoryServices.length} {categoryServices.length === 1 ? "service" : "services"}</span>
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  <h3 id={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="mb-5 text-xl font-extrabold text-[#161B2B] sm:text-2xl">{category}</h3>
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {categoryServices.map((service) => (
                       <AllServiceCard key={service.id} service={service} onBook={() => openServiceBooking(service)} />
                     ))}
@@ -282,7 +318,7 @@ export default function CustomerDashboard() {
           ) : (
             <EmptyState
               title="No services available"
-              description="Active salon services will appear here once they are added."
+              description={serviceSearch ? `No services match “${serviceSearch}”. Try another search.` : "Active salon services will appear here once they are added."}
               icon={<HiOutlineSparkles className="h-9 w-9" />}
             />
           )}
@@ -337,6 +373,7 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
 
         <div ref={activityRef} className="relative flex shrink-0 items-center justify-self-end gap-0.5">
           <button type="button" onClick={onHistory} aria-label="Booking history" title="Booking history" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineClock className="h-6 w-6" /></button>
+          <ThemeToggle />
           <div>
             <button type="button" aria-label={unreadCount ? `${unreadCount} unread notifications` : "Activity and notifications"} aria-expanded={activityOpen} aria-controls="customer-activity-menu" onClick={() => setActivityOpen((current) => !current)} className={`relative grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20 ${activityOpen ? "bg-[#FFF0F7] ring-1 ring-[#E8B7D0]" : "hover:bg-[#FFF0F7]"}`}>
               <HiOutlineBell className="h-6 w-6" />
@@ -460,40 +497,38 @@ function AllServiceCard({ service, onBook }) {
 
   return (
     <motion.article
-      whileHover={{ y: -4 }}
+      whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
-      className="group flex h-full flex-col overflow-hidden rounded-[1.35rem] border border-[#ECDDE5] bg-white shadow-[0_10px_28px_rgba(31,41,55,0.05)] transition hover:border-[#DCA9C4] hover:shadow-[0_16px_38px_rgba(214,90,154,0.11)]"
+      className="group flex min-h-36 overflow-hidden rounded-xl border border-[#E5E5E8] bg-white transition hover:border-[#DCA9C4] hover:shadow-[0_12px_28px_rgba(31,41,55,0.08)]"
     >
-      <div className="relative h-40 overflow-hidden bg-[#FFF0F7]">
+      <div className="relative w-[8.25rem] shrink-0 overflow-hidden bg-[#FFF0F7] sm:w-[9rem]">
         <img
           src={safeServiceImage(service.image)}
           alt=""
           loading="lazy"
           onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = SERVICE_FALLBACK_IMAGE; }}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+          className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
         />
-        {validDuration && <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#475467] shadow-sm backdrop-blur"><HiOutlineClock className="h-4 w-4 text-[#C85B95]" />{duration} min</span>}
       </div>
-      <div className="flex flex-1 flex-col p-4">
-        {service.branch_name && <p className="flex items-center gap-1.5 text-[11px] font-bold text-[#A34777]"><HiOutlineMapPin className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{service.branch_name}</span></p>}
-        <h3 className="mt-2 line-clamp-2 text-base font-extrabold leading-snug text-[#202534]">{service.name || "Salon service"}</h3>
-        <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-[#667085]">
-          {service.description || "Professional salon care from Happy Skin."}
-        </p>
-        <div className="mt-auto pt-4">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-[#98A2B3]">Starting at</p>
-          <p className="mt-0.5 text-lg font-black text-[#A83F78]">{formatServicePrice(service.price)}</p>
-          <button type="button" onClick={onBook} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D9A4BF] bg-white px-3 py-2 text-xs font-extrabold text-[#A83F78] transition hover:border-[#B94B86] hover:bg-[#FFF3F8] focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15">
-            Check availability <HiArrowRight className="h-4 w-4" />
-          </button>
+      <div className="flex min-w-0 flex-1 flex-col px-4 py-4">
+        <h4 className="line-clamp-2 text-base font-extrabold leading-snug text-[#151A2A] sm:text-lg">{service.name || "Salon service"}</h4>
+        {service.branch_name && <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-[#7B8190]"><HiOutlineMapPin className="h-3.5 w-3.5 shrink-0 text-[#B94B86]" /><span className="truncate">{service.branch_name}</span></p>}
+        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-[#98A2B3]">Starting at</p>
+            <p className="text-base font-black text-[#A83F78]">{formatServicePrice(service.price)}</p>
+          </div>
+          {validDuration && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#667085]"><HiOutlineClock className="h-3.5 w-3.5 text-[#C85B95]" />{duration} min</span>}
         </div>
+        <button type="button" onClick={onBook} className="mt-3 self-start text-xs font-extrabold text-[#A83F78] transition hover:text-[#7F285B] focus:outline-none focus-visible:underline">
+          Book service <span aria-hidden="true">→</span>
+        </button>
       </div>
     </motion.article>
   );
 }
 
 function CustomerBranchCard({ branch, selected, onSelect }) {
-  const services = branch.services || [];
   return (
     <motion.button
       type="button"
@@ -521,24 +556,6 @@ function CustomerBranchCard({ branch, selected, onSelect }) {
         </span>
       )}
 
-      <div className="mt-5 border-t border-[#F3E8EF] pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-bold uppercase tracking-wide text-[#C85B95]">Services offered</p>
-          <span className="text-[11px] font-semibold text-[#6B7280]">{services.length} available</span>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {services.slice(0, 4).map((service) => (
-            <span key={service.id} className="rounded-full bg-[#FFF0F7] px-2.5 py-1 text-[10px] font-semibold text-[#9D3C70]">
-              {service.name}
-            </span>
-          ))}
-          {services.length > 4 && (
-            <span className="rounded-full bg-[#F4F4F5] px-2.5 py-1 text-[10px] font-semibold text-[#6B7280]">
-              +{services.length - 4} more
-            </span>
-          )}
-        </div>
-      </div>
     </motion.button>
   );
 }
