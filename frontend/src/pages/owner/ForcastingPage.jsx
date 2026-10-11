@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   HiOutlineArrowPath,
-  HiOutlineCalendarDays,
-  HiOutlineChartBar,
   HiOutlineCheckBadge,
-  HiOutlineCircleStack,
   HiOutlineClock,
   HiOutlineExclamationTriangle,
   HiOutlinePresentationChartLine,
@@ -16,14 +13,7 @@ import ownerService from "../../services/ownerService";
 import { getApiError } from "../staff/staffWorkspaceUtils";
 import { EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
 
-const toneStyles = {
-  pink: "bg-[#FFF0F7] text-[#C85B95] ring-[#F3D4E4]",
-  blue: "bg-[#EFF6FF] text-[#2563EB] ring-[#DBEAFE]",
-  green: "bg-[#ECFDF3] text-[#15803D] ring-[#D1FAE5]",
-  amber: "bg-[#FFF8E7] text-[#C46A14] ring-[#FDECC8]",
-};
-
-export default function ForcastingPage() {
+export default function ForcastingPage({ embedded = false }) {
   const [forecasts, setForecasts] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -71,16 +61,6 @@ export default function ForcastingPage() {
     [forecasts, selectedBranchId],
   );
 
-  const summary = useMemo(() => {
-    const points = forecasts.flatMap((item) => item.predictions || []);
-    return {
-      total: points.reduce((sum, point) => sum + Number(point.predicted_demand || 0), 0),
-      high: points.filter((point) => point.demand_level === "high").length,
-      validated: forecasts.filter((item) => item.data_quality === "sufficient").length,
-      insufficient: forecasts.filter((item) => item.data_quality !== "sufficient").length,
-    };
-  }, [forecasts]);
-
   const actions = (
     <>
       <button type="button" onClick={loadForecasts} disabled={isLoading || isTraining} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#EBCFDE] bg-white px-4 py-2 text-sm font-bold text-[#6B3F5D] transition hover:border-[#D65A9A] hover:bg-[#FFF8FB] disabled:cursor-not-allowed disabled:opacity-60">
@@ -94,20 +74,13 @@ export default function ForcastingPage() {
     </>
   );
 
-  return (
-    <OwnerWorkspace title="Demand Forecasting" eyebrow="Decision intelligence · next seven days" actions={actions}>
+  const content = (
+    <>
       {error && <Notice message={error} onRetry={loadForecasts} />}
       {message && <Notice message={message} tone="success" />}
 
       {isLoading ? <ForecastPageSkeleton /> : forecasts.length ? (
         <div className="space-y-5">
-          <section className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4" aria-label="Forecast overview">
-            <KpiCard icon={HiOutlinePresentationChartLine} label="Active branches" value={forecasts.length} helper={`${summary.validated} using a validated model`} tone="pink" />
-            <KpiCard icon={HiOutlineCalendarDays} label="Expected demand" value={summary.total.toFixed(1)} helper="Completed appointments · 7 days" tone="blue" />
-            <KpiCard icon={HiOutlineChartBar} label="High-demand days" value={summary.high} helper="Review capacity on these dates" tone="green" />
-            <KpiCard icon={HiOutlineCircleStack} label="Data attention" value={summary.insufficient} helper="Branches below training threshold" tone="amber" />
-          </section>
-
           <section className="overflow-hidden rounded-[1.5rem] border border-[#F0DDE7] bg-white shadow-[0_16px_44px_rgba(31,41,55,0.06)]">
             <div className="flex flex-col gap-4 border-b border-[#F3E8EF] bg-gradient-to-r from-white via-[#FFF9FC] to-[#FFF2F8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between lg:px-6">
               <div>
@@ -126,8 +99,18 @@ export default function ForcastingPage() {
           </section>
         </div>
       ) : <EmptyState title="No active branches" description="Create an active branch before generating forecasts." />}
-    </OwnerWorkspace>
+    </>
   );
+
+  if (embedded) return <section aria-labelledby="owner-forecasting-title" className="mt-6">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C85B95]">Decision intelligence · next seven days</p><h2 id="owner-forecasting-title" className="mt-1 text-lg font-bold text-[#1F2937]">Demand Forecasting</h2></div>
+      <div className="flex flex-wrap gap-2">{actions}</div>
+    </div>
+    {content}
+  </section>;
+
+  return <OwnerWorkspace title="Demand Forecasting" eyebrow="Decision intelligence · next seven days" actions={actions}>{content}</OwnerWorkspace>;
 }
 
 function ForecastWorkspace({ forecast }) {
@@ -209,15 +192,6 @@ function DailyOutlook({ predictions }) {
         </table>
       </div>
     </div>
-  );
-}
-
-function KpiCard({ icon: Icon, label, value, helper, tone }) {
-  return (
-    <article className="group rounded-[1.25rem] border border-[#F0DDE7] bg-white p-4 shadow-[0_10px_30px_rgba(31,41,55,0.045)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(31,41,55,0.07)]">
-      <div className="flex items-start justify-between gap-3"><span className={`flex h-10 w-10 items-center justify-center rounded-xl ring-1 ${toneStyles[tone] || toneStyles.pink}`}><Icon className="h-5 w-5" /></span><span className="h-2 w-2 rounded-full bg-[#F3D4E4] transition group-hover:bg-[#D65A9A]" /></div>
-      <p className="mt-4 text-2xl font-bold tracking-tight text-[#1F2937]">{value}</p><p className="mt-1 text-xs font-bold uppercase tracking-[0.1em] text-[#7B6570]">{label}</p><p className="mt-2 text-xs leading-5 text-[#9A8791]">{helper}</p>
-    </article>
   );
 }
 

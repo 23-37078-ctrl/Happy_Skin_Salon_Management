@@ -13,7 +13,6 @@ import {
 import { useAuth } from "../../hooks/useAuth";
 import { getFirstName, statusStyles } from "./staffWorkspaceUtils";
 import SystemPopup from "../../components/common/SystemPopup";
-import ThemeToggle from "../../components/common/ThemeToggle";
 
 const navItems = [
   { to: "/staff/dashboard", label: "Dashboard", icon: HiOutlineHome },
@@ -104,7 +103,6 @@ export function StaffWorkspace({ children, title, eyebrow, actions, brandOnly = 
               </div>
             )}
             <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:max-w-72 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
-              <ThemeToggle />
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(identity?.staff_name || currentUser?.full_name || firstName || "S").charAt(0).toUpperCase()}</span>
               <span className="min-w-0 text-left"><span className="block truncate text-sm font-bold text-[#1F2937]">{identity?.staff_name || currentUser?.full_name || firstName || "Staff"}</span><span className="block truncate text-[10px] font-semibold text-[#C85B95]">{identity?.job_title || currentUser?.job_title || "Salon Staff"}</span><span className="block max-w-36 truncate text-[10px] text-[#6B7280]">{identity?.branch_name || currentUser?.email}</span></span>
             </div>

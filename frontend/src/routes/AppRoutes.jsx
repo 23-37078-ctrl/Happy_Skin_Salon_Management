@@ -16,7 +16,7 @@ import OwnerDashboard from "../pages/owner/OwnerDashboard";
 import BranchManagement from "../pages/owner/BranchManagement";
 import UserManagement from "../pages/owner/UserManagement";
 import AllTransactions from "../pages/owner/AllTransactions";
-const ForcastingPage = lazy(() => import("../pages/owner/ForcastingPage"));
+import ForcastingPage from "../pages/owner/ForcastingPage";
 const WorkforcePage = lazy(() => import("../pages/owner/WorkforcePage"));
 import AuditLogPage from "../pages/owner/AuditLogPage";
 import CentralizedReports from "../pages/owner/CentralizedReports";

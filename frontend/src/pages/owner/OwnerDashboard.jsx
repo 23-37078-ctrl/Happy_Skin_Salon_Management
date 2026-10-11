@@ -13,6 +13,7 @@ import {
 import ownerService from "../../services/ownerService";
 import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
+import ForcastingPage from "./ForcastingPage";
 
 export default function OwnerDashboard() {
   const [data, setData] = useState(null);
@@ -77,6 +78,8 @@ export default function OwnerDashboard() {
       {error && <Notice message={error} onRetry={loadDashboard} />}
 
       <MultiBranchPerformance data={performance} loading={performanceLoading} period={period} onPeriod={setPeriod} selectedBranchId={selectedBranchId} onBranch={setSelectedBranchId} />
+
+      <ForcastingPage embedded />
 
       <div className="mt-6">
         <section>
