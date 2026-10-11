@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HiOutlinePrinter, HiOutlineXMark } from "react-icons/hi2";
 import QRCode from "qrcode";
 import { formatCurrency, formatDateTime } from "./staffWorkspaceUtils";
 
-export default function PaymentReceipt({ receipt, onClose }) {
+export default function PaymentReceipt({ receipt, onClose, autoPrint = false }) {
   const extras = receipt.additional_charges || [];
   const [ratingQr, setRatingQr] = useState("");
+  const autoPrintStarted = useRef(false);
   const ratingUrl = `${window.location.origin}/feedback?booking=${encodeURIComponent(receipt.booking_id)}&receipt=${encodeURIComponent(receipt.transaction_id)}`;
 
   useEffect(() => {
@@ -15,6 +16,13 @@ export default function PaymentReceipt({ receipt, onClose }) {
       .catch(() => { if (active) setRatingQr(""); });
     return () => { active = false; };
   }, [ratingUrl]);
+
+  useEffect(() => {
+    if (!autoPrint || autoPrintStarted.current) return undefined;
+    autoPrintStarted.current = true;
+    const timer = window.setTimeout(() => window.print(), 650);
+    return () => window.clearTimeout(timer);
+  }, [autoPrint]);
 
   return <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#1F2937]/55 p-4 backdrop-blur-sm print:static print:block print:bg-transparent print:p-0" role="dialog" aria-modal="true" aria-label={`Receipt number ${receipt.transaction_id}`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}>
   <section className="payment-receipt-print relative max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1.5rem] border border-[#F3E8EF] bg-white shadow-2xl print:max-h-none print:border-0 print:shadow-none">

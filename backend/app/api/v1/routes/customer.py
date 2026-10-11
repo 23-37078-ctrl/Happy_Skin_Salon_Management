@@ -26,13 +26,12 @@ ACTIVE_BOOKING_STATUSES = {"pending", "confirmed"}
 
 
 def _slot_capacity(db: Session, branch_id: int) -> int:
-    staff_count = db.query(User).filter(
+    return db.query(User).filter(
         User.role == "staff",
         User.branch_id == branch_id,
         User.is_active.is_(True),
         User.job_title.isnot(None),
     ).count()
-    return max(1, staff_count)
 
 
 def _slot_booking_count(
@@ -40,13 +39,17 @@ def _slot_booking_count(
     branch_id: int,
     appointment_date: datetime,
     duration_minutes: int,
+    exclude_booking_id: int | None = None,
 ) -> int:
     requested_start = appointment_date.astimezone(timezone.utc)
     requested_end = requested_start + timedelta(minutes=duration_minutes)
     local_date = appointment_date.astimezone(BUSINESS_TIMEZONE).date()
     day_start = datetime.combine(local_date, time.min, BUSINESS_TIMEZONE).astimezone(timezone.utc)
     day_end = day_start + timedelta(days=1)
-    bookings = db.query(Booking).options(joinedload(Booking.service)).filter(
+    bookings = db.query(Booking).options(
+        joinedload(Booking.service),
+        selectinload(Booking.service_items).joinedload(BookingServiceItem.service),
+    ).filter(
         Booking.branch_id == branch_id,
         Booking.appointment_date >= day_start,
         Booking.appointment_date < day_end,
@@ -54,12 +57,19 @@ def _slot_booking_count(
     ).all()
     overlaps = 0
     for booking in bookings:
+        if booking.id == exclude_booking_id:
+            continue
         existing_start = booking.appointment_date
         if existing_start.tzinfo is None:
             existing_start = existing_start.replace(tzinfo=timezone.utc)
         else:
             existing_start = existing_start.astimezone(timezone.utc)
-        existing_end = existing_start + timedelta(minutes=booking.service.duration_minutes or 0)
+        existing_duration = (
+            sum(item.service.duration_minutes or 0 for item in booking.service_items if item.service)
+            if booking.service_items
+            else (booking.service.duration_minutes or 0)
+        )
+        existing_end = existing_start + timedelta(minutes=existing_duration)
         if existing_start < requested_end and existing_end > requested_start:
             overlaps += 1
     return overlaps
@@ -364,7 +374,9 @@ def create_customer_appointment(
 ):
     _require_customer(current_user)
 
-    branch = db.query(Branch).filter(Branch.id == payload.branch_id, Branch.is_active.is_(True)).first()
+    # Serialize booking submissions for this branch so simultaneous requests
+    # cannot both claim the last available staff slot.
+    branch = db.query(Branch).filter(Branch.id == payload.branch_id, Branch.is_active.is_(True)).with_for_update().first()
     requested_service_ids = list(dict.fromkeys(payload.service_ids or [payload.service_id]))
     services = db.query(Service).join(Service.branches).filter(Service.id.in_(requested_service_ids), Service.is_active.is_(True), Branch.id == payload.branch_id).all()
     service_map = {service.id: service for service in services}

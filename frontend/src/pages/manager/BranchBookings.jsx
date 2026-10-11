@@ -71,8 +71,8 @@ export default function BranchBookings() {
       return matchesDate && matchesSearch;
     });
   }, [bookings, search, dateFilter]);
-  const pagedBookings = useMemo(() => visibleBookings.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [visibleBookings, page]);
-  useEffect(() => { setPage(1); }, [search, dateFilter, statusFilter]);
+  const safePage = Math.min(page, Math.max(1, Math.ceil(visibleBookings.length / PAGE_SIZE)));
+  const pagedBookings = useMemo(() => visibleBookings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [visibleBookings, safePage]);
 
   const updateStatus = async (bookingId, status) => {
     setBusyId(bookingId);

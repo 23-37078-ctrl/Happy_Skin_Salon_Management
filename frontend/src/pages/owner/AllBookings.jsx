@@ -39,8 +39,8 @@ export default function AllBookings() {
     if (!term) return bookings;
     return bookings.filter((booking) => [booking.id, booking.customer?.full_name, booking.branch?.name, booking.service?.name, booking.status].join(" ").toLowerCase().includes(term));
   }, [bookings, search]);
-  const pagedBookings = useMemo(() => visibleBookings.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [visibleBookings, page]);
-  useEffect(() => { setPage(1); }, [search, branchId, statusFilter]);
+  const safePage = Math.min(page, Math.max(1, Math.ceil(visibleBookings.length / PAGE_SIZE)));
+  const pagedBookings = useMemo(() => visibleBookings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [visibleBookings, safePage]);
 
   return (
     <OwnerWorkspace title="All Bookings" eyebrow="Centralized appointment monitoring">

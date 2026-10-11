@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HiOutlineBanknotes, HiOutlineCalendarDays, HiOutlineCheckCircle, HiOutlineLockClosed, HiOutlinePrinter, HiOutlineReceiptRefund, HiOutlineUserGroup } from "react-icons/hi2";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
 import staffTransactionService from "../../services/staffTransactionService";
-import { ErrorNotice, StaffWorkspace, StatCard } from "./StaffWorkspace";
+import { ErrorNotice, StaffWorkspace } from "./StaffWorkspace";
 import { formatCurrency, formatDateTime, getApiError } from "./staffWorkspaceUtils";
 import SystemPopup from "../../components/common/SystemPopup";
 

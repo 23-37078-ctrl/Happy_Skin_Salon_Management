@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   HiOutlineArrowLeftOnRectangle,
@@ -15,6 +15,8 @@ import {
 import { useAuth } from "../../hooks/useAuth";
 import { getFirstName, statusStyles } from "../staff/staffWorkspaceUtils";
 import SystemPopup from "../../components/common/SystemPopup";
+import ThemeToggle from "../../components/common/ThemeToggle";
+import useModalLayer from "../../hooks/useModalLayer";
 
 const navItems = [
   { to: "/manager/dashboard", label: "Dashboard", icon: HiOutlineHome },
@@ -31,8 +33,9 @@ export function ManagerWorkspace({ children, title, eyebrow, actions, headerStat
   const { currentUser, logout } = useAuth();
   const firstName = useMemo(() => getFirstName(currentUser?.full_name || currentUser?.email), [currentUser]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const toggleSidebar = () => setSidebarOpen((current) => !current);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const toggleSidebar = useCallback(() => setSidebarOpen((current) => !current), []);
+  useModalLayer(sidebarOpen, closeSidebar);
 
   const handleLogout = () => {
     logout();
@@ -40,11 +43,11 @@ export function ManagerWorkspace({ children, title, eyebrow, actions, headerStat
   };
 
   return (
-    <main className="min-h-screen bg-[#FFF8FB] text-[#1F2937]" style={{ fontFamily: "'Poppins', sans-serif" }}>
+    <main className="portal-page min-h-screen bg-[#FFF8FB] text-[#1F2937]" style={{ fontFamily: "'Poppins', sans-serif" }}>
       {sidebarOpen && <button type="button" aria-label="Close manager menu" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-40 bg-[#1F2937]/40 backdrop-blur-sm" />}
       <div className="flex min-h-screen w-full max-w-none flex-col px-4 py-4 sm:px-6 lg:flex-row lg:gap-6 lg:px-8">
-        <aside className={`fixed inset-y-0 left-0 z-50 w-[min(19rem,86vw)] transform p-3 transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-          <div className="flex h-full flex-col rounded-[1.5rem] border border-[#F3E8EF] bg-white/90 p-4 shadow-[0_18px_50px_rgba(31,41,55,0.07)] backdrop-blur">
+        <aside id="manager-navigation-drawer" aria-label="Manager menu" aria-hidden={!sidebarOpen} inert={!sidebarOpen} className={`fixed inset-y-0 left-0 z-50 w-[min(19rem,86vw)] transform p-3 transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+          <div className="portal-surface flex h-full flex-col rounded-[1.5rem] border border-[#F3E8EF] bg-white/90 p-4 shadow-[0_18px_50px_rgba(31,41,55,0.07)] backdrop-blur">
             <div className="flex items-center gap-1">
             <button type="button" onClick={() => setSidebarOpen(false)} aria-label="Close manager menu" className="grid h-10 w-10 place-items-center rounded-xl text-[#D65A9A] hover:bg-[#FFF0F7]"><HiOutlineXMark className="h-6 w-6" /></button>
             <Link to="/manager/dashboard" onClick={() => setSidebarOpen(false)} className="flex flex-1 items-center gap-3 rounded-2xl px-2 py-2">
@@ -97,9 +100,9 @@ export function ManagerWorkspace({ children, title, eyebrow, actions, headerStat
         </aside>
 
         <section className="w-full min-w-0 flex-1 py-5 lg:py-0">
-          <header className="mb-5 flex w-full flex-col gap-4 rounded-[1.5rem] border border-[#F3E8EF] bg-white/86 px-4 py-4 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur sm:px-6 sm:py-5 xl:flex-row xl:items-center xl:justify-between">
+          <header className="portal-surface mb-5 flex w-full flex-col gap-4 rounded-[1.5rem] border border-[#F3E8EF] bg-white/86 px-4 py-4 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur sm:px-6 sm:py-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={toggleSidebar} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} title="Toggle sidebar" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"><HiOutlineBars3 className="h-7 w-7" /></button>
+              <button type="button" onClick={toggleSidebar} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} aria-controls="manager-navigation-drawer" aria-expanded={sidebarOpen} title="Toggle sidebar" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"><HiOutlineBars3 className="h-7 w-7" /></button>
               {brandOnly ? (
                 <Link to="/manager/dashboard" aria-label="Manager dashboard" className="flex items-center gap-3">
                   <img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-12 w-12 rounded-full object-cover ring-2 ring-[#F8DCEB]" />
@@ -121,6 +124,7 @@ export function ManagerWorkspace({ children, title, eyebrow, actions, headerStat
               </div>
             )}
             <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:max-w-72 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+              <ThemeToggle />
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(currentUser?.full_name || firstName || "M").charAt(0).toUpperCase()}</span>
               <span className="min-w-0"><span className="block truncate text-sm font-bold text-[#1F2937]">{currentUser?.full_name || firstName || "Manager"}</span><span className="block truncate text-[10px] font-semibold text-[#C85B95]">Branch Manager</span><span className="block max-w-36 truncate text-[10px] text-[#6B7280]">{currentUser?.email}</span></span>
             </div>

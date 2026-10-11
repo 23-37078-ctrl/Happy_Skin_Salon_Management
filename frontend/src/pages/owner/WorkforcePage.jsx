@@ -43,8 +43,8 @@ export default function WorkforcePage() {
 
   const recommendations = useMemo(() => branches.flatMap(({ branch, forecast }) => forecast.predictions.map((point) => ({ ...point, branch_name: branch.name, data_quality: forecast.data_quality }))), [branches]);
   const filteredRecommendations = useMemo(() => selectedDate ? recommendations.filter((item) => String(item.date).slice(0, 10) === selectedDate) : recommendations, [recommendations, selectedDate]);
-  const visibleRecommendations = useMemo(() => filteredRecommendations.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filteredRecommendations, page]);
-  useEffect(() => { setPage(1); }, [period, selectedDate]);
+  const safePage = Math.min(page, Math.max(1, Math.ceil(filteredRecommendations.length / PAGE_SIZE)));
+  const visibleRecommendations = useMemo(() => filteredRecommendations.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filteredRecommendations, safePage]);
   return (
     <OwnerWorkspace title="Capacity Review" eyebrow="Forecast-informed recommendations" headerStats={[{ label: "Branches", value: branches.length, icon: HiOutlineShieldCheck, tone: "pink" }, { label: "Review Days", value: recommendations.filter((item) => item.demand_level === "high").length, icon: HiOutlineUsers, tone: "amber" }, { label: "Validated Branches", value: branches.filter(({ forecast }) => forecast.data_quality === "sufficient").length, icon: HiOutlineShieldCheck, tone: "green" }]}>
       {error && <Notice message={error} onRetry={loadRecommendations} />}

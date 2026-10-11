@@ -123,12 +123,12 @@ export const SALON_SERVICES = catalog.map(([category, name, price, duration], in
 
 export const SALON_SERVICE_CATEGORIES = [
   "Facial",
+  "Nails",
+  "Lemon Bottle",
   "Aesthetic",
   "Spa & Body",
-  "Hair",
-  "Nails",
   "Lash & Brow",
-  "Lemon Bottle",
+  "Hair",
 ];
 
 const serviceCategoryByName = new Map(SALON_SERVICES.map(({ name, category }) => [name, category]));

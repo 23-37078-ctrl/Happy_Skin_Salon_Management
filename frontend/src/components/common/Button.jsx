@@ -13,8 +13,10 @@ export default function Button({
     "inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed";
 
   const variants = {
-    primary:
-      "text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 focus:ring-pink-300",
+    primary: "bg-[var(--color-action-bg)] text-[var(--color-action-text)] shadow-sm hover:brightness-95 hover:shadow-md active:translate-y-px focus-visible:ring-2 focus-visible:ring-[var(--color-focus)]",
+    secondary: "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-brand-soft)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)]",
+    quiet: "bg-transparent text-[var(--color-brand-strong)] hover:bg-[var(--color-brand-soft)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)]",
+    danger: "bg-red-700 text-white shadow-sm hover:bg-red-800 focus-visible:ring-2 focus-visible:ring-red-300",
   };
 
   return (
@@ -23,13 +25,7 @@ export default function Button({
       onClick={onClick}
       disabled={loading || disabled}
       aria-busy={loading}
-      className={`${base} ${variants[variant]} ${fullWidth ? "w-full" : ""}`}
-      style={{
-        background: loading || disabled
-          ? "#E89BC0"
-          : "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)",
-        fontFamily: "'Poppins', sans-serif",
-      }}
+      className={`${base} ${variants[variant] || variants.primary} ${fullWidth ? "w-full" : ""} ${loading || disabled ? "cursor-not-allowed opacity-60" : ""}`}
     >
       {loading && <Spinner size="sm" />}
       {children}

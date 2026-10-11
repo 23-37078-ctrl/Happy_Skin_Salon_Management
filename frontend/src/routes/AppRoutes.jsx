@@ -10,6 +10,7 @@ import HomePage from "../pages/public/HomePage";
 import LoginPage from "../pages/auth/LoginPage";
 import RegisterPage from "../pages/auth/RegisterPage";
 import VerifyEmailPage from "../pages/auth/VerifyEmailPage";
+import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage";
 
 // Owner
 import OwnerDashboard from "../pages/owner/OwnerDashboard";
@@ -37,6 +38,7 @@ import BookingHistory from "../pages/staff/BookingHistory";
 import OnlineBookings from "../pages/staff/OnlineBookings";
 import SubmitFeedback from "../pages/staff/SubmitFeedback";
 import DayEndReport from "../pages/staff/DayEndReport";
+import StaffReports from "../pages/staff/StaffReports";
 
 // Customer
 import CustomerDashboard from "../pages/customer/CustomerDashboard";
@@ -119,6 +121,7 @@ export default function AppRoutes() {
       <Route path="/login"        element={<GuestRoute><LoginPage /></GuestRoute>} />
       <Route path="/register"     element={<GuestRoute><RegisterPage /></GuestRoute>} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/forgot-password" element={<GuestRoute><ForgotPasswordPage /></GuestRoute>} />
 
       {/* Owner */}
       <Route path="/owner/dashboard"  element={<PrivateRoute allowedRoles={["owner"]}><OwnerDashboard /></PrivateRoute>} />
@@ -147,6 +150,7 @@ export default function AppRoutes() {
       <Route path="/staff/online-bookings" element={<PrivateRoute allowedRoles={["staff"]}><OnlineBookings /></PrivateRoute>} />
       <Route path="/staff/transactions" element={<PrivateRoute allowedRoles={["staff"]}><BookingHistory /></PrivateRoute>} />
       <Route path="/staff/day-end" element={<PrivateRoute allowedRoles={["staff"]}><DayEndReport /></PrivateRoute>} />
+      <Route path="/staff/reports" element={<PrivateRoute allowedRoles={["staff"]}><StaffReports /></PrivateRoute>} />
       <Route path="/staff/feedback"  element={<PrivateRoute allowedRoles={["staff"]}><SubmitFeedback /></PrivateRoute>} />
       <Route path="/staff/history"   element={<PrivateRoute allowedRoles={["staff"]}><BookingHistory /></PrivateRoute>} />
 

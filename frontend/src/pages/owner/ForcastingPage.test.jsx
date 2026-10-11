@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ForcastingPage from "./ForcastingPage";
+import { ThemeProvider } from "../../context/ThemeContext";
 import forecastService from "../../services/forecastService";
 import ownerService from "../../services/ownerService";
 
@@ -47,7 +48,7 @@ describe("Owner demand forecasting workspace", () => {
   });
 
   it("renders executive metrics and switches the selected branch", async () => {
-    render(<MemoryRouter><ForcastingPage /></MemoryRouter>);
+    render(<MemoryRouter><ThemeProvider><ForcastingPage /></ThemeProvider></MemoryRouter>);
 
     expect(await screen.findByText("Forecast workspace")).toBeTruthy();
     expect(screen.getByText("Model readiness")).toBeTruthy();

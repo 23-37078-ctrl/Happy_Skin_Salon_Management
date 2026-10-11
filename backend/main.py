@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from app.api.v1.api import api_router
+from app.core.config import settings
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -18,20 +19,18 @@ async def database_error_handler(request: Request, exc: SQLAlchemyError):
         content={"detail": "The database is temporarily unavailable. Please try again shortly."},
     )
 
+allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
+if not allowed_origins:
+    allowed_origins = [
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5174", "http://127.0.0.1:5174",
+        "https://localhost:5173", "https://127.0.0.1:5173",
+        "http://10.18.66.79:5173", "https://localhost", "capacitor://localhost",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "https://localhost:5173",
-        "https://127.0.0.1:5173",
-        "http://10.18.66.79:5173",
-        # Capacitor serves bundled Android/iOS assets from these secure origins.
-        "https://localhost",
-        "capacitor://localhost",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

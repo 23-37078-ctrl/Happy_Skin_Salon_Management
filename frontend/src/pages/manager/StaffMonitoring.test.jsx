@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import StaffMonitoring from "./StaffMonitoring";
+import { ThemeProvider } from "../../context/ThemeContext";
 import forecastService from "../../services/forecastService";
 
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
@@ -28,7 +29,7 @@ const forecast = {
 };
 
 function renderPage() {
-  return render(<MemoryRouter><StaffMonitoring /></MemoryRouter>);
+  return render(<MemoryRouter><ThemeProvider><StaffMonitoring /></ThemeProvider></MemoryRouter>);
 }
 
 describe("StaffMonitoring", () => {

@@ -23,8 +23,11 @@ class User(Base):
 
     # ── Verification ──────────────────────────────────────────
     email_verified            = Column(Boolean, default=False, nullable=False)
+    phone_verified            = Column(Boolean, default=False, nullable=False)
     verification_code         = Column(String(6), nullable=True)
     verification_code_expires = Column(DateTime, nullable=True)
+    verification_attempts      = Column(Integer, default=0, nullable=False)
+    verification_code_started_at = Column(DateTime, nullable=True)
     verified_at               = Column(DateTime, nullable=True)
     password_reset_code       = Column(String(6), nullable=True)
     password_reset_expires    = Column(DateTime, nullable=True)

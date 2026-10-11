@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ThemeContext } from "./theme-context";
 import { useAuth } from "../hooks/useAuth";
 
@@ -10,18 +10,28 @@ function getUserKey(currentUser) {
 export function ThemeProvider({ children }) {
   const { currentUser } = useAuth();
   const userKey = getUserKey(currentUser);
-  const theme = "light";
+  const [themeState, setThemeState] = useState(() => ({
+    userKey,
+    value: localStorage.getItem(`happy-skin-theme:${userKey}`) === "dark" ? "dark" : "light",
+  }));
+  const theme = themeState.userKey === userKey
+    ? themeState.value
+    : localStorage.getItem(`happy-skin-theme:${userKey}`) === "dark" ? "dark" : "light";
+  const setTheme = (update) => setThemeState((previous) => ({
+    userKey,
+    value: typeof update === "function" ? update(previous.userKey === userKey ? previous.value : theme) : update,
+  }));
 
   useEffect(() => {
-    document.documentElement.dataset.theme = "light";
-    document.documentElement.classList.remove("dark");
-    localStorage.setItem(`happy-skin-theme:${userKey}`, "light");
-  }, [userKey]);
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem(`happy-skin-theme:${userKey}`, theme);
+  }, [theme, userKey]);
 
   const value = {
     theme,
-    isDark: false,
-    toggleTheme: () => {},
+    isDark: theme === "dark",
+    toggleTheme: () => setTheme((current) => current === "dark" ? "light" : "dark"),
   };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

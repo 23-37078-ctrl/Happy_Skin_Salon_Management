@@ -1,5 +1,7 @@
 from typing import Optional
 
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.booking import Booking
@@ -17,11 +19,13 @@ def create_transaction(
     charge_reason: Optional[str] = None,
     commission_rate: float = 0,
     commission_amount: float = 0,
+    idempotency_key: str | None = None,
 ) -> Transaction:
     final_amount = amount if amount is not None else booking.service.price
 
     transaction = Transaction(
         booking_id=booking.id,
+        idempotency_key=idempotency_key,
         staff_id=staff_id,
         amount=final_amount,
         payment_method=payment_method,
@@ -38,7 +42,11 @@ def create_transaction(
     if service_provider_id:
         booking.service_provider_id = service_provider_id
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A payment for this booking or request has already been recorded.") from exc
     db.refresh(transaction)
     return transaction
 

@@ -44,8 +44,8 @@ export default function AllTransactions() {
       return (!dateFilter || localDate === dateFilter) && (methodFilter === "all" || transaction.payment_method === methodFilter) && (!term || searchable.includes(term));
     });
   }, [transactions, search, dateFilter, methodFilter]);
-  const visibleTransactions = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
-  useEffect(() => { setPage(1); }, [search, dateFilter, methodFilter]);
+  const safePage = Math.min(page, Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)));
+  const visibleTransactions = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage]);
 
   const total = filtered.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
 

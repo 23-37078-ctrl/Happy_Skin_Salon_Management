@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Optional
 from pydantic import BaseModel, EmailStr, field_validator
 
 
@@ -9,8 +9,8 @@ class RegisterRequest(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    phone_number: Optional[str] = None          # Required if otp_method is "sms"
-    otp_method: Literal["email", "sms"] = "email"
+    phone_number: str
+    otp_method: str = "sms"
 
     @field_validator("password")
     @classmethod
@@ -28,17 +28,52 @@ class RegisterRequest(BaseModel):
 
     @field_validator("phone_number")
     @classmethod
-    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
+    def validate_phone(cls, v: str) -> str:
         cleaned = v.strip().replace(" ", "").replace("-", "")
-        # Accept 09xxxxxxxxx or +639xxxxxxxxx
         if not (
             (cleaned.startswith("09") and len(cleaned) == 11) or
-            (cleaned.startswith("+639") and len(cleaned) == 13)
+            (cleaned.startswith("+639") and len(cleaned) == 13) or
+            (cleaned.startswith("639") and len(cleaned) == 12)
         ):
             raise ValueError("Enter a valid PH mobile number (e.g. 09171234567).")
         return cleaned
+
+    @field_validator("otp_method")
+    @classmethod
+    def sms_only(cls, value: str) -> str:
+        if value != "sms":
+            raise ValueError("Signup verification is available by SMS only.")
+        return value
+
+
+class RegisterStartRequest(BaseModel):
+    full_name: str
+    email: EmailStr
+    phone_number: str
+
+    @field_validator("full_name")
+    @classmethod
+    def full_name_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Full name is required.")
+        return value.strip()
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return RegisterRequest.validate_phone(value)
+
+
+class RegisterCompleteRequest(BaseModel):
+    verification_token: str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, value: str) -> str:
+        if len(value) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+        return value
 
 
 class LoginRequest(BaseModel):
@@ -47,6 +82,35 @@ class LoginRequest(BaseModel):
     
 class SocialLoginRequest(BaseModel):
     token: str
+
+
+class SocialPhoneRequest(BaseModel):
+    provider: str
+    token: str
+    phone_number: str
+
+    @field_validator("provider")
+    @classmethod
+    def supported_provider(cls, value: str) -> str:
+        if value not in {"google", "facebook"}:
+            raise ValueError("Unsupported sign-in provider.")
+        return value
+
+    @field_validator("phone_number")
+    @classmethod
+    def valid_phone(cls, value: str) -> str:
+        return RegisterRequest.validate_phone(value)
+
+
+class SocialPhoneVerifyRequest(SocialPhoneRequest):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def six_digit_code(cls, value: str) -> str:
+        if not value.isdigit() or len(value) != 6:
+            raise ValueError("Verification code must be 6 digits.")
+        return value
 
 class VerifyOTPRequest(BaseModel):
     """Works for both email and SMS verification."""
@@ -107,6 +171,7 @@ class UserOut(BaseModel):
     is_active: bool
     branch_id: Optional[int] = None
     email_verified: bool
+    phone_verified: bool = False
     phone_number: Optional[str] = None
     otp_method: str = "email"
     created_at: datetime

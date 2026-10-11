@@ -9,7 +9,10 @@ export const staffTransactionService = {
   },
 
   create: async (payload) => {
-    const response = await api.post("/staff/transactions", payload);
+    const response = await api.post("/staff/transactions", {
+      ...payload,
+      idempotency_key: payload.idempotency_key || `booking-payment-${payload.booking_id}`,
+    });
     return response.data;
   },
 
@@ -29,7 +32,11 @@ export const staffTransactionService = {
   },
 
   checkoutWalkIn: async (payload) => {
-    const response = await api.post("/staff/transactions/pos/walk-in", payload);
+    const idempotencyKey = payload.idempotency_key || crypto.randomUUID();
+    const response = await api.post("/staff/transactions/pos/walk-in", {
+      ...payload,
+      idempotency_key: idempotencyKey,
+    });
     return response.data;
   },
 
@@ -69,6 +76,11 @@ export const staffTransactionService = {
 
   dayEndSummary: async (reportDate) => {
     const response = await api.get("/staff/transactions/day-end/summary", { params: { report_date: reportDate } });
+    return response.data;
+  },
+
+  periodReport: async ({ period = "daily", report_date } = {}) => {
+    const response = await api.get("/staff/transactions/reports/summary", { params: { period, report_date } });
     return response.data;
   },
 

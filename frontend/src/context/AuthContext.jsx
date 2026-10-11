@@ -61,6 +61,20 @@ export function AuthProvider({ children }) {
 
   const loginWithProvider = async (provider, token, remember = false) => {
     const user = await authService.loginWithProvider(provider, token, remember);
+    if (user?.requires_phone) return user;
+    if (!VALID_ROLES.has(user?.role)) {
+      authService.logout();
+      throw new Error("Your account role is not allowed to sign in here.");
+    }
+    setCurrentUser(user);
+    return user;
+  };
+
+  const requestSocialPhoneOtp = (provider, token, phoneNumber) =>
+    authService.requestSocialPhoneOtp(provider, token, phoneNumber);
+
+  const verifySocialPhone = async (provider, token, phoneNumber, code, remember = false) => {
+    const user = await authService.verifySocialPhone(provider, token, phoneNumber, code, remember);
     if (!VALID_ROLES.has(user?.role)) {
       authService.logout();
       throw new Error("Your account role is not allowed to sign in here.");
@@ -110,6 +124,8 @@ export function AuthProvider({ children }) {
         isAuthenticated: !!currentUser,
         login,
         loginWithProvider,
+        requestSocialPhoneOtp,
+        verifySocialPhone,
         register,
         verifyEmail,
         resendVerification,

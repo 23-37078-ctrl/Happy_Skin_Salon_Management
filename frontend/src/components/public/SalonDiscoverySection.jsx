@@ -3,18 +3,20 @@ import { useNavigate } from "react-router-dom";
 import {
   HiArrowRight,
   HiOutlineCalendarDays,
+  HiOutlineChevronLeft,
+  HiOutlineChevronRight,
   HiOutlineClock,
-  HiOutlineMagnifyingGlass,
   HiOutlineMapPin,
+  HiOutlinePlus,
   HiOutlinePhone,
 } from "react-icons/hi2";
 import { useAuth } from "../../hooks/useAuth";
-import { SALON_SERVICES, formatServicePrice } from "../../constants/salonServices";
+import { SALON_SERVICES, SALON_SERVICE_CATEGORIES, formatServicePrice } from "../../constants/salonServices";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
-  "http://localhost:8000/api/v1";
+  "/api/v1";
 
 const BRANCH_BACKDROPS = [
   "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=900&q=80",
@@ -35,8 +37,8 @@ export default function SalonDiscoverySection() {
   const [branches, setBranches] = useState([]);
   const [services, setServices] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
-  const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All Services");
+  const [carouselPosition, setCarouselPosition] = useState({ category: "All Services", branchId: null, index: 0 });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
 
@@ -72,16 +74,26 @@ export default function SalonDiscoverySection() {
     [branches, selectedBranchId]
   );
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const availableCategories = useMemo(() => ["All Services", ...new Set(services.map((service) => service.category || serviceCategories.get(service.name) || "Salon Service"))], [services]);
+  const availableCategories = useMemo(() => {
+    const present = new Set(services.map((service) => service.category || serviceCategories.get(service.name) || "Salon Service"));
+    return [...SALON_SERVICE_CATEGORIES.filter((category) => present.has(category)), ...[...present].filter((category) => !SALON_SERVICE_CATEGORIES.includes(category))];
+  }, [services]);
   const visibleServices = useMemo(() => {
     const source = selectedBranch?.services?.length ? selectedBranch.services : services;
-    const categoryFiltered = activeCategory === "All Services" ? source : source.filter((service) => (service.category || serviceCategories.get(service.name) || "Salon Service") === activeCategory);
-    if (!normalizedQuery) return categoryFiltered;
-    return categoryFiltered.filter((service) =>
-      [service.name, service.description].join(" ").toLowerCase().includes(normalizedQuery)
-    );
-  }, [activeCategory, normalizedQuery, selectedBranch, services]);
+    return activeCategory === "All Services" ? source : source.filter((service) => (service.category || serviceCategories.get(service.name) || "Salon Service") === activeCategory);
+  }, [activeCategory, selectedBranch, services]);
+
+  const activeServiceIndex = carouselPosition.category === activeCategory && String(carouselPosition.branchId) === String(selectedBranchId) ? carouselPosition.index : 0;
+  const setActiveServiceIndex = (indexOrUpdate) => setCarouselPosition((current) => ({
+    category: activeCategory,
+    branchId: selectedBranchId,
+    index: typeof indexOrUpdate === "function" ? indexOrUpdate(current.category === activeCategory && String(current.branchId) === String(selectedBranchId) ? current.index : 0) : indexOrUpdate,
+  }));
+  const currentServiceIndex = visibleServices.length ? activeServiceIndex % visibleServices.length : 0;
+  const moveCarousel = (direction) => {
+    if (!visibleServices.length) return;
+    setActiveServiceIndex((current) => (current + direction + visibleServices.length) % visibleServices.length);
+  };
 
   const goToBooking = (serviceId, branchId = selectedBranch?.id) => {
     const params = new URLSearchParams();
@@ -190,27 +202,49 @@ export default function SalonDiscoverySection() {
           </div>
         )}
 
-        <section id="services" className="scroll-mt-24 pb-5 pt-2">
-          <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C2185B]">Our treatments</p>
-              <h2 className="mt-1 font-serif text-3xl text-[#6B3F5D] sm:text-4xl">{selectedBranch ? `Services at ${selectedBranch.name}` : normalizedQuery ? "Search results" : "Our services"}</h2>
+        <section id="services" className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 scroll-mt-24 overflow-hidden bg-[radial-gradient(ellipse_at_top,_#FFFFFF_0%,_#FFF8FB_48%,_#FCE7F1_100%)] py-8 text-[#754463] sm:py-10">
+          <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
+            <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C85B95]">Our treatments</p>
+                <h2 className="mt-1 font-serif text-3xl text-[#6B3F5D] sm:text-4xl">{selectedBranch ? `Services at ${selectedBranch.name}` : "Our services"}</h2>
+              </div>
+              <span className="text-xs font-semibold text-[#7B6570]">{visibleServices.length} {visibleServices.length === 1 ? "service" : "services"}</span>
             </div>
-            <span className="text-xs font-semibold text-[#667085]">{visibleServices.length} {visibleServices.length === 1 ? "service" : "services"}</span>
+            <div aria-label="Service categories" className="horizontal-service-scroll mb-1 flex snap-x snap-proximity flex-nowrap gap-3 pb-3 sm:gap-4">
+              {availableCategories.map((category) => <button key={category} type="button" aria-pressed={activeCategory === category} onClick={() => setActiveCategory(category)} className={`min-h-11 shrink-0 snap-start rounded-full border px-5 text-sm font-semibold transition-all duration-200 ${activeCategory === category ? "border-[#D6539A] text-white shadow-md" : "border-[#E8C9D9] bg-white/80 text-[#754463] hover:border-[#D65A9A]/50 hover:bg-[#FFF0F7]"}`} style={activeCategory === category ? { background: "linear-gradient(135deg, #D6539A 0%, #C24486 100%)", fontFamily: "'Poppins', sans-serif" } : { fontFamily: "'Poppins', sans-serif" }}>{category}</button>)}
+            </div>
+
+            {visibleServices.length > 0 ? <>
+              <div className="relative mx-auto h-[30rem] max-w-[90rem] sm:h-[34rem]" aria-roledescription="carousel" aria-label={`${activeCategory === "All Services" ? "All" : activeCategory} salon services`}>
+                {visibleServices.map((service, index) => {
+                  let offset = (index - currentServiceIndex + visibleServices.length) % visibleServices.length;
+                  if (offset > Math.floor(visibleServices.length / 2)) offset -= visibleServices.length;
+                  if (Math.abs(offset) > 1) return null;
+                  const isActive = offset === 0;
+                  return <div key={service.id} role="group" aria-roledescription="slide" aria-label={`${index + 1} of ${visibleServices.length}: ${service.name}`} aria-hidden={!isActive} className="absolute top-1/2 w-[min(76vw,25rem)] transition-[left,transform,opacity] duration-500 ease-out" style={{ left: offset === 0 ? "50%" : `calc(50% ${offset < 0 ? "-" : "+"} min(65vw, 28rem))`, transform: `translate(-50%, -50%) scale(${isActive ? 1 : 0.78})`, opacity: isActive ? 1 : 0.55, zIndex: isActive ? 20 : 10, pointerEvents: isActive ? "auto" : "none" }}>
+                    <ServiceCard service={{ ...service, category: service.category || serviceCategories.get(service.name) || "Salon Service" }} onBook={() => goToBooking(service.id, selectedBranch?.id)} />
+                  </div>;
+                })}
+
+                {visibleServices.length > 1 && <>
+                  <button type="button" onClick={() => moveCarousel(-1)} aria-label="Previous service" className="absolute left-1 top-1/2 z-30 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-[#E8C9D9] bg-white/95 text-[#754463] shadow-md backdrop-blur transition hover:scale-105 hover:bg-[#FFF0F7] sm:left-5 sm:h-12 sm:w-12 lg:left-[7%]">
+                    <HiOutlineChevronLeft className="h-6 w-6" />
+                  </button>
+                  <button type="button" onClick={() => moveCarousel(1)} aria-label="Next service" className="absolute right-1 top-1/2 z-30 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-[#E8C9D9] bg-white/95 text-[#754463] shadow-md backdrop-blur transition hover:scale-105 hover:bg-[#FFF0F7] sm:right-5 sm:h-12 sm:w-12 lg:right-[7%]">
+                    <HiOutlineChevronRight className="h-6 w-6" />
+                  </button>
+                </>}
+              </div>
+
+              {visibleServices.length > 1 && <div className="mt-1 flex justify-center gap-2.5" aria-label="Choose a service slide">
+                {[-1, 0, 1].map((delta) => {
+                  const index = (currentServiceIndex + delta + visibleServices.length) % visibleServices.length;
+                  return <button key={`${index}-${delta}`} type="button" onClick={() => setActiveServiceIndex(index)} aria-label={`Show ${visibleServices[index].name}`} aria-current={delta === 0 ? "true" : undefined} className={`h-2.5 rounded-full transition-all ${delta === 0 ? "w-7 bg-[#D6539A]" : "w-2.5 bg-[#D9B9CB] hover:bg-[#C85B95]"}`} />;
+                })}
+              </div>}
+            </> : !loading && <div className="rounded-2xl border border-[#E8C9D9] bg-white/80 px-6 py-10 text-center text-sm text-[#7B6570]">No services are available in this category yet.</div>}
           </div>
-          <div className="mb-5 flex flex-nowrap gap-5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <label className="flex min-h-12 w-[min(390px,85vw)] shrink-0 items-center gap-2.5 rounded-xl border border-[#E8D7E1] bg-white px-4 transition focus-within:border-[#C2185B] focus-within:ring-2 focus-within:ring-[#C2185B]/10">
-            <HiOutlineMagnifyingGlass className="h-5 w-5 shrink-0 text-[#C2185B]" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search treatments and services" className="w-full bg-transparent text-sm text-[#302927] outline-none placeholder:text-[#9A918E]" />
-          </label>
-          {availableCategories.map((category) => <button key={category} type="button" onClick={() => setActiveCategory(category)} className={`min-h-12 shrink-0 rounded-xl px-5 text-sm font-semibold transition-all duration-200 ${activeCategory === category ? "text-white shadow-md hover:-translate-y-0.5 hover:shadow-lg" : "text-[#6B3F5D] hover:bg-[#FCE4EC]"}`} style={activeCategory === category ? { background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" } : { fontFamily: "'Poppins', sans-serif" }}>{category}</button>)}
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {visibleServices.map((service) => (
-              <ServiceCard key={service.id} service={{ ...service, category: service.category || serviceCategories.get(service.name) || "Salon Service" }} onBook={() => goToBooking(service.id, selectedBranch?.id)} />
-            ))}
-          </div>
-          {!loading && visibleServices.length === 0 && <EmptyResults label="services" />}
         </section>
 
       </div>
@@ -240,18 +274,20 @@ export default function SalonDiscoverySection() {
 
 function ServiceCard({ service, onBook }) {
   return (
-    <article className="group overflow-hidden rounded-2xl border border-[#EAE7E9] bg-white transition hover:-translate-y-1 hover:shadow-xl">
-      <div className="relative h-44 overflow-hidden bg-[#FFF0F7]">
-        <img src={service.image} alt={service.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-        <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#302927] shadow"><HiOutlineClock className="h-4 w-4 text-[#B96F6D]" /> {service.duration_minutes || 0} min</span>
+    <article className="group flex h-[26rem] flex-col overflow-hidden rounded-[1.35rem] border border-[#F0E3EA] bg-white shadow-[0_10px_28px_rgba(117,68,99,0.08)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_38px_rgba(117,68,99,0.16)]">
+      <div className="relative h-48 shrink-0 overflow-hidden bg-[#FFF0F7] sm:h-52">
+        <img src={service.image || "/images/services/generated/signature-facial.jpg"} alt={service.name} loading="lazy" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = "/images/services/generated/signature-facial.jpg"; }} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+        <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-xs font-bold text-[#754463] shadow-sm"><HiOutlineClock className="h-4 w-4 text-[#C85B95]" /> {service.duration_minutes || service.duration || 0} min</span>
       </div>
-      <div className="p-4">
-        <h3 className="line-clamp-1 text-base font-extrabold text-[#6B3F5D]">{service.name}</h3>
-        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-[#6B3F5D]">{service.category}</p>
-        <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-[#667085]">{service.description || "Professional salon care by Happy Skin specialists."}</p>
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <span className="font-extrabold text-[#C2185B]">{formatServicePrice(service.price)}</span>
-              <button onClick={onBook} className="inline-flex items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}>Book now <HiArrowRight className="h-4 w-4" /></button>
+      <div className="flex min-h-0 flex-1 flex-col px-4 pb-7 pt-4 sm:px-5 sm:pb-8 sm:pt-5">
+        <h3 className="line-clamp-2 min-h-11 text-base font-extrabold leading-snug text-[#754463]">{service.name}</h3>
+        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#C85B95]">{service.category}</p>
+        <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-[#756A72]">{service.description || "Professional salon care by Happy Skin specialists."}</p>
+        <div className="mt-auto flex items-end justify-between gap-3 border-t border-[#F6EDF2] pt-4">
+          <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-[#9A8791]">Price</p><span className="mt-0.5 block truncate text-base font-extrabold text-[#C2185B]">{formatServicePrice(service.price)}</span></div>
+          <button type="button" onClick={onBook} aria-label={`Book ${service.name}`} title={`Book ${service.name}`} className="mb-1 grid h-12 w-12 shrink-0 place-items-center rounded-full text-white shadow-md transition hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20" style={{ background: "linear-gradient(135deg, #D6539A 0%, #C24486 100%)" }}>
+            <HiOutlinePlus className="h-5 w-5" />
+          </button>
         </div>
       </div>
     </article>
@@ -260,8 +296,4 @@ function ServiceCard({ service, onBook }) {
 
 function BranchSkeleton() {
   return <div className="flex min-h-20 animate-pulse overflow-hidden rounded-xl border border-[#EAE7E9] bg-white"><div className="w-20 shrink-0 bg-[#F6EAF0] sm:w-24" /><div className="flex-1 space-y-2 p-3"><div className="h-3 w-2/3 rounded bg-[#F6EAF0]" /><div className="h-2.5 w-full rounded bg-[#F6EAF0]" /><div className="h-2.5 w-1/2 rounded bg-[#F6EAF0]" /></div></div>;
-}
-
-function EmptyResults({ label }) {
-  return <div className="mt-6 rounded-2xl border border-dashed border-[#DCCFD6] bg-white px-6 py-10 text-center text-sm text-[#667085]">No matching {label}. Try another search.</div>;
 }

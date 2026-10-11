@@ -1,4 +1,5 @@
 from datetime import datetime
+import math
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -7,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class TransactionCreateRequest(BaseModel):
     booking_id: int
+    idempotency_key: str = Field(min_length=16, max_length=80)
     amount: Optional[float] = None
     # If amount is not provided, it will default to the booking's service price.
     payment_method: str = "cash"
@@ -27,7 +29,7 @@ class TransactionCreateRequest(BaseModel):
     @field_validator("amount")
     @classmethod
     def amount_must_be_positive(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None and v <= 0:
+        if v is not None and (not math.isfinite(v) or v <= 0):
             raise ValueError("Amount must be greater than zero.")
         return v
 
@@ -42,7 +44,7 @@ class TransactionCreateRequest(BaseModel):
     @field_validator("commission_amount")
     @classmethod
     def booking_commission_amount_is_valid(cls, value: float) -> float:
-        if value < 0:
+        if not math.isfinite(value) or value < 0:
             raise ValueError("Commission amount cannot be negative.")
         return value
 
@@ -62,7 +64,7 @@ class AdditionalChargeItem(BaseModel):
     @field_validator("amount")
     @classmethod
     def amount_is_positive(cls, value: float) -> float:
-        if value <= 0:
+        if not math.isfinite(value) or value <= 0:
             raise ValueError("Every additional charge must be greater than zero.")
         return value
 
@@ -106,6 +108,7 @@ class WalkInCheckoutRequest(BaseModel):
     amount_tendered: Optional[float] = None
     notes: Optional[str] = None
     service_provider_id: int
+    idempotency_key: str = Field(min_length=16, max_length=80)
     additional_charges: list[AdditionalChargeItem] = Field(default_factory=list)
     # Legacy aggregate fields remain accepted for older clients.
     additional_charge: float = 0
@@ -132,14 +135,14 @@ class WalkInCheckoutRequest(BaseModel):
     @field_validator("amount_tendered")
     @classmethod
     def amount_tendered_must_be_positive(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None and v < 0:
+        if v is not None and (not math.isfinite(v) or v < 0):
             raise ValueError("Amount tendered cannot be negative.")
         return v
 
     @field_validator("additional_charge")
     @classmethod
     def additional_charge_is_valid(cls, value: float) -> float:
-        if value < 0:
+        if not math.isfinite(value) or value < 0:
             raise ValueError("Additional charge cannot be negative.")
         return value
 
@@ -153,7 +156,7 @@ class WalkInCheckoutRequest(BaseModel):
     @field_validator("commission_amount")
     @classmethod
     def commission_amount_is_valid(cls, value: float) -> float:
-        if value < 0:
+        if not math.isfinite(value) or value < 0:
             raise ValueError("Commission amount cannot be negative.")
         return value
 

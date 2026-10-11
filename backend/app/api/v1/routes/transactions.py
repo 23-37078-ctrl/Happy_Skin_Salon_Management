@@ -1,9 +1,11 @@
 from datetime import date, datetime, time, timedelta, timezone
+import math
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
@@ -331,6 +333,9 @@ def checkout_walk_in(
     db: Session = Depends(get_db),
 ):
     _ensure_business_day_open(db, current_user.branch_id)
+    existing = db.query(Transaction).filter(Transaction.idempotency_key == payload.idempotency_key).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="This payment request was already processed. Check transaction history before trying again.")
     service = (
         db.query(Service)
         .filter(Service.id == payload.service_id, Service.is_active.is_(True), Service.branches.any(id=current_user.branch_id))
@@ -351,6 +356,8 @@ def checkout_walk_in(
     charge_reason = "; ".join(f'{item["reason"]}: PHP {item["amount"]:,.2f}' for item in charge_items) or None
     commission_amount = round(float(payload.commission_amount or 0), 2)
     subtotal = base_price + additional_charge
+    if not math.isfinite(commission_amount) or commission_amount > subtotal:
+        raise HTTPException(status_code=422, detail="Customer tips cannot exceed the service and approved add-on subtotal.")
     # The customer voluntarily pays this amount on top of the full service fee.
     # It is stored separately so it never reduces salon service revenue.
     amount_due = subtotal + commission_amount
@@ -385,9 +392,13 @@ def checkout_walk_in(
     db.add(booking)
     db.flush()
 
-    transaction = Transaction(booking_id=booking.id, staff_id=current_user.id, service_provider_id=provider.id, amount=amount_due, payment_method=payload.payment_method, additional_charge=additional_charge, charge_reason=charge_reason, commission_rate=0, commission_amount=commission_amount)
+    transaction = Transaction(booking_id=booking.id, idempotency_key=payload.idempotency_key, staff_id=current_user.id, service_provider_id=provider.id, amount=amount_due, payment_method=payload.payment_method, additional_charge=additional_charge, charge_reason=charge_reason, commission_rate=0, commission_amount=commission_amount)
     db.add(transaction)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="This payment request was already processed. Check transaction history before trying again.") from exc
     db.refresh(transaction)
 
     tendered = float(payload.amount_tendered) if payload.amount_tendered is not None else amount_due
@@ -401,6 +412,9 @@ def encode_transaction(
     db: Session = Depends(get_db),
 ):
     _ensure_business_day_open(db, current_user.branch_id)
+    existing_key = db.query(Transaction.id).filter(Transaction.idempotency_key == payload.idempotency_key).first()
+    if existing_key:
+        raise HTTPException(status_code=409, detail="This payment request was already processed. Check transaction history before trying again.")
     booking = get_booking_by_id(db, payload.booking_id, branch_id=current_user.branch_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found for your branch.")
@@ -438,6 +452,8 @@ def encode_transaction(
     commission_amount = round(float(payload.commission_amount or 0), 2)
     # The service remains fully paid; this is a separate voluntary customer payment.
     amount_due = base_price + additional_charge + commission_amount
+    if not math.isfinite(commission_amount) or commission_amount > base_price + additional_charge:
+        raise HTTPException(status_code=422, detail="Customer tips cannot exceed the service and approved add-on subtotal.")
     if payload.payment_method == "cash" and payload.amount_tendered is not None and payload.amount_tendered < amount_due:
         raise HTTPException(status_code=400, detail="Cash received is less than the total amount due.")
 
@@ -452,6 +468,7 @@ def encode_transaction(
         charge_reason=charge_reason,
         commission_rate=0,
         commission_amount=commission_amount,
+        idempotency_key=payload.idempotency_key,
     )
     tendered = float(payload.amount_tendered) if payload.amount_tendered is not None else amount_due
     return {"id": transaction.id, "transaction_id": transaction.id, "booking_id": booking.id, "customer_name": booking.customer.full_name, "customer_phone": booking.customer.phone_number, "branch_name": booking.branch.name, "appointment_date": booking.appointment_date, "service": ", ".join(service.name for service in booking_services), "service_provider": provider.full_name, "base_price": base_price, "additional_charges": charge_items, "additional_charge": additional_charge, "commission_rate": payload.commission_rate, "commission_amount": commission_amount, "amount": amount_due, "total": amount_due, "amount_tendered": tendered, "change": max(0, tendered - amount_due), "payment_method": payload.payment_method, "created_at": transaction.created_at}
@@ -553,4 +570,80 @@ def get_day_end_summary(
         "commission_tips": round(total_commission, 2),
         "payment_methods": {key: round(value, 2) for key, value in methods.items()},
         "staff_performance": list(provider_totals.values()),
+    }
+
+
+@router.get("/reports/summary")
+def get_staff_period_report(
+    period: str = "daily",
+    report_date: date | None = None,
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    if period not in {"daily", "weekly", "monthly", "yearly"}:
+        raise HTTPException(status_code=400, detail="Period must be daily, weekly, monthly, or yearly.")
+    anchor = report_date or _current_business_date()
+    if period == "daily":
+        start_date = anchor
+        end_date = anchor + timedelta(days=1)
+    elif period == "weekly":
+        start_date = anchor - timedelta(days=anchor.weekday())
+        end_date = start_date + timedelta(days=7)
+    elif period == "monthly":
+        start_date = anchor.replace(day=1)
+        end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+    else:
+        start_date = anchor.replace(month=1, day=1)
+        end_date = start_date.replace(year=start_date.year + 1)
+
+    start, _ = _business_day_bounds(start_date)
+    _, end = _business_day_bounds(end_date - timedelta(days=1))
+    transactions = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.booking).joinedload(Booking.customer), joinedload(Transaction.booking).joinedload(Booking.service), joinedload(Transaction.service_provider))
+        .join(Booking, Transaction.booking_id == Booking.id)
+        .filter(Booking.branch_id == current_user.branch_id, Transaction.created_at >= start, Transaction.created_at < end)
+        .order_by(Transaction.created_at.asc())
+        .all()
+    )
+    branch = db.query(Branch).filter(Branch.id == current_user.branch_id).first()
+    methods = {method: 0.0 for method in ("cash", "gcash", "card", "bank_transfer")}
+    providers: dict[int, dict] = {}
+    online_count = walk_in_count = 0
+    total_collected = total_commission = 0.0
+    for transaction in transactions:
+        amount = float(transaction.amount or 0)
+        commission = float(transaction.commission_amount or 0)
+        total_collected += amount
+        total_commission += commission
+        methods[transaction.payment_method] = methods.get(transaction.payment_method, 0.0) + amount
+        if (transaction.booking.notes or "").startswith("Walk-in"):
+            walk_in_count += 1
+        else:
+            online_count += 1
+        provider = transaction.service_provider
+        provider_id = provider.id if provider else 0
+        row = providers.setdefault(provider_id, {"name": provider.full_name if provider else "Unassigned", "services": 0, "commission": 0.0, "sales": 0.0})
+        row["services"] += 1
+        row["commission"] += commission
+        row["sales"] += amount
+
+    return {
+        "period": period,
+        "start_date": start_date.isoformat(),
+        "end_date": (end_date - timedelta(days=1)).isoformat(),
+        "branch_name": branch.name if branch else "Assigned Branch",
+        "prepared_by": current_user.full_name,
+        "generated_at": datetime.now(),
+        "transaction_count": len(transactions),
+        "online_count": online_count,
+        "walk_in_count": walk_in_count,
+        "total_collected": round(total_collected, 2),
+        "salon_sales": round(total_collected - total_commission, 2),
+        "commission_tips": round(total_commission, 2),
+        "payment_methods": {key: round(value, 2) for key, value in methods.items()},
+        "staff_performance": [
+            {**row, "sales": round(row["sales"], 2), "commission": round(row["commission"], 2)}
+            for row in providers.values()
+        ],
     }

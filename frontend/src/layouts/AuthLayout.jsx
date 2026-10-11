@@ -14,7 +14,8 @@ export default function AuthLayout({ children }) {
 
   return (
     <div
-      className="auth-layout relative h-dvh w-full overflow-hidden flex flex-col lg:flex-row"
+      data-theme="light"
+      className="light-experience auth-layout relative h-dvh w-full overflow-hidden flex flex-col lg:flex-row"
       style={{
         background:
           "linear-gradient(135deg, #FFF7FA 0%, #FCE4EC 45%, #F8BBD0 100%)",

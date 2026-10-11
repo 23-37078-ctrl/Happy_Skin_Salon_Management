@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import AuthLayout from "../../layouts/AuthLayout";
 import Button from "../../components/common/Button";
 import Notification from "../../components/common/Notification";
 import PasswordStrength from "../../components/auth/PasswordStrength";
-import { useAuth } from "../../hooks/useAuth";
+import authService from "../../services/authService";
 
 // ── Eye toggle icon ───────────────────────────────────────────
 function EyeIcon({ show, onClick, label }) {
@@ -30,97 +30,31 @@ function EyeIcon({ show, onClick, label }) {
   );
 }
 
-// ── OTP Method Toggle ─────────────────────────────────────────
-function OTPMethodToggle({ value, onChange }) {
-  return (
-    <div>
-      <p
-        className="block text-sm font-medium mb-2"
-        style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
-      >
-        Verification Method
-      </p>
-      <div className="grid grid-cols-2 gap-3">
-        {/* Email option */}
-        <button
-          type="button"
-          onClick={() => onChange("email")}
-          className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all duration-200 ${
-            value === "email"
-              ? "border-[#C2185B] bg-pink-50 text-[#C2185B]"
-              : "border-pink-100 bg-white text-[#6B7280] hover:border-pink-200"
-          }`}
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          Email OTP
-          {value === "email" && (
-            <span className="ml-1 w-4 h-4 rounded-full bg-[#C2185B] flex items-center justify-center">
-              <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414 0L8 12.586 4.707 9.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8a1 1 0 000-1.414z" clipRule="evenodd" />
-              </svg>
-            </span>
-          )}
-        </button>
-
-        {/* SMS option */}
-        <button
-          type="button"
-          onClick={() => onChange("sms")}
-          className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all duration-200 ${
-            value === "sms"
-              ? "border-[#C2185B] bg-pink-50 text-[#C2185B]"
-              : "border-pink-100 bg-white text-[#6B7280] hover:border-pink-200"
-          }`}
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-          </svg>
-          SMS OTP
-          {value === "sms" && (
-            <span className="ml-1 w-4 h-4 rounded-full bg-[#C2185B] flex items-center justify-center">
-              <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414 0L8 12.586 4.707 9.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8a1 1 0 000-1.414z" clipRule="evenodd" />
-              </svg>
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Helper text under toggle */}
-      <p
-        className="mt-2 text-xs"
-        style={{ fontFamily: "'Poppins', sans-serif", color: "#9CA3AF" }}
-      >
-        {value === "email"
-          ? "📧 A 6-digit code will be sent to your email address."
-          : "📱 A 6-digit code will be sent via SMS to your phone number."}
-      </p>
-    </div>
-  );
-}
-
-// ── Main Register Page ────────────────────────────────────────
+// ── Main Register Page ─────────────────────────────────────────
 export default function RegisterPage() {
-  const navigate = useNavigate();
-  const { register } = useAuth();
-
   const [form, setForm] = useState({
     fullName: "",
     email: "",
     phone_number: "",
     password: "",
     confirmPassword: "",
-    otp_method: "email",   // default is email
   });
   const [errors, setErrors]           = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm]   = useState(false);
-  const [loading, setLoading]           = useState(false);
   const [notification, setNotification] = useState(null);
+  const [otpSent, setOtpSent] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [signupVerificationToken, setSignupVerificationToken] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined;
+    const timer = window.setTimeout(() => setResendCooldown((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendCooldown]);
 
   // ── Validation ──────────────────────────────────────────────
   const validate = () => {
@@ -134,31 +68,27 @@ export default function RegisterPage() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       e.email = "Enter a valid email address.";
 
-    // Phone is required ONLY when SMS is selected
-    if (form.otp_method === "sms") {
-      if (!form.phone_number.trim()) {
-        e.phone_number = "Phone number is required for SMS verification.";
-      } else {
-        const cleaned = form.phone_number.replace(/\s|-/g, "");
-        const validPH =
-          (cleaned.startsWith("09") && cleaned.length === 11) ||
-          (cleaned.startsWith("+639") && cleaned.length === 13) ||
-          (cleaned.startsWith("639") && cleaned.length === 12);
-        if (!validPH)
-          e.phone_number = "Enter a valid PH mobile number (e.g. 09171234567).";
-      }
+    if (!form.phone_number.trim()) {
+      e.phone_number = "Phone number is required for SMS verification.";
+    } else {
+      const cleaned = form.phone_number.replace(/\s|-/g, "");
+      const validPH =
+        (cleaned.startsWith("09") && cleaned.length === 11) ||
+        (cleaned.startsWith("+639") && cleaned.length === 13) ||
+        (cleaned.startsWith("639") && cleaned.length === 12);
+      if (!validPH)
+        e.phone_number = "Enter a valid PH mobile number (e.g. 09171234567).";
     }
 
-    if (!form.password)
-      e.password = "Password is required.";
-    else if (form.password.length < 8)
-      e.password = "Password must be at least 8 characters.";
+    return e;
+  };
 
-    if (!form.confirmPassword)
-      e.confirmPassword = "Please confirm your password.";
-    else if (form.password !== form.confirmPassword)
-      e.confirmPassword = "Passwords do not match.";
-
+  const validatePassword = () => {
+    const e = {};
+    if (!form.password) e.password = "Password is required.";
+    else if (form.password.length < 8) e.password = "Password must be at least 8 characters.";
+    if (!form.confirmPassword) e.confirmPassword = "Please confirm your password.";
+    else if (form.password !== form.confirmPassword) e.confirmPassword = "Passwords do not match.";
     return e;
   };
 
@@ -168,42 +98,86 @@ export default function RegisterPage() {
     setErrors((p) => ({ ...p, [name]: "" }));
   };
 
-  const handleMethodChange = (method) => {
-    setForm((p) => ({ ...p, otp_method: method, phone_number: "" }));
-    setErrors((p) => ({ ...p, phone_number: "" }));
-  };
-
   // ── Submit ──────────────────────────────────────────────────
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSendCode = async () => {
     const errs = validate();
     if (Object.keys(errs).length) return setErrors(errs);
 
-    setLoading(true);
+    setOtpLoading(true);
+    setNotification(null);
     try {
-      const result = await register(
-        form.fullName,
-        form.email,
-        form.password,
-        form.otp_method === "sms" ? form.phone_number : null,
-        form.otp_method,
-      );
+      await authService.startSignup(form.fullName, form.email, form.phone_number);
 
-      // Pass all needed info to the verify page
-      navigate("/verify-email", {
-        state: {
-          email: form.email,
-          otp_method: result.otp_method || form.otp_method,
-          phone_number: form.phone_number || null,
-        },
-      });
+      setOtpSent(true);
+      setOtpCode("");
+      setResendCooldown(60);
+      setNotification({ type: "success", message: `A verification code was sent to ${form.phone_number}.` });
     } catch (err) {
       setNotification({
         type: "error",
         message: err.message || "Registration failed. Please try again.",
       });
     } finally {
-      setLoading(false);
+      setOtpLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!phoneVerified || !signupVerificationToken) {
+      setNotification({ type: "error", message: "Verify your phone number before signing up." });
+      return;
+    }
+    const errs = validatePassword();
+    if (Object.keys(errs).length) {
+      setErrors((current) => ({ ...current, ...errs }));
+      return;
+    }
+    setOtpLoading(true);
+    setNotification(null);
+    try {
+      await authService.completeSignup(signupVerificationToken, form.password);
+      setNotification({ type: "success", message: "Your account was created. You can now sign in." });
+      setTimeout(() => { window.location.assign("/login"); }, 1200);
+    } catch (err) {
+      setNotification({ type: "error", message: err.message || "Could not finish creating your account." });
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!/^\d{6}$/.test(otpCode)) {
+      setNotification({ type: "error", message: "Enter the 6-digit verification code." });
+      return;
+    }
+    setOtpLoading(true);
+    setNotification(null);
+    try {
+      const response = await authService.verifySignupPhone(form.email, otpCode);
+      setSignupVerificationToken(response.verification_token);
+      setPhoneVerified(true);
+      setNotification({ type: "success", message: "Phone number verified. Now create your password." });
+    } catch (err) {
+      setNotification({ type: "error", message: err.message || "Invalid or expired verification code." });
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (resendCooldown > 0 || otpLoading) return;
+    setOtpLoading(true);
+    setNotification(null);
+    try {
+      await authService.resendVerification(form.email);
+      setOtpCode("");
+      setResendCooldown(60);
+      setNotification({ type: "success", message: `A new code was sent to ${form.phone_number}.` });
+    } catch (err) {
+      setNotification({ type: "error", message: err.message || "Could not resend the code." });
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -266,8 +240,9 @@ export default function RegisterPage() {
             autoComplete="name"
             value={form.fullName}
             onChange={handleChange}
+            disabled={otpSent}
             placeholder="Jane Dela Cruz"
-            className={inputClass("fullName")}
+            className={`${inputClass("fullName")} disabled:bg-pink-50 disabled:text-gray-500`}
             style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
           />
           {errors.fullName && (
@@ -291,8 +266,9 @@ export default function RegisterPage() {
             autoComplete="email"
             value={form.email}
             onChange={handleChange}
+            disabled={otpSent}
             placeholder="you@example.com"
-            className={inputClass("email")}
+            className={`${inputClass("email")} disabled:bg-pink-50 disabled:text-gray-500`}
             style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
           />
           {errors.email && (
@@ -300,65 +276,80 @@ export default function RegisterPage() {
           )}
         </div>
 
-        {/* OTP Method Toggle */}
-        <OTPMethodToggle
-          value={form.otp_method}
-          onChange={handleMethodChange}
-        />
-
-        {/* Phone Number — only shown when SMS is selected */}
-        {form.otp_method === "sms" && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: "auto" }}
-            transition={{ duration: 0.25 }}
-            className="rounded-xl border border-pink-100 bg-pink-50 p-4"
+        {/* Phone Number */}
+        <div>
+          <label
+            htmlFor="phone_number"
+            className="block text-sm font-medium mb-1"
+            style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
           >
-            <label
-              htmlFor="phone_number"
-              className="block text-sm font-medium mb-1"
+            Phone Number
+          </label>
+          <div className="relative">
+            <input
+              id="phone_number"
+              name="phone_number"
+              type="tel"
+              autoComplete="tel"
+              value={form.phone_number}
+              onChange={handleChange}
+              placeholder="09171234567"
+              disabled={otpSent}
+              className={`${inputClass("phone_number")} pr-28 disabled:bg-pink-50 disabled:text-gray-500`}
               style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
-            >
-              Phone Number
-            </label>
-            <div className="flex gap-2">
-              {/* Country code badge */}
-              <div
-                className="flex items-center px-3 rounded-xl border border-pink-200 bg-white text-sm font-semibold select-none"
-                style={{ color: "#6B3F5D", fontFamily: "'Poppins', sans-serif" }}
+            />
+            {!otpSent && (
+              <button
+                type="button"
+                onClick={handleSendCode}
+                disabled={otpLoading}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg px-3 py-2 text-xs font-semibold text-white transition disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)" }}
               >
-                🇵🇭 +63
-              </div>
-              <input
-                id="phone_number"
-                name="phone_number"
-                type="tel"
-                autoComplete="tel"
-                value={form.phone_number}
-                onChange={handleChange}
-                placeholder="09171234567"
-                className={`flex-1 px-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200 focus:ring-2 ${
-                  errors.phone_number
-                    ? "border-red-400 focus:ring-red-200"
-                    : "border-pink-200 focus:ring-pink-200 focus:border-pink-400"
-                } bg-white`}
-                style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
-              />
-            </div>
-            {errors.phone_number && (
-              <p className="mt-1 text-xs text-red-500" role="alert">
-                {errors.phone_number}
-              </p>
+                {otpLoading ? "Sending…" : "Send code"}
+              </button>
             )}
-            <p
-              className="mt-2 text-xs"
-              style={{ color: "#9CA3AF", fontFamily: "'Poppins', sans-serif" }}
-            >
-              Enter your Philippine mobile number (e.g. 09171234567)
+          </div>
+          {errors.phone_number && (
+            <p className="mt-1 text-xs text-red-500" role="alert">{errors.phone_number}</p>
+          )}
+          {otpSent && !phoneVerified && (
+            <div className="mt-3 space-y-2">
+              <label htmlFor="signup-otp" className="block text-sm font-medium" style={{ color: "#2D2D2D" }}>
+                Verification code
+              </label>
+              <input
+                id="signup-otp"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={otpCode}
+                onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="Enter 6-digit code"
+                className={`${inputClass("otpCode")} text-center tracking-[0.35em] font-semibold`}
+                aria-label="SMS verification code"
+                required
+              />
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={otpLoading || resendCooldown > 0}
+                className="text-sm font-semibold hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ color: "#C2185B" }}
+              >
+                {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend code"}
+              </button>
+              <Button type="button" onClick={handleVerifyOtp} loading={otpLoading} fullWidth>
+                Verify Phone Number
+              </Button>
+            </div>
+          )}
+          {phoneVerified && (
+            <p className="mt-3 text-sm font-semibold text-green-700" role="status">
+              Phone number verified
             </p>
-          </motion.div>
-        )}
-
+          )}
+        </div>
         {/* Password */}
         <div>
           <label
@@ -376,8 +367,9 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={form.password}
               onChange={handleChange}
+              disabled={!phoneVerified}
               placeholder="Min. 8 characters"
-              className={inputClass("password") + " pr-12"}
+              className={`${inputClass("password")} pr-12 disabled:bg-pink-50 disabled:text-gray-500`}
               style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
             />
             <EyeIcon
@@ -409,8 +401,9 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={form.confirmPassword}
               onChange={handleChange}
+              disabled={!phoneVerified}
               placeholder="Re-enter password"
-              className={inputClass("confirmPassword") + " pr-12"}
+              className={`${inputClass("confirmPassword")} pr-12 disabled:bg-pink-50 disabled:text-gray-500`}
               style={{ fontFamily: "'Poppins', sans-serif", color: "#2D2D2D" }}
             />
             <EyeIcon
@@ -426,10 +419,13 @@ export default function RegisterPage() {
           )}
         </div>
 
-        <motion.div whileHover={{ scale: loading ? 1 : 1.01 }} whileTap={{ scale: loading ? 1 : 0.98 }}>
-          <Button type="submit" loading={loading} fullWidth>
-            Create Account
-          </Button>
+        {!phoneVerified && (
+          <p className="text-xs" style={{ color: "#8B7282" }}>
+            Verify your phone number to enable password entry and sign up.
+          </p>
+        )}
+        <motion.div whileHover={{ scale: otpLoading || !phoneVerified ? 1 : 1.01 }} whileTap={{ scale: otpLoading || !phoneVerified ? 1 : 0.98 }}>
+          <Button type="submit" loading={otpLoading} disabled={!phoneVerified} fullWidth>Sign Up</Button>
         </motion.div>
       </motion.form>
 

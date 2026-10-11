@@ -1,7 +1,7 @@
 import { formatCurrency, formatDateTime, paymentLabels } from "./staffWorkspaceUtils";
 import QRCode from "qrcode";
 
-const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 
 export function getTransactionSale(transaction) {
   return Math.max(0, Number(transaction.amount || 0) - Number(transaction.commission_amount || 0));
@@ -28,6 +28,6 @@ export async function printTransactionReceipt(transaction) {
     <div class="row"><span class="muted">Receipt no.</span><strong>#${escapeHtml(transaction.id)}</strong></div><div class="row"><span class="muted">Booking no.</span><strong>#${escapeHtml(booking.id)}</strong></div><div class="row"><span class="muted">Date and time</span><strong>${escapeHtml(formatDateTime(transaction.created_at))}</strong></div><div class="divider"></div>
     <div class="row"><span class="muted">Customer</span><strong>${escapeHtml(customer)}</strong></div>${booking.customer?.phone_number ? `<div class="row"><span class="muted">Contact number</span><strong>${escapeHtml(booking.customer.phone_number)}</strong></div>` : ""}<div class="row"><span class="muted">Service</span><strong>${escapeHtml(service)}</strong></div><div class="row"><span class="muted">Provider</span><strong>${escapeHtml(provider)}</strong></div><div class="row"><span class="muted">Payment method</span><strong>${escapeHtml(paymentLabels[transaction.payment_method] || transaction.payment_method)}</strong></div><div class="divider"></div>
     <div class="row"><span>Salon sale</span><strong>${escapeHtml(formatCurrency(sale))}</strong></div>${addOns > 0 ? `<div class="row"><span class="muted">Included add-ons</span><strong>${escapeHtml(formatCurrency(addOns))}</strong></div>` : ""}${transaction.charge_reason ? `<p class="muted">${escapeHtml(transaction.charge_reason)}</p>` : ""}<div class="row pink"><span>Staff commission / tip</span><strong>${escapeHtml(formatCurrency(commission))}</strong></div><div class="divider"></div><div class="row strong green total"><span>Total paid</span><span>${escapeHtml(formatCurrency(transaction.amount))}</span></div><div class="rating"><p class="title">Rate your salon experience</p><p>Scan this unique QR for booking #${escapeHtml(booking.id)}.</p><img src="${escapeHtml(ratingQr)}" alt="Unique rating QR code"><p>Receipt #${escapeHtml(transaction.id)}</p></div><p class="thanks">Thank you for choosing Happy Skin!</p>
-  </section></main><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();};<\/script></body></html>`);
+  </section></main><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();};</script></body></html>`);
   receiptWindow.document.close();
 }

@@ -9,6 +9,7 @@ export default function ThemeToggle() {
       type="button"
       onClick={toggleTheme}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-pressed={isDark}
       title={isDark ? "Light mode" : "Dark mode"}
       className="theme-toggle grid h-11 w-11 place-items-center rounded-xl bg-transparent text-[#B94B86] transition hover:text-[#923364] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/25"
     >

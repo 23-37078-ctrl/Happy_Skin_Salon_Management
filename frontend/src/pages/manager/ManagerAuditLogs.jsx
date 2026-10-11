@@ -10,7 +10,7 @@ export default function ManagerAuditLogs() {
     try { setError(""); setLogs((await managerService.auditLogs()).audit_logs || []); }
     catch (err) { setError(getApiError(err, "We couldn't load audit logs.")); }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { Promise.resolve().then(load); }, [load]);
   return <ManagerWorkspace title="Audit Logs" eyebrow="Branch accountability trail">
     {error && <div className="mb-4 rounded-xl bg-[#FEE2E2] p-4 text-sm font-bold text-[#991B1B]">{error} <button onClick={load} className="ml-2 underline">Retry</button></div>}
     <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-5 shadow-sm">

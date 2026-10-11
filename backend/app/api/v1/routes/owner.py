@@ -484,14 +484,19 @@ def get_owner_reports(
         booking_query = booking_query.filter(Booking.branch_id == branch_id)
         transaction_query = transaction_query.filter(Booking.branch_id == branch_id)
 
+    transaction_totals = (
+        db.query(Transaction.booking_id.label("booking_id"), func.sum(Transaction.amount).label("sales"))
+        .group_by(Transaction.booking_id)
+        .subquery()
+    )
     branch_report_query = (
         db.query(
             Branch.name,
-            func.count(Booking.id).label("bookings"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("sales"),
+            func.count(func.distinct(Booking.id)).label("bookings"),
+            func.coalesce(func.sum(transaction_totals.c.sales), 0).label("sales"),
         )
         .join(Booking, Booking.branch_id == Branch.id)
-        .outerjoin(Transaction, Transaction.booking_id == Booking.id)
+        .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.appointment_date >= start, Booking.appointment_date < end)
     )
     if branch_id:
@@ -499,17 +504,17 @@ def get_owner_reports(
     branch_rows = (
         branch_report_query
         .group_by(Branch.name)
-        .order_by(func.coalesce(func.sum(Transaction.amount), 0).desc())
+        .order_by(func.coalesce(func.sum(transaction_totals.c.sales), 0).desc())
         .all()
     )
 
     service_rows = (
-        db.query(Service.name, func.count(Booking.id).label("bookings"), func.coalesce(func.sum(Transaction.amount), 0).label("sales"))
+        db.query(Service.name, func.count(func.distinct(Booking.id)).label("bookings"), func.coalesce(func.sum(transaction_totals.c.sales), 0).label("sales"))
         .join(Booking, Booking.service_id == Service.id)
-        .outerjoin(Transaction, Transaction.booking_id == Booking.id)
+        .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.appointment_date >= start, Booking.appointment_date < end)
         .group_by(Service.name)
-        .order_by(func.count(Booking.id).desc())
+        .order_by(func.count(func.distinct(Booking.id)).desc())
         .all()
     )
 

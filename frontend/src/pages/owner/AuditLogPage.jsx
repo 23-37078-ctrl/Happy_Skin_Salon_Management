@@ -46,8 +46,8 @@ export default function AuditLogPage() {
       return matchesSearch && (typeFilter === "all" || log.type === typeFilter) && (actorFilter === "all" || log.actor === actorFilter) && (!dateFrom || eventDate >= dateFrom) && (!dateTo || eventDate <= dateTo);
     });
   }, [logs, search, typeFilter, actorFilter, dateFrom, dateTo]);
-  const visibleLogs = useMemo(() => filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filteredLogs, page]);
-  useEffect(() => { setPage(1); }, [search, typeFilter, actorFilter, dateFrom, dateTo]);
+  const safePage = Math.min(page, Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE)));
+  const visibleLogs = useMemo(() => filteredLogs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filteredLogs, safePage]);
   const clearFilters = () => { setSearch(""); setTypeFilter("all"); setActorFilter("all"); setDateFrom(""); setDateTo(""); };
 
   return (

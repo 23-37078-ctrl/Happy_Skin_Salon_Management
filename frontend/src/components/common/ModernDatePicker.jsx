@@ -74,11 +74,11 @@ export default function ModernDatePicker({ value = "", onChange, min, max, place
 
   return (
     <div ref={rootRef} className={`relative ${className}`}>
-      <button type="button" onClick={togglePicker} aria-label={ariaLabel} aria-haspopup="dialog" aria-expanded={open} className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-[#E8DCE3] bg-[#FFF8FB] px-3.5 text-left text-sm font-semibold text-[#1F2937] outline-none transition hover:border-[#D65A9A]/60 focus:border-[#D65A9A] focus:ring-4 focus:ring-[#D65A9A]/10">
+      <button type="button" onClick={togglePicker} aria-label={ariaLabel} aria-haspopup="dialog" aria-expanded={open} className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-[#E8DCE3] bg-[#FFF8FB] px-3.5 pr-12 text-left text-sm font-semibold text-[#1F2937] outline-none transition hover:border-[#D65A9A]/60 focus:border-[#D65A9A] focus:ring-4 focus:ring-[#D65A9A]/10">
         <HiOutlineCalendarDays className="h-5 w-5 shrink-0 text-[#D65A9A]" />
         <span className={`flex-1 ${formattedValue ? "" : "text-[#98A2B3]"}`}>{formattedValue || placeholder}</span>
-        {value && <span role="button" tabIndex={-1} onClick={(event) => { event.stopPropagation(); onChange?.(""); }} aria-label="Clear date" className="grid h-7 w-7 place-items-center rounded-full text-[#6B7280] hover:bg-white hover:text-[#D65A9A]"><HiOutlineXMark className="h-4 w-4" /></span>}
       </button>
+      {value && <button type="button" onClick={() => onChange?.("")} aria-label="Clear date" title="Clear date" className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-[#6B7280] transition hover:bg-white hover:text-[#D65A9A]"><HiOutlineXMark className="h-4 w-4" /></button>}
 
       {open && (
         <div role="dialog" aria-label="Calendar" className={`fixed inset-x-4 bottom-4 z-[120] rounded-2xl border border-[#F0DCE7] bg-white p-4 shadow-[0_22px_60px_rgba(31,41,55,0.18)] sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:w-[min(21rem,calc(100vw-2rem))] ${placement === "top" ? "sm:bottom-[calc(100%+0.6rem)] sm:top-auto" : "sm:top-[calc(100%+0.6rem)]"}`}>
@@ -94,7 +94,7 @@ export default function ModernDatePicker({ value = "", onChange, min, max, place
               const disabled = (min && dayValue < min) || (max && dayValue > max);
               const outside = date.getMonth() !== visibleMonth.getMonth();
               const selected = sameDay(date, selectedDate);
-              return <button key={dayValue} type="button" disabled={disabled} onClick={() => choose(date)} aria-label={date.toLocaleDateString("en-PH", { dateStyle: "full" })} aria-pressed={selected} className={`aspect-square rounded-xl text-xs font-bold transition ${selected ? "bg-[#C9558F] text-white shadow-md" : sameDay(date, today) ? "bg-[#FFF0F7] text-[#C9558F] ring-1 ring-[#E8B7D0]" : outside ? "text-[#C7CDD6] hover:bg-[#FFF8FB]" : "text-[#374151] hover:bg-[#FFF0F7] hover:text-[#C9558F]"} disabled:cursor-not-allowed disabled:opacity-25`}>{date.getDate()}</button>;
+              return <button key={dayValue} type="button" disabled={disabled} onClick={() => choose(date)} aria-label={date.toLocaleDateString("en-PH", { dateStyle: "full" })} aria-pressed={selected} className={`aspect-square rounded-xl text-xs font-bold transition ${selected ? "bg-[var(--color-action-bg)] text-[var(--color-action-text)] shadow-md" : sameDay(date, today) ? "bg-[#FFF0F7] text-[#923364] ring-1 ring-[#E8B7D0]" : outside ? "text-[#C7CDD6] hover:bg-[#FFF8FB]" : "text-[#374151] hover:bg-[#FFF0F7] hover:text-[#923364]"} disabled:cursor-not-allowed disabled:opacity-25`}>{date.getDate()}</button>;
             })}
           </div>
           <div className="mt-3 flex items-center justify-between border-t border-[#F3E8EF] pt-3">

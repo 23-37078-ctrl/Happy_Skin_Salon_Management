@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
 from app.crud.booking import get_booking_by_id, get_bookings_for_branch, update_booking_status
+from app.api.v1.routes.customer import _slot_booking_count, _slot_capacity, _validate_booking_time
 from app.crud.transaction import create_transaction, get_transactions_for_branch
 from app.dependencies.permissions import require_manager_branch
 from app.models.booking import Booking
@@ -132,13 +133,17 @@ def get_manager_dashboard(
     transactions, _ = get_transactions_for_branch(db, branch_id=branch_id, page=1, page_size=6)
 
     seven_days_ago = date.today() - timedelta(days=6)
+    transaction_totals = db.query(
+        Transaction.booking_id.label("booking_id"),
+        func.sum(Transaction.amount).label("sales"),
+    ).group_by(Transaction.booking_id).subquery()
     performance_rows = (
         db.query(
             cast(Booking.appointment_date, Date).label("day"),
-            func.count(Booking.id).label("bookings"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("sales"),
+            func.count(func.distinct(Booking.id)).label("bookings"),
+            func.coalesce(func.sum(transaction_totals.c.sales), 0).label("sales"),
         )
-        .outerjoin(Transaction, Transaction.booking_id == Booking.id)
+        .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.branch_id == branch_id, Booking.appointment_date >= datetime.combine(seven_days_ago, time.min))
         .group_by(cast(Booking.appointment_date, Date))
         .order_by(cast(Booking.appointment_date, Date))
@@ -346,11 +351,18 @@ def reschedule_manager_booking(
     current_user: User = Depends(require_manager_branch),
     db: Session = Depends(get_db),
 ):
+    branch = db.query(Branch).filter(Branch.id == current_user.branch_id, Branch.is_active.is_(True)).with_for_update().first()
     booking = get_booking_by_id(db, booking_id, branch_id=current_user.branch_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found for your branch.")
     if booking.status in {"completed", "cancelled"}:
         raise HTTPException(status_code=400, detail="Completed or cancelled bookings cannot be rescheduled.")
+
+    services = [item.service for item in booking.service_items] or [booking.service]
+    duration = sum(item.duration_minutes or 0 for item in services)
+    _validate_booking_time(payload.appointment_date, Service(duration_minutes=duration))
+    if not branch or _slot_booking_count(db, branch.id, payload.appointment_date, duration, exclude_booking_id=booking.id) >= _slot_capacity(db, branch.id):
+        raise HTTPException(status_code=409, detail="That time is already fully booked. Please choose another slot.")
 
     booking.appointment_date = payload.appointment_date
     booking.updated_at = datetime.utcnow()
@@ -402,13 +414,14 @@ def get_manager_reports(
         .filter(Booking.branch_id == branch_id, Transaction.created_at >= start, Transaction.created_at < end)
     )
 
+    transaction_totals = db.query(Transaction.booking_id.label("booking_id"), func.sum(Transaction.amount).label("sales")).group_by(Transaction.booking_id).subquery()
     service_rows = (
-        db.query(Service.name, func.count(Booking.id).label("bookings"), func.coalesce(func.sum(Transaction.amount), 0).label("sales"))
+        db.query(Service.name, func.count(func.distinct(Booking.id)).label("bookings"), func.coalesce(func.sum(transaction_totals.c.sales), 0).label("sales"))
         .join(Booking, Booking.service_id == Service.id)
-        .outerjoin(Transaction, Transaction.booking_id == Booking.id)
+        .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end)
         .group_by(Service.name)
-        .order_by(func.count(Booking.id).desc())
+        .order_by(func.count(func.distinct(Booking.id)).desc())
         .all()
     )
 

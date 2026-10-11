@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   HiOutlineClock,
@@ -9,9 +9,7 @@ import {
   HiOutlinePhone,
   HiOutlineSparkles,
   HiOutlineArrowRightOnRectangle,
-  HiOutlineMagnifyingGlass,
   HiChevronDown,
-  HiChevronRight,
 } from "react-icons/hi2";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
@@ -24,6 +22,7 @@ import RecentActivityCard from "../../components/customer/RecentActivityCard";
 import RecommendedServiceCard from "../../components/customer/RecommendedServiceCard";
 import Footer from "../../components/public/Footer";
 import SystemPopup from "../../components/common/SystemPopup";
+import ThemeToggle from "../../components/common/ThemeToggle";
 
 import {
   CardRailSkeleton,
@@ -68,8 +67,6 @@ export default function CustomerDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showPromotions, setShowPromotions] = useState(false);
-  const [serviceSearch, setServiceSearch] = useState("");
-  const [activeServiceCategory, setActiveServiceCategory] = useState("All Services");
   const dashboardRequestRef = useRef(null);
   const loggingOutRef = useRef(false);
 
@@ -152,22 +149,6 @@ export default function CustomerDashboard() {
       return (firstOrder < 0 ? Number.MAX_SAFE_INTEGER : firstOrder) - (secondOrder < 0 ? Number.MAX_SAFE_INTEGER : secondOrder);
     });
   }, [selectedServices]);
-  const availableServiceCategories = useMemo(
-    () => ["All Services", ...serviceGroups.map(([category]) => category)],
-    [serviceGroups]
-  );
-  const visibleServiceGroups = useMemo(() => {
-    const searchTerm = serviceSearch.trim().toLowerCase();
-    return serviceGroups
-      .filter(([category]) => activeServiceCategory === "All Services" || category === activeServiceCategory)
-      .map(([category, categoryServices]) => [
-        category,
-        categoryServices.filter((service) => !searchTerm || [service.name, service.description, service.branch_name]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(searchTerm))),
-      ])
-      .filter(([, categoryServices]) => categoryServices.length);
-  }, [activeServiceCategory, serviceGroups, serviceSearch]);
   const openServiceBooking = (service) => {
     const parameters = new URLSearchParams();
     const branchId = Number(service?.branch_id);
@@ -269,55 +250,29 @@ export default function CustomerDashboard() {
         </Section>
 
         <Section id="customer-services" className="mt-8">
-          <div className="mb-8 border-b border-[#ECDDE5] pb-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-              <label className="relative block w-full shrink-0 lg:w-[19.5rem]">
-                <span className="sr-only">Search services</span>
-                <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#667085]" />
-                <input
-                  type="search"
-                  value={serviceSearch}
-                  onChange={(event) => setServiceSearch(event.target.value)}
-                  placeholder="Search services"
-                  className="h-12 w-full rounded-xl border border-[#D9D9DE] bg-white pl-12 pr-4 text-sm font-medium text-[#202534] outline-none transition placeholder:text-[#7B8190] focus:border-[#B94B86] focus:ring-4 focus:ring-[#B94B86]/10"
-                />
-              </label>
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {availableServiceCategories.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => setActiveServiceCategory(category)}
-                      className={`min-h-12 shrink-0 rounded-xl px-4 text-sm font-extrabold transition focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15 ${activeServiceCategory === category ? "bg-[#B94B86] text-white shadow-sm" : "text-[#667085] hover:bg-[#FFF0F7] hover:text-[#A83F78]"}`}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
-                <HiChevronRight className="h-5 w-5 shrink-0 text-[#667085]" aria-hidden="true" />
-              </div>
-            </div>
-          </div>
           {isLoading ? (
             <AllServicesSkeleton />
-          ) : visibleServiceGroups.length ? (
+          ) : serviceGroups.length ? (
             <div className="space-y-10">
-              {visibleServiceGroups.map(([category, categoryServices]) => (
+              {serviceGroups.map(([category, categoryServices]) => (
                 <section key={category} aria-labelledby={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
-                  <h3 id={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="mb-5 text-xl font-extrabold text-[#161B2B] sm:text-2xl">{category}</h3>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {categoryServices.map((service) => (
-                      <AllServiceCard key={service.id} service={service} onBook={() => openServiceBooking(service)} />
-                    ))}
+                  <div className="mb-5 flex items-end justify-between gap-4">
+                    <div><p className="mb-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C85B95]">Our treatments</p><h3 id={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="font-serif text-2xl text-[#754463] sm:text-3xl">{category}</h3></div>
+                    <span className="shrink-0 pb-1 text-xs font-semibold text-[#667085]">{categoryServices.length} {categoryServices.length === 1 ? "service" : "services"}</span>
                   </div>
-                </section>
+                  <div aria-label={`Scroll ${category} services`} className="horizontal-service-scroll flex snap-x snap-mandatory items-stretch gap-4 overflow-x-auto pb-3">
+                    {categoryServices.map((service) => (
+                      <div key={service.id} className="flex w-[min(82vw,22rem)] shrink-0 snap-start sm:w-[22rem]">
+                        <AllServiceCard service={service} onBook={() => openServiceBooking(service)} />
+                      </div>
+                    ))}
+                  </div>                </section>
               ))}
             </div>
           ) : (
             <EmptyState
               title="No services available"
-              description={serviceSearch ? `No services match “${serviceSearch}”. Try another search.` : "Active salon services will appear here once they are added."}
+              description="Active salon services will appear here once they are added."
               icon={<HiOutlineSparkles className="h-9 w-9" />}
             />
           )}
@@ -356,7 +311,7 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
   return (
     <header className="relative z-[60] mb-6 rounded-[1.5rem] border border-[#F0E3EA] bg-white/95 px-4 py-3 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur sm:px-5">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[auto_minmax(0,1fr)_auto]">
-        <button type="button" className="flex min-w-0 items-center gap-3 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#D65A9A]/15" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+        <button type="button" aria-label="Reload customer portal" className="flex min-w-0 items-center gap-3 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#D65A9A]/15" onClick={() => window.location.reload()}>
           <img
             src="/images/happy-skin-logo.svg"
             alt="Happy Skin"
@@ -371,6 +326,7 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
         <div className="hidden lg:block" />
 
         <div ref={activityRef} className="relative flex shrink-0 items-center justify-self-end gap-0.5">
+          <ThemeToggle />
           <button type="button" onClick={onHistory} aria-label="Booking history" title="Booking history" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineClock className="h-6 w-6" /></button>
           <div>
             <button type="button" aria-label={unreadCount ? `${unreadCount} unread notifications` : "Activity and notifications"} aria-expanded={activityOpen} aria-controls="customer-activity-menu" onClick={() => setActivityOpen((current) => !current)} className={`relative grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20 ${activityOpen ? "bg-[#FFF0F7] ring-1 ring-[#E8B7D0]" : "hover:bg-[#FFF0F7]"}`}>
@@ -495,9 +451,18 @@ function AllServiceCard({ service, onBook }) {
 
   return (
     <motion.article
+      onClick={onBook}
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
-      className="group flex min-h-36 overflow-hidden rounded-xl border border-[#E5E5E8] bg-white transition hover:border-[#DCA9C4] hover:shadow-[0_12px_28px_rgba(31,41,55,0.08)]"
+      role="link"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onBook();
+        }
+      }}
+      className="group flex h-40 w-full cursor-pointer overflow-hidden rounded-xl border border-[#E5E5E8] bg-white transition hover:border-[#DCA9C4] hover:shadow-[0_12px_28px_rgba(31,41,55,0.08)] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"
     >
       <div className="relative w-[8.25rem] shrink-0 overflow-hidden bg-[#FFF0F7] sm:w-[9rem]">
         <img
@@ -511,21 +476,20 @@ function AllServiceCard({ service, onBook }) {
       <div className="flex min-w-0 flex-1 flex-col px-4 py-4">
         <h4 className="line-clamp-2 text-base font-extrabold leading-snug text-[#151A2A] sm:text-lg">{service.name || "Salon service"}</h4>
         {service.branch_name && <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-[#7B8190]"><HiOutlineMapPin className="h-3.5 w-3.5 shrink-0 text-[#B94B86]" /><span className="truncate">{service.branch_name}</span></p>}
-        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-3">
+        <div className="mt-auto flex min-h-10 items-end justify-between gap-2 pt-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide text-[#98A2B3]">Starting at</p>
             <p className="text-base font-black text-[#A83F78]">{formatServicePrice(service.price)}</p>
           </div>
           {validDuration && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#667085]"><HiOutlineClock className="h-3.5 w-3.5 text-[#C85B95]" />{duration} min</span>}
         </div>
-        <button type="button" onClick={onBook} className="mt-3 self-start text-xs font-extrabold text-[#A83F78] transition hover:text-[#7F285B] focus:outline-none focus-visible:underline">
+        <button type="button" onClick={(event) => { event.stopPropagation(); onBook(); }} className="mt-2 self-start text-xs font-extrabold text-[#A83F78] transition hover:text-[#7F285B] focus:outline-none focus-visible:underline">
           Book service <span aria-hidden="true">→</span>
         </button>
       </div>
     </motion.article>
   );
 }
-
 function CustomerBranchCard({ branch, selected, onSelect }) {
   return (
     <motion.button

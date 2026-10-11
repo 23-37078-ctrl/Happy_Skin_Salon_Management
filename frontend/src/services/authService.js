@@ -1,10 +1,11 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+const BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
 const api = axios.create({
   baseURL: BASE_URL,
   headers: { "Content-Type": "application/json" },
+  timeout: 15000,
 });
 
 const ACCESS_TOKEN_KEY = "access_token";
@@ -132,7 +133,47 @@ api.interceptors.response.use(
 );
 
 const authService = {
-  async register(full_name, email, password, phone_number = null, otp_method = "email") {
+  async startSignup(full_name, email, phone_number) {
+    try {
+      const { data } = await api.post("/auth/register/start", {
+        full_name,
+        email,
+        phone_number,
+      });
+      return data;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || "Could not send the verification code.", {
+        cause: err,
+      });
+    }
+  },
+
+  async verifySignupPhone(email, code) {
+    try {
+      const { data } = await api.post("/auth/register/verify-phone", { email, code });
+      return data;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || "Phone verification failed.", {
+        cause: err,
+      });
+    }
+  },
+
+  async completeSignup(verification_token, password) {
+    try {
+      const { data } = await api.post("/auth/register/complete", {
+        verification_token,
+        password,
+      });
+      return data;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || "Could not finish creating your account.", {
+        cause: err,
+      });
+    }
+  },
+
+  async register(full_name, email, password, phone_number, otp_method = "sms") {
   try {
     const { data } = await api.post("/auth/register", {
       full_name,
@@ -172,6 +213,32 @@ const authService = {
     }
   },
 
+  async requestPasswordReset(email) {
+    try {
+      const { data } = await api.post("/auth/password-reset/request", { email });
+      return data;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || "Could not request a password reset.", {
+        cause: err,
+      });
+    }
+  },
+
+  async confirmPasswordReset(email, code, new_password) {
+    try {
+      const { data } = await api.post("/auth/password-reset/confirm", {
+        email,
+        code,
+        new_password,
+      });
+      return data;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || "Could not reset the password.", {
+        cause: err,
+      });
+    }
+  },
+
   async login(email, password, remember = false) {
     try {
       const { data } = await api.post("/auth/login", { email, password });
@@ -189,12 +256,47 @@ const authService = {
   async loginWithProvider(provider, token, remember = false) {
     try {
       const { data } = await api.post(`/auth/${provider}`, { token });
+      if (data.requires_phone) return data;
       setStoredToken(data.access_token, remember);
       setStoredRefreshToken(data.refresh_token, remember);
       setStoredUser(data.user, remember);
       return data.user;
     } catch (err) {
       throw new Error(err.response?.data?.detail || `${provider} sign-in failed.`, {
+        cause: err,
+      });
+    }
+  },
+
+  async requestSocialPhoneOtp(provider, token, phone_number) {
+    try {
+      const { data } = await api.post("/auth/social/phone/request", {
+        provider,
+        token,
+        phone_number,
+      });
+      return data;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || "Could not send the verification code.", {
+        cause: err,
+      });
+    }
+  },
+
+  async verifySocialPhone(provider, token, phone_number, code, remember = false) {
+    try {
+      const { data } = await api.post("/auth/social/phone/verify", {
+        provider,
+        token,
+        phone_number,
+        code,
+      });
+      setStoredToken(data.access_token, remember);
+      setStoredRefreshToken(data.refresh_token, remember);
+      setStoredUser(data.user, remember);
+      return data.user;
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || "Phone verification failed.", {
         cause: err,
       });
     }

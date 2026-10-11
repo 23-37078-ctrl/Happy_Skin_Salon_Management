@@ -1,4 +1,5 @@
 from pathlib import Path
+from pydantic import model_validator
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -43,6 +44,18 @@ class Settings(BaseSettings):
 
     # Runtime
     ENVIRONMENT: str = "development"
+    CORS_ORIGINS: str = ""
+
+    @model_validator(mode="after")
+    def validate_production_settings(self):
+        if self.ENVIRONMENT.lower() == "production":
+            if len(self.SECRET_KEY) < 32 or self.SECRET_KEY == "change-this-to-a-long-random-secret":
+                raise ValueError("Production requires a unique SECRET_KEY of at least 32 characters.")
+            if not self.DATABASE_URL or "localhost" in self.DATABASE_URL or "127.0.0.1" in self.DATABASE_URL:
+                raise ValueError("Production requires a configured remote DATABASE_URL.")
+            if not self.CORS_ORIGINS.strip():
+                raise ValueError("Production requires CORS_ORIGINS with the deployed frontend origins.")
+        return self
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",

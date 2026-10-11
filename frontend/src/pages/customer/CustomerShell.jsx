@@ -17,9 +17,9 @@ export function CustomerShell({ title, subtitle, stats, showHeading = true, back
   };
 
   return (
-    <main className="min-h-screen bg-[#FFF8FB]">
+    <main className="portal-page min-h-screen bg-[#FFF8FB]">
       <div className="w-full max-w-none px-4 py-4 sm:px-6 lg:px-8">
-        <header className="relative z-40 mb-5 overflow-visible rounded-[1.5rem] border border-[#F0E3EA] bg-white px-4 py-3 shadow-[0_12px_34px_rgba(31,41,55,0.05)] sm:px-5">
+        <header className="portal-surface relative z-40 mb-5 overflow-visible rounded-[1.5rem] border border-[#F0E3EA] bg-white px-4 py-3 shadow-[0_12px_34px_rgba(31,41,55,0.05)] sm:px-5">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[auto_minmax(0,1fr)_auto]">
             <div className="flex min-w-0 items-center gap-2">{backBesideLogo && backTo && <button type="button" onClick={() => navigate(backTo)} aria-label="Back to customer dashboard" title="Back to dashboard" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#E8B7D0] bg-[#FFF0F7] text-[#C9558F] shadow-sm transition hover:border-[#D65A9A] hover:bg-[#FCE5F1] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/15"><HiOutlineArrowLeft className="h-5 w-5" strokeWidth={2.25} /></button>}<div className="flex min-w-0 items-center gap-3 text-left">
               <img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-11 w-11 shrink-0 rounded-full object-cover ring-2 ring-[#F8DCEB] sm:h-12 sm:w-12" />

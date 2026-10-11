@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   HiOutlineBanknotes,
@@ -83,8 +83,8 @@ export default function BookingHistory() {
       return text.includes(term);
     });
   }, [transactions, search, dateFilter, methodFilter, sourceFilter]);
-  const visibleTransactions = useMemo(() => filteredTransactions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filteredTransactions, page]);
-  useEffect(() => { setPage(1); }, [search, dateFilter, methodFilter, sourceFilter]);
+  const safePage = Math.min(page, Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE)));
+  const visibleTransactions = useMemo(() => filteredTransactions.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filteredTransactions, safePage]);
 
   const stats = useMemo(() => {
     const totalRevenue = filteredTransactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);

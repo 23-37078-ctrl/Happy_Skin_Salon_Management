@@ -11,7 +11,7 @@ import { useAuth } from "../../hooks/useAuth";
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, loginWithProvider } = useAuth();
+  const { login, loginWithProvider, requestSocialPhoneOtp, verifySocialPhone } = useAuth();
 
   const [form, setForm] = useState({ email: "", password: "", remember: false });
   const [errors, setErrors] = useState({});
@@ -19,6 +19,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [socialChallenge, setSocialChallenge] = useState(null);
+  const [socialPhone, setSocialPhone] = useState("");
+  const [socialCode, setSocialCode] = useState("");
+  const [socialCodeSent, setSocialCodeSent] = useState(false);
 
   // Google's login button renders inside a cross-origin iframe, so it can only be
   // sized with a fixed pixel `width` prop — never %. We measure the actual space
@@ -94,10 +98,48 @@ export default function LoginPage() {
   const handleGoogleSuccess = async (credentialResponse) => {
     setSocialLoading(true);
     try {
-      const user = await loginWithProvider("google", credentialResponse.credential);
-      redirectByRole(user);
+      await handleProviderCredential("google", credentialResponse.credential);
     } catch (err) {
       setNotification({ type: "error", message: err.message || "Google sign-in failed." });
+    } finally {
+      setSocialLoading(false);
+    }
+  };
+
+  const handleProviderCredential = async (provider, token) => {
+    const result = await loginWithProvider(provider, token);
+    if (result?.requires_phone) {
+      setSocialChallenge({ provider, token });
+      setSocialPhone("");
+      setSocialCode("");
+      setSocialCodeSent(false);
+      return;
+    }
+    redirectByRole(result);
+  };
+
+  const handleSocialPhoneSubmit = async (event) => {
+    event.preventDefault();
+    if (!socialChallenge) return;
+    setSocialLoading(true);
+    setNotification(null);
+    try {
+      if (!socialCodeSent) {
+        await requestSocialPhoneOtp(socialChallenge.provider, socialChallenge.token, socialPhone);
+        setSocialCodeSent(true);
+        setNotification({ type: "success", message: "A verification code was sent to your phone." });
+      } else {
+        const user = await verifySocialPhone(
+          socialChallenge.provider,
+          socialChallenge.token,
+          socialPhone,
+          socialCode,
+        );
+        setSocialChallenge(null);
+        redirectByRole(user);
+      }
+    } catch (err) {
+      setNotification({ type: "error", message: err.message || "Phone verification failed." });
     } finally {
       setSocialLoading(false);
     }
@@ -112,8 +154,7 @@ export default function LoginPage() {
     window.FB.login(
       (response) => {
         if (response.authResponse) {
-          loginWithProvider("facebook", response.authResponse.accessToken)
-            .then(redirectByRole)
+          handleProviderCredential("facebook", response.authResponse.accessToken)
             .catch((err) =>
               setNotification({ type: "error", message: err.message || "Facebook sign-in failed." })
             )
@@ -279,6 +320,46 @@ export default function LoginPage() {
       </motion.form>
 
       <Divider />
+
+      {socialChallenge && (
+        <form onSubmit={handleSocialPhoneSubmit} className="mb-4 space-y-3 rounded-xl border border-pink-100 bg-pink-50 p-4">
+          <div>
+            <h3 className="text-sm font-semibold" style={{ color: "#6B3F5D" }}>Verify your phone number</h3>
+            <p className="mt-1 text-xs" style={{ color: "#8B7282" }}>
+              Enter your Philippine mobile number to continue with {socialChallenge.provider === "google" ? "Google" : "Facebook"}.
+            </p>
+          </div>
+          <input
+            type="tel"
+            autoComplete="tel"
+            value={socialPhone}
+            onChange={(event) => setSocialPhone(event.target.value)}
+            placeholder="09171234567"
+            required
+            pattern="(09[0-9]{9}|\\+639[0-9]{9}|639[0-9]{9})"
+            className="w-full rounded-xl border border-pink-200 bg-white px-4 py-3 text-sm outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-200"
+            aria-label="Phone number"
+          />
+          {socialCodeSent && (
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={socialCode}
+              onChange={(event) => setSocialCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="6-digit SMS code"
+              required
+              minLength={6}
+              maxLength={6}
+              className="w-full rounded-xl border border-pink-200 bg-white px-4 py-3 text-sm outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-200"
+              aria-label="SMS verification code"
+            />
+          )}
+          <Button type="submit" loading={socialLoading} fullWidth>
+            {socialCodeSent ? "Verify and Continue" : "Send OTP"}
+          </Button>
+        </form>
+      )}
 
       {/* Social logins — width is measured live so both buttons match the real
           card width on every device, instead of a hardcoded 320px guess. */}
