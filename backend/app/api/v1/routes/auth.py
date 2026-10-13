@@ -1,3 +1,4 @@
+import logging
 import string
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -36,6 +37,7 @@ from app.services.email_service import send_password_reset_email, send_verificat
 from app.services.sms_service import send_verification_sms
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+logger = logging.getLogger(__name__)
 
 
 def _generate_otp(length: int = 6) -> str:
@@ -60,26 +62,31 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
-def _dispatch_otp(
-    background_tasks: BackgroundTasks,
-    user: User,
-    otp: str,
-) -> None:
-    """Send OTP via the user's chosen method (email or sms)."""
+def _dispatch_otp(user: User, otp: str) -> None:
+    """Send OTP via the user's chosen method and propagate delivery errors."""
     if user.otp_method == "sms" and user.phone_number:
-        background_tasks.add_task(
-            send_verification_sms,
-            user.phone_number,
-            user.full_name,
-            otp,
-        )
+        send_verification_sms(user.phone_number, user.full_name, otp)
     else:
-        background_tasks.add_task(
-            send_verification_email,
-            user.email,
-            user.full_name,
-            otp,
-        )
+        send_verification_email(user.email, user.full_name, otp)
+
+
+def _send_otp_or_http_error(user: User, otp: str, db: Session) -> None:
+    try:
+        _dispatch_otp(user, otp)
+    except Exception as exc:
+        safe_error = str(exc)
+        for secret in (settings.IPROG_API_TOKEN, otp, user.phone_number or ""):
+            if secret:
+                safe_error = safe_error.replace(secret, "[redacted]")
+        logger.warning("OTP delivery failed via %s (%s): %s", user.otp_method, type(exc).__name__, safe_error)
+        user.verification_code = None
+        user.verification_code_expires = None
+        user.verification_code_started_at = None
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We could not send your verification code. Check your phone number and try again shortly.",
+        ) from exc
 
 
 def _record_auth_event(db: Session, request: Request, email: str, event_type: str, user: User | None = None) -> None:
@@ -123,7 +130,6 @@ def _check_login_rate_limit(db: Session, email: str) -> None:
 @router.post("/register/start", status_code=status.HTTP_201_CREATED)
 def start_registration(
     payload: RegisterStartRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.email == payload.email).first()
@@ -176,7 +182,7 @@ def start_registration(
     user.verification_code_expires = _otp_expiry()
     db.commit()
     db.refresh(user)
-    _dispatch_otp(background_tasks, user, code)
+    _send_otp_or_http_error(user, code, db)
     return {"message": "Verification code sent to your phone number."}
 
 
@@ -291,7 +297,6 @@ def verify_otp(payload: VerifyOTPRequest, db: Session = Depends(get_db)):
 @router.post("/resend-verification", response_model=ResendVerificationResponse)
 def resend_verification(
     payload: ResendVerificationRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.email == payload.email).first()
@@ -326,7 +331,7 @@ def resend_verification(
     user.verification_code_expires = _otp_expiry()
     db.commit()
 
-    _dispatch_otp(background_tasks, user, otp)
+    _send_otp_or_http_error(user, otp, db)
 
     method_label = "phone number" if user.otp_method == "sms" else "email"
     return ResendVerificationResponse(
@@ -550,7 +555,6 @@ def facebook_login(payload: SocialLoginRequest, db: Session = Depends(get_db)):
 @router.post("/social/phone/request")
 def request_social_phone_otp(
     payload: SocialPhoneRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     identity = _social_identity(payload.provider, payload.token)
@@ -584,7 +588,7 @@ def request_social_phone_otp(
     user.verification_code_expires = _otp_expiry()
     user.verification_code_started_at = user.verification_code_started_at or datetime.now(timezone.utc)
     db.commit()
-    background_tasks.add_task(send_verification_sms, user.phone_number, user.full_name, code)
+    _send_otp_or_http_error(user, code, db)
     return {"message": "Verification code sent to your phone number."}
 
 

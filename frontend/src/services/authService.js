@@ -241,13 +241,17 @@ const authService = {
 
   async login(email, password, remember = false) {
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/auth/login", { email: email.trim().toLowerCase(), password });
       setStoredToken(data.access_token, remember);
       setStoredRefreshToken(data.refresh_token, remember);
       setStoredUser(data.user, remember);
       return data.user;
     } catch (err) {
-      throw new Error(err.response?.data?.detail || "Login failed.", {
+      const detail = err.response?.data?.detail;
+      const message = Array.isArray(detail)
+        ? detail.map((item) => item.msg).filter(Boolean).join(" ")
+        : detail;
+      throw new Error(message || (err.response ? "Login failed. Please check your email and password." : "Unable to reach the sign-in service. Check your connection and try again."), {
         cause: err,
       });
     }

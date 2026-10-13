@@ -96,6 +96,13 @@ export default function RegisterPage() {
     const { name, value } = e.target;
     setForm((p) => ({ ...p, [name]: value }));
     setErrors((p) => ({ ...p, [name]: "" }));
+    if (name === "phone_number" && otpSent) {
+      setOtpSent(false);
+      setPhoneVerified(false);
+      setSignupVerificationToken("");
+      setOtpCode("");
+      setResendCooldown(0);
+    }
   };
 
   // ── Submit ──────────────────────────────────────────────────
@@ -111,7 +118,7 @@ export default function RegisterPage() {
       setOtpSent(true);
       setOtpCode("");
       setResendCooldown(60);
-      setNotification({ type: "success", message: `A verification code was sent to ${form.phone_number}.` });
+      setNotification({ type: "success", message: `iProg accepted a verification code request for ${form.phone_number}. Check your SMS inbox.` });
     } catch (err) {
       setNotification({
         type: "error",
@@ -173,7 +180,7 @@ export default function RegisterPage() {
       await authService.resendVerification(form.email);
       setOtpCode("");
       setResendCooldown(60);
-      setNotification({ type: "success", message: `A new code was sent to ${form.phone_number}.` });
+      setNotification({ type: "success", message: `iProg accepted a new code request for ${form.phone_number}. Check your SMS inbox.` });
     } catch (err) {
       setNotification({ type: "error", message: err.message || "Could not resend the code." });
     } finally {
