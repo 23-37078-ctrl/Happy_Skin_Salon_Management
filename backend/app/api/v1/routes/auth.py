@@ -22,6 +22,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
+from app.models.social_phone_challenge import SocialPhoneChallenge
 from app.models.auth_event import AuthEvent
 from app.schemas.user import (
     LoginRequest, LoginResponse,
@@ -342,7 +343,6 @@ def resend_verification(
 @router.post("/password-reset/request", response_model=VerifyEmailResponse)
 def request_password_reset(
     payload: PasswordResetRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     message = "If an active account uses this email, a password reset code has been sent."
@@ -368,7 +368,17 @@ def request_password_reset(
     user.password_reset_code = code
     user.password_reset_expires = _otp_expiry()
     db.commit()
-    background_tasks.add_task(send_password_reset_email, user.email, user.full_name, code)
+    try:
+        send_password_reset_email(user.email, user.full_name, code)
+    except Exception as exc:
+        logger.exception("Password reset email delivery failed")
+        user.password_reset_code = None
+        user.password_reset_expires = None
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not send the reset email. Check the Mailtrap SMTP configuration and try again.",
+        ) from exc
     return VerifyEmailResponse(message=message)
 
 
@@ -494,7 +504,7 @@ def _social_identity(provider: str, token: str) -> tuple[str, str, str, str | No
     return provider_id, account_email, info.get("name") or "Facebook customer", email
 
 
-def _get_or_create_social_user(provider: str, identity: tuple[str, str, str, str | None], db: Session) -> User:
+def _find_social_user(provider: str, identity: tuple[str, str, str, str | None], db: Session) -> User | None:
     provider_id, account_email, full_name, provider_email = identity
     user = db.query(User).filter(
         User.oauth_provider == provider,
@@ -504,6 +514,20 @@ def _get_or_create_social_user(provider: str, identity: tuple[str, str, str, str
     if not user:
         user = db.query(User).filter(User.email == account_email).first() if provider_email else None
         linked_by_email = user is not None
+    if user:
+        if user.oauth_provider and (user.oauth_provider != provider or user.oauth_id != provider_id):
+            raise HTTPException(status_code=409, detail="This email is linked to another social account.")
+        if linked_by_email and user.password_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="An account already uses this email. Sign in with email and password, then connect social sign-in.",
+            )
+    return user
+
+
+def _get_or_create_social_user(provider: str, identity: tuple[str, str, str, str | None], db: Session) -> User:
+    provider_id, account_email, full_name, _ = identity
+    user = _find_social_user(provider, identity, db)
     if not user:
         user = User(
             full_name=full_name,
@@ -517,13 +541,6 @@ def _get_or_create_social_user(provider: str, identity: tuple[str, str, str, str
         )
         db.add(user)
     else:
-        if user.oauth_provider and (user.oauth_provider != provider or user.oauth_id != provider_id):
-            raise HTTPException(status_code=409, detail="This email is linked to another social account.")
-        if linked_by_email and user.password_hash:
-            raise HTTPException(
-                status_code=409,
-                detail="An account already uses this email. Sign in with email and password, then connect social sign-in.",
-            )
         user.oauth_provider = provider
         user.oauth_id = provider_id
         if not user.email_verified:
@@ -536,9 +553,13 @@ def _get_or_create_social_user(provider: str, identity: tuple[str, str, str, str
 
 @router.post("/google")
 def google_login(payload: SocialLoginRequest, db: Session = Depends(get_db)):
-    user = _get_or_create_social_user("google", _social_identity("google", payload.token), db)
+    identity = _social_identity("google", payload.token)
+    user = _find_social_user("google", identity, db)
+    if not user:
+        return {"requires_phone": True, "provider": "google"}
     if not user.phone_verified:
         return {"requires_phone": True, "provider": "google"}
+    user = _get_or_create_social_user("google", identity, db)
     return _issue_login_response(user)
 
 
@@ -546,9 +567,13 @@ def google_login(payload: SocialLoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/facebook")
 def facebook_login(payload: SocialLoginRequest, db: Session = Depends(get_db)):
-    user = _get_or_create_social_user("facebook", _social_identity("facebook", payload.token), db)
+    identity = _social_identity("facebook", payload.token)
+    user = _find_social_user("facebook", identity, db)
+    if not user:
+        return {"requires_phone": True, "provider": "facebook"}
     if not user.phone_verified:
         return {"requires_phone": True, "provider": "facebook"}
+    user = _get_or_create_social_user("facebook", identity, db)
     return _issue_login_response(user)
 
 
@@ -558,13 +583,50 @@ def request_social_phone_otp(
     db: Session = Depends(get_db),
 ):
     identity = _social_identity(payload.provider, payload.token)
-    user = _get_or_create_social_user(payload.provider, identity, db)
-    if user.phone_verified and user.phone_number == payload.phone_number:
-        return {"message": "This phone number is already verified."}
-    if user.phone_verified and user.phone_number != payload.phone_number:
+    user = _find_social_user(payload.provider, identity, db)
+    if user and user.phone_verified:
+        if user.phone_number == payload.phone_number:
+            return {"message": "This phone number is already verified."}
         raise HTTPException(status_code=409, detail="A different phone number is already verified for this account.")
 
-    if user.verification_code_expires:
+    if not user:
+        provider_id, account_email, full_name, _ = identity
+        challenge = db.query(SocialPhoneChallenge).filter_by(
+            provider=payload.provider, provider_id=provider_id,
+        ).first()
+        now = datetime.now(timezone.utc)
+        if challenge and now < _as_utc(challenge.started_at) + timedelta(seconds=settings.OTP_RESEND_COOLDOWN_SECONDS):
+            raise HTTPException(status_code=429, detail="Please wait before requesting another code.")
+        code = _generate_otp()
+        if not challenge:
+            challenge = SocialPhoneChallenge(
+                provider=payload.provider, provider_id=provider_id, email=account_email,
+                full_name=full_name, phone_number=payload.phone_number, code=code,
+                expires_at=_otp_expiry(), attempts=0, started_at=now,
+            )
+            db.add(challenge)
+        else:
+            challenge.email = account_email
+            challenge.full_name = full_name
+            challenge.phone_number = payload.phone_number
+            challenge.code = code
+            challenge.expires_at = _otp_expiry()
+            challenge.attempts = 0
+            challenge.started_at = now
+        db.commit()
+        try:
+            send_verification_sms(payload.phone_number, full_name, code)
+        except Exception as exc:
+            logger.warning("Social signup SMS delivery failed (%s)", type(exc).__name__)
+            db.delete(challenge)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="We could not send your verification code. Check your phone number and try again shortly.",
+            ) from exc
+        return {"message": "Verification code sent to your phone number."}
+
+    if user and user.verification_code_expires:
         cooldown_end = (
             _as_utc(user.verification_code_expires)
             - timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
@@ -573,11 +635,11 @@ def request_social_phone_otp(
         if datetime.now(timezone.utc) < cooldown_end:
             raise HTTPException(status_code=429, detail="Please wait before requesting another code.")
 
-    resend_window_expired = bool(user.verification_code_started_at and datetime.now(timezone.utc) >= (_as_utc(user.verification_code_started_at) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)))
+    resend_window_expired = bool(user and user.verification_code_started_at and datetime.now(timezone.utc) >= (_as_utc(user.verification_code_started_at) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)))
     if resend_window_expired:
         user.verification_attempts = 0
         user.verification_code_started_at = datetime.now(timezone.utc)
-    if user.verification_code_started_at and datetime.now(timezone.utc) >= (_as_utc(user.verification_code_started_at) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)):
+    if user and user.verification_code_started_at and datetime.now(timezone.utc) >= (_as_utc(user.verification_code_started_at) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)):
         user.verification_attempts = 0
         user.verification_code_started_at = datetime.now(timezone.utc)
     code = _generate_otp()
@@ -595,7 +657,36 @@ def request_social_phone_otp(
 @router.post("/social/phone/verify", response_model=LoginResponse)
 def verify_social_phone(payload: SocialPhoneVerifyRequest, db: Session = Depends(get_db)):
     identity = _social_identity(payload.provider, payload.token)
-    user = _get_or_create_social_user(payload.provider, identity, db)
+    user = _find_social_user(payload.provider, identity, db)
+    if not user:
+        provider_id, account_email, full_name, _ = identity
+        challenge = db.query(SocialPhoneChallenge).filter_by(
+            provider=payload.provider, provider_id=provider_id,
+        ).first()
+        if not challenge or challenge.phone_number != payload.phone_number:
+            raise HTTPException(status_code=400, detail="Request a new code for this phone number.")
+        if datetime.now(timezone.utc) > _as_utc(challenge.expires_at):
+            db.delete(challenge)
+            db.commit()
+            raise HTTPException(status_code=400, detail="Verification code expired. Request a new one.")
+        if challenge.attempts >= settings.OTP_MAX_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many incorrect codes. Request a new code after the resend cooldown.")
+        if challenge.code != payload.code:
+            challenge.attempts += 1
+            db.commit()
+            raise HTTPException(status_code=400, detail="Invalid verification code.")
+        user = User(
+            full_name=challenge.full_name, email=challenge.email, password_hash=None,
+            role="customer", oauth_provider=payload.provider, oauth_id=provider_id,
+            email_verified=True, phone_number=challenge.phone_number,
+            phone_verified=True, otp_method="sms", verified_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        db.delete(challenge)
+        db.commit()
+        db.refresh(user)
+        return _issue_login_response(user)
+
     if user.phone_number != payload.phone_number:
         raise HTTPException(status_code=400, detail="Request a new code for this phone number.")
     if not user.verification_code or not user.verification_code_expires:
@@ -606,6 +697,8 @@ def verify_social_phone(payload: SocialPhoneVerifyRequest, db: Session = Depends
     if user.verification_code != payload.code:
         _record_bad_otp(user, db)
         raise HTTPException(status_code=400, detail="Invalid verification code.")
+    user.oauth_provider = payload.provider
+    user.oauth_id = identity[0]
     user.phone_verified = True
     user.email_verified = True
     user.verification_code = None

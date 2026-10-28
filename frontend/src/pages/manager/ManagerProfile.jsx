@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HiOutlineKey, HiOutlineUserCircle } from "react-icons/hi2";
 import managerService from "../../services/managerService";
 import { getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, ManagerWorkspace, Notice, StatCard } from "./ManagerWorkspace";
+import { CardSkeleton, ManagerWorkspace, Notice } from "./ManagerWorkspace";
 
 export default function ManagerProfile() {
   const [profile, setProfile] = useState({ full_name: "", email: "", phone_number: "" });
@@ -27,6 +27,11 @@ export default function ManagerProfile() {
   useEffect(() => {
     Promise.resolve().then(() => loadProfile());
   }, [loadProfile]);
+
+  const headerStats = [
+    { label: "Role", value: profile.role || "manager", icon: HiOutlineUserCircle, tone: "pink" },
+    { label: "Branch ID", value: profile.branch_id || "Assigned", icon: HiOutlineUserCircle, tone: "blue" },
+  ];
 
   const updateProfile = async (event) => {
     event.preventDefault();
@@ -55,16 +60,12 @@ export default function ManagerProfile() {
   };
 
   return (
-    <ManagerWorkspace title="Profile" eyebrow="Manager account">
+    <ManagerWorkspace title="Profile" eyebrow="Manager account" headerStats={headerStats}>
       {error && <Notice message={error} onRetry={loadProfile} />}
       {success && <Notice tone="success" message={success} />}
       {isLoading ? <CardSkeleton rows={2} /> : (
         <>
-          <section className="grid gap-3 sm:grid-cols-2">
-            <StatCard label="Role" value={profile.role || "manager"} icon={HiOutlineUserCircle} tone="pink" />
-            <StatCard label="Branch ID" value={profile.branch_id || "Assigned"} icon={HiOutlineUserCircle} tone="blue" />
-          </section>
-          <div className="mt-5 grid gap-5 xl:grid-cols-2">
+          <div className="grid gap-5 xl:grid-cols-2">
             <form onSubmit={updateProfile} className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
               <h2 className="text-lg font-bold text-[#1F2937]">Profile Details</h2>
               <Field label="Full name" value={profile.full_name} onChange={(value) => setProfile((prev) => ({ ...prev, full_name: value }))} />

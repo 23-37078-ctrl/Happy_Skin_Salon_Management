@@ -34,6 +34,7 @@ class BranchForecastResponse(BaseModel):
     model_version: str | None = None
     generated_at: datetime
     data_quality: str
+    data_source: str = "operational"
     limitation: str | None = None
     readiness: ForecastReadiness
     historical: list[HistoricalDemandPoint]

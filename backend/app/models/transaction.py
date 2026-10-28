@@ -23,7 +23,7 @@ class Transaction(Base):
     commission_rate = Column(Float, default=0, nullable=False)
     commission_amount = Column(Float, default=0, nullable=False)
 
-    created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+    created_at      = Column(DateTime, server_default=func.now(), nullable=False, index=True)
 
     booking         = relationship("Booking")
     staff           = relationship("User", foreign_keys=[staff_id])

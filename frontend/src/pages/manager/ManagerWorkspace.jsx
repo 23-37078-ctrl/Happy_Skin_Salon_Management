@@ -21,6 +21,7 @@ import useModalLayer from "../../hooks/useModalLayer";
 const navItems = [
   { to: "/manager/dashboard", label: "Dashboard", icon: HiOutlineHome },
   { to: "/manager/transactions", label: "Sales", icon: HiOutlineBanknotes },
+  { to: "/manager/commissions", label: "Commissions", icon: HiOutlineBanknotes },
   { to: "/manager/reports", label: "Reports", icon: HiOutlineChartBar },
   { to: "/manager/feedback", label: "Feedback", icon: HiOutlineStar },
   { to: "/manager/promotions", label: "Promotions", icon: HiOutlineGift },
@@ -116,7 +117,7 @@ export function ManagerWorkspace({ children, title, eyebrow, actions, headerStat
               )}
             </div>
             {headerStats?.length > 0 && (
-              <div className="grid w-full flex-1 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:mx-4">
+              <div className="grid w-full flex-1 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-3 xl:mx-4 xl:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))]">
                 {headerStats.map(({ icon: Icon, label, value, tone = "pink" }) => {
                   const colors = { pink: "bg-[#FFF0F7] text-[#D65A9A]", green: "bg-[#DCFCE7] text-[#16A34A]", blue: "bg-[#DBEAFE] text-[#2563EB]", amber: "bg-[#FEF3C7] text-[#D97706]", red: "bg-[#FEE2E2] text-[#DC2626]" };
                   return <div key={label} className="flex min-w-0 items-center gap-2 rounded-xl bg-[#FFF8FB] px-2.5 py-2 ring-1 ring-[#F3E8EF]"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${colors[tone] || colors.pink}`}><Icon className="h-4 w-4" /></span><span className="min-w-0"><span className="block truncate text-sm font-extrabold leading-tight text-[#1F2937]">{value}</span><span className="block truncate text-[8px] font-bold uppercase tracking-wide text-[#6B7280]">{label}</span></span></div>;

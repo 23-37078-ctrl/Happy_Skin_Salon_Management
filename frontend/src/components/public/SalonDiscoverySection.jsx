@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   HiArrowRight,
@@ -10,6 +10,7 @@ import {
   HiOutlinePlus,
   HiOutlinePhone,
 } from "react-icons/hi2";
+import { FaFacebookF, FaInstagram } from "react-icons/fa";
 import { useAuth } from "../../hooks/useAuth";
 import { SALON_SERVICES, SALON_SERVICE_CATEGORIES, formatServicePrice } from "../../constants/salonServices";
 
@@ -22,6 +23,13 @@ const BRANCH_BACKDROPS = [
   "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=900&q=80",
   "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=900&q=80",
   "https://images.unsplash.com/photo-1600948836101-f9ffda59d250?w=900&q=80",
+];
+const HERO_SLIDES = [
+  { image: "/images/services/generated/signature-facial.jpg", title: "Care that fits you", subtitle: "Skin · Hair · Beauty" },
+  { image: "/images/services/generated/hair-spa-treatment.jpg", title: "A moment for you", subtitle: "Restore and unwind" },
+  { image: "/images/services/generated/gel-manicure.jpg", title: "Little details", subtitle: "Nails · Care · Confidence" },
+  { image: "/images/services/generated/diamond-peel.jpg", title: "Feel refreshed", subtitle: "Expert skin treatments" },
+  { image: "/images/services/generated/foot-spa-massage.jpg", title: "Take a breather", subtitle: "Relax · Recharge · Repeat" },
 ];
 
 const fallbackServices = SALON_SERVICES.map((service) => ({
@@ -37,10 +45,16 @@ export default function SalonDiscoverySection() {
   const [branches, setBranches] = useState([]);
   const [services, setServices] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
+  const [activeHeroIndex, setActiveHeroIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState("All Services");
   const [carouselPosition, setCarouselPosition] = useState({ category: "All Services", branchId: null, index: 0 });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setActiveHeroIndex((index) => (index + 1) % HERO_SLIDES.length), 3200);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -104,7 +118,7 @@ export default function SalonDiscoverySection() {
       navigate(bookingPath);
       return;
     }
-    navigate(`/login?redirect=${encodeURIComponent(bookingPath)}`);
+    navigate(bookingPath);
   };
 
   return (
@@ -123,11 +137,16 @@ export default function SalonDiscoverySection() {
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <button type="button" onClick={() => goToBooking(null)} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}>
-                <HiOutlineCalendarDays className="h-4 w-4" /> Book appointment <HiArrowRight className="h-4 w-4" />
+                <HiOutlineCalendarDays className="h-4 w-4" /> Book an appointment <HiArrowRight className="h-4 w-4" />
               </button>
               <button type="button" onClick={() => document.querySelector("#services")?.scrollIntoView({ behavior: "smooth" })} className="min-h-12 rounded-lg border border-[#E8C9D9] bg-white/70 px-5 text-sm font-bold text-[#C2185B] transition hover:bg-[#FCE4EC]">
-                Explore services
+                Explore our services
               </button>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-base font-bold text-[#754463] sm:text-lg">
+              <a href="tel:09123456789" className="inline-flex min-h-11 items-center gap-2.5 rounded-full border border-[#E8C9D9] bg-white/80 px-4 transition hover:border-[#D65A9A] hover:bg-white focus:outline-none focus-visible:ring-4 focus-visible:ring-[#D65A9A]/20"><HiOutlinePhone className="h-5 w-5 text-[#C85B95] sm:h-6 sm:w-6" />0912 345 6789</a>
+              <a href="https://www.facebook.com/profile.php?id=100095537436310" target="_blank" rel="noreferrer" aria-label="Happy Skin on Facebook" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#E8C9D9] bg-white text-[#C85B95] transition hover:border-[#D65A9A] hover:bg-[#FFF0F7] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#D65A9A]/20 sm:h-12 sm:w-12"><FaFacebookF className="h-5 w-5 sm:h-6 sm:w-6" /></a>
+              <a href="https://www.instagram.com/happyskinnails/" target="_blank" rel="noreferrer" aria-label="Happy Skin on Instagram" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#E8C9D9] bg-white text-[#C85B95] transition hover:border-[#D65A9A] hover:bg-[#FFF0F7] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#D65A9A]/20 sm:h-12 sm:w-12"><FaInstagram className="h-5 w-5 sm:h-6 sm:w-6" /></a>
             </div>
             <div className="mt-9 flex flex-wrap gap-x-7 gap-y-3 border-t border-[#E7D8D4] pt-5 text-xs font-semibold text-[#625956]">
             <span><strong className="text-[#C2185B]">{SALON_SERVICES.length}+</strong> services</span>
@@ -135,19 +154,28 @@ export default function SalonDiscoverySection() {
               <span>Online appointment booking</span>
             </div>
           </div>
-          <div className="relative mx-auto w-full max-w-[610px]">
+          <div className="relative mx-auto w-full max-w-[760px]">
             <div className="absolute -left-8 -top-8 h-32 w-32 rounded-full bg-[#EBD2CD]/70 blur-2xl" />
-            <div className="relative h-[300px] overflow-hidden rounded-[2rem] shadow-[0_25px_70px_rgba(91,58,54,0.18)] sm:h-[390px] lg:h-[450px]">
-              <img src="/images/services/signature-facial.jpg" alt="A relaxing facial treatment at Happy Skin" className="h-full w-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#352522]/35 via-transparent to-transparent" />
-              <div className="absolute bottom-5 left-5 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-lg backdrop-blur">
-                <p className="text-[9px] font-extrabold uppercase tracking-[0.17em] text-[#C2185B]">Care that fits you</p>
-                <p className="mt-1 font-serif text-lg text-[#6B3F5D]">Skin · Hair · Beauty</p>
+            <div className="relative h-[350px] overflow-hidden sm:h-[430px] lg:h-[500px]" aria-label="Happy Skin services image carousel" aria-roledescription="carousel">
+              {HERO_SLIDES.map((slide, index) => {
+                let offset = (index - activeHeroIndex + HERO_SLIDES.length) % HERO_SLIDES.length;
+                if (offset > Math.floor(HERO_SLIDES.length / 2)) offset -= HERO_SLIDES.length;
+                const distance = Math.abs(offset);
+                const scale = distance === 0 ? 1 : distance === 1 ? 0.76 : 0.54;
+                const horizontalShift = distance === 0 ? "0px" : `min(${distance === 1 ? "24vw" : "34vw"}, ${distance === 1 ? "18rem" : "25rem"})`;
+                const horizontalPosition = distance === 0 ? "-50%" : `calc(-50% ${offset < 0 ? "-" : "+"} ${horizontalShift})`;
+                return <div key={slide.image} aria-hidden={distance !== 0} className="absolute left-1/2 top-1/2 h-[80%] w-[min(72vw,25rem)] overflow-hidden rounded-[1.8rem] border border-white/70 shadow-[0_25px_70px_rgba(91,58,54,0.2)] transition-[transform,opacity] duration-700 ease-out" style={{ transform: `translate(${horizontalPosition}, -50%) scale(${scale})`, opacity: distance === 0 ? 1 : distance === 1 ? 0.8 : 0.48, zIndex: 10 - distance, pointerEvents: distance === 0 ? "auto" : "none" }}>
+                  <img src={slide.image} alt={slide.subtitle} className="h-full w-full object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#352522]/40 via-transparent to-transparent" />
+                  {distance === 0 && <div className="absolute bottom-4 left-4 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-lg backdrop-blur sm:bottom-5 sm:left-5">
+                    <p className="text-[9px] font-extrabold uppercase tracking-[0.17em] text-[#C2185B]">{slide.title}</p>
+                    <p className="mt-1 font-serif text-base text-[#6B3F5D] sm:text-lg">{slide.subtitle}</p>
+                  </div>}
+                </div>;
+              })}
+              <div className="absolute bottom-5 right-4 z-20 flex items-center gap-2 sm:right-6">
+                {HERO_SLIDES.map((slide, index) => <button key={slide.image} type="button" onClick={() => setActiveHeroIndex(index)} aria-label={`Show image ${index + 1}`} aria-current={activeHeroIndex === index ? "true" : undefined} className={`h-2.5 rounded-full border border-white/80 transition-all ${activeHeroIndex === index ? "w-7 bg-white" : "w-2.5 bg-white/50 hover:bg-white/80"}`} />)}
               </div>
-            </div>
-            <div className="absolute -right-2 top-6 hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-lg backdrop-blur sm:block">
-              <p className="text-xs font-bold text-[#6B3F5D]">Find your service</p>
-              <p className="mt-1 text-[10px] text-[#77706D]">Browse the complete menu below</p>
             </div>
           </div>
         </div>
@@ -156,58 +184,32 @@ export default function SalonDiscoverySection() {
       <div className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-10">
         <section id="branches" className="scroll-mt-24 py-8">
           <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C2185B]">Visit us</p>
-          <h2 className="mt-1 font-serif text-2xl text-[#6B3F5D] sm:text-3xl">Choose a branch</h2>
-
           {notice && <p className="mt-4 rounded-xl bg-[#FFF0F7] px-4 py-3 text-sm text-[#9D3C70]">{notice}</p>}
 
-          <div className="mt-2.5 grid gap-2.5 md:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid items-stretch gap-4 md:grid-cols-2 lg:grid-cols-3">
             {loading
               ? Array.from({ length: 3 }).map((_, index) => <BranchSkeleton key={index} />)
               : branches.map((branch, index) => {
                   const selected = String(branch.id) === String(selectedBranch?.id);
                   return (
-                    <button
+                    <LandingBranchCard
                       key={branch.id}
-                      type="button"
-                      onClick={() => setSelectedBranchId((current) => String(current) === String(branch.id) ? null : branch.id)}
-                      className={`group flex min-h-20 overflow-hidden rounded-xl border bg-white text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                        selected ? "border-[#C85B95] ring-2 ring-[#C85B95]/10" : "border-[#EAE7E9]"
-                      }`}
-                    >
-                      <div className="relative w-20 shrink-0 overflow-hidden sm:w-24">
-                        <img src={BRANCH_BACKDROPS[index % BRANCH_BACKDROPS.length]} alt="" className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-[#1F2A44]/75 via-transparent to-transparent" />
-                        {selected && <span className="absolute bottom-1.5 left-1.5 rounded-full bg-[#C85B95] px-1.5 py-0.5 text-[8px] font-bold text-white">Selected</span>}
-                      </div>
-                      <div className="min-w-0 flex-1 p-2.5">
-                        <h3 className="line-clamp-1 text-xs font-extrabold leading-4 text-[#1F2A44] sm:text-sm">{branch.name}</h3>
-                        <p className="mt-1 flex items-start gap-1 text-[10px] leading-3.5 text-[#667085]"><HiOutlineMapPin className="h-3 w-3 shrink-0 text-[#C85B95]" />{branch.address}</p>
-                      </div>
-                    </button>
+                      branch={branch}
+                      image={BRANCH_BACKDROPS[index % BRANCH_BACKDROPS.length]}
+                      selected={selected}
+                      onSelect={() => setSelectedBranchId(branch.id)}
+                      onBook={() => goToBooking(null, branch.id)}
+                    />
                   );
                 })}
           </div>
         </section>
 
-        {selectedBranch && (
-          <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-[#F0DDE7] bg-[#FFF7FB] p-3.5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[#C85B95]">Services available at</p>
-              <h3 className="mt-0.5 text-base font-extrabold text-[#1F2A44]">{selectedBranch.name}</h3>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {selectedBranch.phone && <a href={`tel:${selectedBranch.phone}`} className="inline-flex items-center gap-2 rounded-xl border border-[#E8C9D9] bg-white px-4 py-2.5 text-sm font-bold text-[#1F2A44]"><HiOutlinePhone className="h-4 w-4 text-[#C85B95]" /> Call branch</a>}
-              <button onClick={() => goToBooking(null, selectedBranch.id)} className="inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ background: "linear-gradient(135deg, #C85B95 0%, #df5d9f 100%)", fontFamily: "'Poppins', sans-serif" }}><HiOutlineCalendarDays className="h-4 w-4" /> Book here</button>
-            </div>
-          </div>
-        )}
-
-        <section id="services" className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 scroll-mt-24 overflow-hidden bg-[radial-gradient(ellipse_at_top,_#FFFFFF_0%,_#FFF8FB_48%,_#FCE7F1_100%)] py-8 text-[#754463] sm:py-10">
+        <section id="services" className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 scroll-mt-24 overflow-hidden bg-[radial-gradient(ellipse_at_top,_#FFFFFF_0%,_#FFF8FB_48%,_#FCE7F1_100%)] py-6 text-[#754463] sm:py-8">
           <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
-            <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C85B95]">Our treatments</p>
-                <h2 className="mt-1 font-serif text-3xl text-[#6B3F5D] sm:text-4xl">{selectedBranch ? `Services at ${selectedBranch.name}` : "Our services"}</h2>
+                <h2 className="font-serif text-3xl text-[#6B3F5D] sm:text-4xl">Our services</h2>
               </div>
               <span className="text-xs font-semibold text-[#7B6570]">{visibleServices.length} {visibleServices.length === 1 ? "service" : "services"}</span>
             </div>
@@ -216,13 +218,18 @@ export default function SalonDiscoverySection() {
             </div>
 
             {visibleServices.length > 0 ? <>
-              <div className="relative mx-auto h-[30rem] max-w-[90rem] sm:h-[34rem]" aria-roledescription="carousel" aria-label={`${activeCategory === "All Services" ? "All" : activeCategory} salon services`}>
+              <div className="relative mx-auto h-[36rem] max-w-[110rem] sm:h-[38rem] lg:h-[39rem]" aria-roledescription="carousel" aria-label={`${activeCategory === "All Services" ? "All" : activeCategory} salon services`}>
                 {visibleServices.map((service, index) => {
                   let offset = (index - currentServiceIndex + visibleServices.length) % visibleServices.length;
                   if (offset > Math.floor(visibleServices.length / 2)) offset -= visibleServices.length;
-                  if (Math.abs(offset) > 1) return null;
+                  const distance = Math.abs(offset);
+                  if (distance > 2) return null;
                   const isActive = offset === 0;
-                  return <div key={service.id} role="group" aria-roledescription="slide" aria-label={`${index + 1} of ${visibleServices.length}: ${service.name}`} aria-hidden={!isActive} className="absolute top-1/2 w-[min(76vw,25rem)] transition-[left,transform,opacity] duration-500 ease-out" style={{ left: offset === 0 ? "50%" : `calc(50% ${offset < 0 ? "-" : "+"} min(65vw, 28rem))`, transform: `translate(-50%, -50%) scale(${isActive ? 1 : 0.78})`, opacity: isActive ? 1 : 0.55, zIndex: isActive ? 20 : 10, pointerEvents: isActive ? "auto" : "none" }}>
+                  const offsetVw = distance * 30;
+                  const offsetRem = distance * 22;
+                  const scale = distance === 0 ? 1.14 : distance === 1 ? 0.84 : 0.6;
+                  const opacity = distance === 0 ? 1 : distance === 1 ? 0.78 : 0.5;
+                  return <div key={service.id} role="group" aria-roledescription="slide" aria-label={`${index + 1} of ${visibleServices.length}: ${service.name}`} aria-hidden={!isActive} className="absolute top-1/2 w-[min(88vw,34rem)] transition-[left,transform,opacity] duration-500 ease-out" style={{ left: offset === 0 ? "50%" : `calc(50% ${offset < 0 ? "-" : "+"} min(${offsetVw}vw, ${offsetRem}rem))`, transform: `translate(-50%, -50%) scale(${scale})`, opacity, zIndex: distance === 0 ? 20 : distance === 1 ? 10 : 5, pointerEvents: isActive ? "auto" : "none" }}>
                     <ServiceCard service={{ ...service, category: service.category || serviceCategories.get(service.name) || "Salon Service" }} onBook={() => goToBooking(service.id, selectedBranch?.id)} />
                   </div>;
                 })}
@@ -238,7 +245,7 @@ export default function SalonDiscoverySection() {
               </div>
 
               {visibleServices.length > 1 && <div className="mt-1 flex justify-center gap-2.5" aria-label="Choose a service slide">
-                {[-1, 0, 1].map((delta) => {
+                {Array.from({ length: Math.min(5, visibleServices.length) }, (_, dotIndex) => dotIndex - Math.floor(Math.min(5, visibleServices.length) / 2)).map((delta) => {
                   const index = (currentServiceIndex + delta + visibleServices.length) % visibleServices.length;
                   return <button key={`${index}-${delta}`} type="button" onClick={() => setActiveServiceIndex(index)} aria-label={`Show ${visibleServices[index].name}`} aria-current={delta === 0 ? "true" : undefined} className={`h-2.5 rounded-full transition-all ${delta === 0 ? "w-7 bg-[#D6539A]" : "w-2.5 bg-[#D9B9CB] hover:bg-[#C85B95]"}`} />;
                 })}
@@ -274,8 +281,8 @@ export default function SalonDiscoverySection() {
 
 function ServiceCard({ service, onBook }) {
   return (
-    <article className="group flex h-[26rem] flex-col overflow-hidden rounded-[1.35rem] border border-[#F0E3EA] bg-white shadow-[0_10px_28px_rgba(117,68,99,0.08)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_38px_rgba(117,68,99,0.16)]">
-      <div className="relative h-48 shrink-0 overflow-hidden bg-[#FFF0F7] sm:h-52">
+    <article className="group flex h-[33rem] flex-col overflow-hidden rounded-[1.6rem] border border-[#F0E3EA] bg-white shadow-[0_10px_28px_rgba(117,68,99,0.08)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_38px_rgba(117,68,99,0.16)]">
+      <div className="relative h-64 shrink-0 overflow-hidden bg-[#FFF0F7] sm:h-72">
         <img src={service.image || "/images/services/generated/signature-facial.jpg"} alt={service.name} loading="lazy" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = "/images/services/generated/signature-facial.jpg"; }} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
         <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-xs font-bold text-[#754463] shadow-sm"><HiOutlineClock className="h-4 w-4 text-[#C85B95]" /> {service.duration_minutes || service.duration || 0} min</span>
       </div>
@@ -283,17 +290,67 @@ function ServiceCard({ service, onBook }) {
         <h3 className="line-clamp-2 min-h-11 text-base font-extrabold leading-snug text-[#754463]">{service.name}</h3>
         <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#C85B95]">{service.category}</p>
         <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-[#756A72]">{service.description || "Professional salon care by Happy Skin specialists."}</p>
-        <div className="mt-auto flex items-end justify-between gap-3 border-t border-[#F6EDF2] pt-4">
+        <div className="mt-auto grid grid-cols-[1fr_auto_1fr] items-end gap-3 border-t border-[#F6EDF2] pt-4">
           <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-[#9A8791]">Price</p><span className="mt-0.5 block truncate text-base font-extrabold text-[#C2185B]">{formatServicePrice(service.price)}</span></div>
           <button type="button" onClick={onBook} aria-label={`Book ${service.name}`} title={`Book ${service.name}`} className="mb-1 grid h-12 w-12 shrink-0 place-items-center rounded-full text-white shadow-md transition hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20" style={{ background: "linear-gradient(135deg, #D6539A 0%, #C24486 100%)" }}>
             <HiOutlinePlus className="h-5 w-5" />
           </button>
+          <span aria-hidden="true" />
         </div>
       </div>
     </article>
   );
 }
 
+function LandingBranchCard({ branch, image, selected, onSelect, onBook }) {
+  const [flipped, setFlipped] = useState(false);
+  // The Lipa map is explicitly anchored to JET Hotel as requested. Other
+  // branches use their saved names and addresses; no coordinates are guessed.
+  const location = typeof branch.address === "string" ? branch.address.trim() : "";
+  const isLipaBranch = branch.name?.toLowerCase().includes("lipa");
+  const isCaviteBranch = branch.name?.toLowerCase().includes("cavite");
+  const isMainBranch = branch.name?.toLowerCase().includes("main");
+  const mapQuery = isLipaBranch
+    ? "JET Hotel Lipa City, W5R2+VP8, Lipa City, Batangas, Philippines"
+    : isCaviteBranch
+      ? "Alfonso, Cavite, Philippines"
+      : isMainBranch
+        ? "22 Malingap Street, Teachers Village, Quezon City, Philippines"
+    : location ? `${branch.name}, ${location}` : "";
+  const embedUrl = mapQuery
+    ? `https://maps.google.com/maps?q=${encodeURIComponent(mapQuery)}&z=15&output=embed`
+    : null;
+
+  return (
+    <div className="[perspective:1200px]" onMouseLeave={() => setFlipped(false)}>
+      <div className="relative h-[390px] w-full transition-transform duration-700 [transform-style:preserve-3d] sm:h-[430px]" style={{ transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)" }}>
+        <article className={`absolute inset-0 flex flex-col overflow-hidden rounded-[1.5rem] border bg-white shadow-[0_16px_40px_rgba(31,41,55,0.08)] transition-shadow hover:shadow-[0_22px_55px_rgba(214,90,154,0.14)] ${selected ? "border-[#D65A9A] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF]"}`} style={{ backfaceVisibility: "hidden" }}>
+          <button type="button" onClick={() => { onSelect(); setFlipped(true); }} aria-label={`Show map for ${branch.name}`} aria-pressed={selected} className="group block shrink-0 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[#D65A9A]/40">
+            <div className="relative h-[225px] overflow-hidden bg-[#FFF0F7] sm:h-[255px]">
+              <img src={image} alt={`${branch.name} salon`} loading="lazy" className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#1F2A44]/50 via-transparent to-transparent" />
+            </div>
+          </button>
+          <div className="flex min-h-0 flex-1 flex-col items-start px-4 py-3 sm:px-5">
+            <h3 className="text-lg font-extrabold leading-snug text-[#1F2A44]">{branch.name}</h3>
+            <p className="mt-2 flex items-start gap-2 text-sm leading-5 text-[#667085]"><HiOutlineMapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#C85B95]" />{branch.address}</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F1E5EB] px-4 py-3.5 sm:px-5">
+            {branch.phone ? <a href={`tel:${branch.phone}`} onClick={(event) => event.stopPropagation()} className="inline-flex items-center gap-2 text-sm font-bold text-[#754463]"><HiOutlinePhone className="h-4 w-4 text-[#C85B95]" />{branch.phone}</a> : <span />}
+            <button type="button" onClick={onBook} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#A83F78]"><HiOutlineCalendarDays className="h-4 w-4" />Book here</button>
+          </div>
+        </article>
+
+        <article className="absolute inset-0 flex flex-col overflow-hidden rounded-[1.5rem] border border-[#F3E8EF] bg-white shadow-[0_16px_40px_rgba(31,41,55,0.08)]" style={{ transform: "rotateY(180deg)", backfaceVisibility: "hidden" }}>
+          <div className="relative min-h-0 flex-1 bg-[#F7F4F5]">
+            {embedUrl ? <iframe title={`Map showing ${branch.name}`} src={embedUrl} className="pointer-events-none absolute inset-0 h-full w-full border-0" loading="lazy" referrerPolicy="no-referrer-when-downgrade" /> : <p className="absolute inset-0 grid place-items-center px-6 text-center text-sm font-medium text-[#667085]">Map unavailable until this branch has an address.</p>}
+          </div>
+        </article>
+      </div>
+    </div>
+  );
+}
+
 function BranchSkeleton() {
-  return <div className="flex min-h-20 animate-pulse overflow-hidden rounded-xl border border-[#EAE7E9] bg-white"><div className="w-20 shrink-0 bg-[#F6EAF0] sm:w-24" /><div className="flex-1 space-y-2 p-3"><div className="h-3 w-2/3 rounded bg-[#F6EAF0]" /><div className="h-2.5 w-full rounded bg-[#F6EAF0]" /><div className="h-2.5 w-1/2 rounded bg-[#F6EAF0]" /></div></div>;
+  return <div className="h-[390px] animate-pulse overflow-hidden rounded-[1.5rem] border border-[#EAE7E9] bg-white sm:h-[430px]"><div className="h-[205px] bg-[#F6EAF0] sm:h-[235px]" /><div className="space-y-3 p-5"><div className="h-5 w-2/3 rounded bg-[#F6EAF0]" /><div className="h-3 w-full rounded bg-[#F6EAF0]" /><div className="mt-7 h-10 w-1/2 rounded bg-[#F6EAF0]" /></div></div>;
 }

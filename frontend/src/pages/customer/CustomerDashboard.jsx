@@ -8,7 +8,9 @@ import {
   HiOutlineMapPin,
   HiOutlinePhone,
   HiOutlineSparkles,
+  HiOutlineMagnifyingGlass,
   HiOutlineArrowRightOnRectangle,
+  HiOutlineUserCircle,
   HiChevronDown,
 } from "react-icons/hi2";
 import { useNavigate } from "react-router-dom";
@@ -20,6 +22,7 @@ import NotificationCard from "../../components/customer/NotificationCard";
 import PromotionCard from "../../components/customer/PromotionCard";
 import RecentActivityCard from "../../components/customer/RecentActivityCard";
 import RecommendedServiceCard from "../../components/customer/RecommendedServiceCard";
+import CustomerSupportWidget from "../../components/customer/CustomerSupportWidget";
 import Footer from "../../components/public/Footer";
 import SystemPopup from "../../components/common/SystemPopup";
 import ThemeToggle from "../../components/common/ThemeToggle";
@@ -32,6 +35,7 @@ import {
 import {
   getCustomerDashboard,
   getCustomerBranches,
+  markNotificationRead,
 } from "../../services/customerService";
 
 const fadeUp = {
@@ -40,6 +44,11 @@ const fadeUp = {
 };
 
 const SERVICE_FALLBACK_IMAGE = "/images/services/signature-facial.jpg";
+const CUSTOMER_BRANCH_IMAGES = [
+  "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=900&q=80",
+  "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=900&q=80",
+  "https://images.unsplash.com/photo-1600948836101-f9ffda59d250?w=900&q=80",
+];
 
 function safeServiceImage(value) {
   if (!value) return SERVICE_FALLBACK_IMAGE;
@@ -58,15 +67,24 @@ function formatServicePrice(value) {
     : "Price on request";
 }
 
+function profilePhotoUrl(path) {
+  if (/^https?:\/\//i.test(path)) return path;
+  const base = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "";
+  if (/^https?:\/\//i.test(base)) return new URL(path, base).toString();
+  return path;
+}
+
 export default function CustomerDashboard() {
   const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
   const [data, setData] = useState(null);
   const [branches, setBranches] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
+  const [serviceSearch, setServiceSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showPromotions, setShowPromotions] = useState(false);
+  const [markingNotificationIds, setMarkingNotificationIds] = useState([]);
   const dashboardRequestRef = useRef(null);
   const loggingOutRef = useRef(false);
 
@@ -79,7 +97,10 @@ export default function CustomerDashboard() {
     ])
       .then(([dashboardPayload, branchesPayload]) => {
         setData(dashboardPayload);
-        setBranches(branchesPayload || []);
+        const availableBranches = branchesPayload || [];
+        setBranches(availableBranches);
+        const mainBranch = availableBranches.find((branch) => /main branch/i.test(branch.name || "")) || availableBranches[0];
+        if (mainBranch) setSelectedBranchId((current) => current || mainBranch.id);
         if (dashboardPayload?.promotions?.length) setShowPromotions(true);
       })
       .catch((err) => {
@@ -111,6 +132,21 @@ export default function CustomerDashboard() {
     navigate("/", { replace: true });
   };
 
+  const handleMarkNotificationRead = async (notificationId) => {
+    setMarkingNotificationIds((ids) => [...ids, notificationId]);
+    try {
+      await markNotificationRead(notificationId);
+      setData((current) => current ? {
+        ...current,
+        notifications: (current.notifications || []).map((notification) => notification.id === notificationId ? { ...notification, is_read: true } : notification),
+      } : current);
+    } catch {
+      setError("We couldn't update this notification. Please try again.");
+    } finally {
+      setMarkingNotificationIds((ids) => ids.filter((id) => id !== notificationId));
+    }
+  };
+
   const selectedBranch = useMemo(
     () => branches.find((branch) => String(branch.id) === String(selectedBranchId)) || null,
     [branches, selectedBranchId]
@@ -138,7 +174,8 @@ export default function CustomerDashboard() {
   }, [data?.recent_activity, selectedServices]);
   const serviceGroups = useMemo(() => {
     const grouped = new Map();
-    selectedServices.forEach((service) => {
+    const query = serviceSearch.trim().toLowerCase();
+    selectedServices.filter((service) => !query || [service.name, service.category, service.description, service.branch_name].some((value) => String(value || "").toLowerCase().includes(query))).forEach((service) => {
       const category = service.category || getSalonServiceCategory(service.name);
       if (!grouped.has(category)) grouped.set(category, []);
       grouped.get(category).push(service);
@@ -148,7 +185,7 @@ export default function CustomerDashboard() {
       const secondOrder = SALON_SERVICE_CATEGORIES.indexOf(second);
       return (firstOrder < 0 ? Number.MAX_SAFE_INTEGER : firstOrder) - (secondOrder < 0 ? Number.MAX_SAFE_INTEGER : secondOrder);
     });
-  }, [selectedServices]);
+  }, [selectedServices, serviceSearch]);
   const openServiceBooking = (service) => {
     const parameters = new URLSearchParams();
     const branchId = Number(service?.branch_id);
@@ -173,10 +210,14 @@ export default function CustomerDashboard() {
         <CustomerHeader
           name={customerFirstName}
           email={data?.user?.email || currentUser?.email}
+          profileImage={data?.user?.profile_image_url || currentUser?.profile_image_url}
+          onProfile={() => navigate("/customer/profile")}
           onHistory={() => navigate("/customer/history")}
           onLogout={handleLogout}
           recentActivity={data?.recent_activity || []}
           notifications={data?.notifications || []}
+          onMarkNotificationRead={handleMarkNotificationRead}
+          markingNotificationIds={markingNotificationIds}
           isLoading={isLoading}
           onShowPromotions={() => setShowPromotions(true)}
           promotionCount={data?.promotions?.length || 0}
@@ -184,7 +225,7 @@ export default function CustomerDashboard() {
 
         {error && <SystemPopup message={error} tone="error" onRetry={fetchDashboard} />}
 
-        <Section className="mb-7" title={selectedBranch ? `Recommendations at ${selectedBranch.name}` : "Recommendations for you"}>
+        <Section className="mb-7" title="Top services">
           {isLoading ? (
             <CardRailSkeleton />
           ) : selectedServices.length ? (
@@ -230,12 +271,13 @@ export default function CustomerDashboard() {
             <BranchListSkeleton />
           ) : branches.length ? (
             <div className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-3">
-              {branches.map((branch) => (
+              {branches.map((branch, index) => (
                 <div key={branch.id} className="w-[86vw] min-w-[18rem] max-w-[24rem] snap-start md:w-auto md:min-w-0 md:max-w-none">
                   <CustomerBranchCard
                     branch={branch}
+                    image={CUSTOMER_BRANCH_IMAGES[index % CUSTOMER_BRANCH_IMAGES.length]}
                     selected={String(branch.id) === String(selectedBranch?.id)}
-                    onSelect={() => setSelectedBranchId((current) => String(current) === String(branch.id) ? null : branch.id)}
+                    onSelect={() => setSelectedBranchId(branch.id)}
                   />
                 </div>
               ))}
@@ -253,11 +295,19 @@ export default function CustomerDashboard() {
           {isLoading ? (
             <AllServicesSkeleton />
           ) : serviceGroups.length ? (
+            <>
+              <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <p className="mb-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C85B95]">Our treatments</p>
+                <label className="flex min-h-11 w-full items-center gap-2.5 rounded-xl border border-[#E8C9D9] bg-white px-3.5 text-[#C85B95] shadow-sm sm:max-w-sm">
+                  <HiOutlineMagnifyingGlass className="h-5 w-5 shrink-0" />
+                  <input type="search" value={serviceSearch} onChange={(event) => setServiceSearch(event.target.value)} placeholder="Search services" className="w-full bg-transparent text-sm text-[#1F2937] outline-none placeholder:text-[#98A2B3]" aria-label="Search services" />
+                </label>
+              </div>
             <div className="space-y-10">
               {serviceGroups.map(([category, categoryServices]) => (
                 <section key={category} aria-labelledby={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
                   <div className="mb-5 flex items-end justify-between gap-4">
-                    <div><p className="mb-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#C85B95]">Our treatments</p><h3 id={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="font-serif text-2xl text-[#754463] sm:text-3xl">{category}</h3></div>
+                    <h3 id={`customer-services-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="font-serif text-2xl text-[#754463] sm:text-3xl">{category}</h3>
                     <span className="shrink-0 pb-1 text-xs font-semibold text-[#667085]">{categoryServices.length} {categoryServices.length === 1 ? "service" : "services"}</span>
                   </div>
                   <div aria-label={`Scroll ${category} services`} className="horizontal-service-scroll flex snap-x snap-mandatory items-stretch gap-4 overflow-x-auto pb-3">
@@ -269,6 +319,9 @@ export default function CustomerDashboard() {
                   </div>                </section>
               ))}
             </div>
+            </>
+          ) : serviceSearch.trim() ? (
+            <div className="rounded-2xl border border-[#E8C9D9] bg-white/80 px-6 py-10 text-center text-sm text-[#7B6570]">No services match “{serviceSearch.trim()}”.</div>
           ) : (
             <EmptyState
               title="No services available"
@@ -286,12 +339,12 @@ export default function CustomerDashboard() {
         <PromotionModal promotions={data?.promotions || []} onClose={() => setShowPromotions(false)} onBook={(promo) => navigate(`/customer/book?branch=${encodeURIComponent(promo.branch_id)}`)} />
       )}
 
-
+      <CustomerSupportWidget />
     </main>
   );
 }
 
-function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, notifications, isLoading, onShowPromotions, promotionCount }) {
+function CustomerHeader({ name, email, profileImage, onProfile, onLogout, onHistory, recentActivity, notifications, onMarkNotificationRead, markingNotificationIds, isLoading, onShowPromotions, promotionCount }) {
   const [activityOpen, setActivityOpen] = useState(false);
   const activityRef = useRef(null);
   const unreadCount = notifications.filter((item) => !item.is_read).length;
@@ -311,7 +364,7 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
   return (
     <header className="relative z-[60] mb-6 rounded-[1.5rem] border border-[#F0E3EA] bg-white/95 px-4 py-3 shadow-[0_12px_34px_rgba(31,41,55,0.05)] backdrop-blur sm:px-5">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[auto_minmax(0,1fr)_auto]">
-        <button type="button" aria-label="Reload customer portal" className="flex min-w-0 items-center gap-3 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#D65A9A]/15" onClick={() => window.location.reload()}>
+        <button type="button" aria-label="Reload customer dashboard" className="flex min-w-0 items-center gap-3 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#D65A9A]/15" onClick={() => window.location.reload()}>
           <img
             src="/images/happy-skin-logo.svg"
             alt="Happy Skin"
@@ -319,7 +372,6 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
           />
           <div className="min-w-0">
             <p className="truncate font-extrabold leading-tight text-[#1F2A44]">Happy Skin</p>
-            <p className="text-[10px] font-medium text-[#667085]">Customer Portal</p>
           </div>
         </button>
 
@@ -340,8 +392,8 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
           </button>
           <details className="group relative">
             <summary onClick={() => setActivityOpen(false)} className="flex cursor-pointer list-none items-center gap-2 rounded-xl p-1.5 transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/15 [&::-webkit-details-marker]:hidden">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#D65A9A] to-[#C85B95] text-sm font-extrabold uppercase text-white sm:h-10 sm:w-10">
-                {(name || "C").slice(0, 1)}
+              <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#D65A9A] to-[#C85B95] text-sm font-extrabold uppercase text-white sm:h-10 sm:w-10">
+                {profileImage ? <img src={profilePhotoUrl(profileImage)} alt="" className="h-full w-full object-cover" /> : (name || "C").slice(0, 1)}
               </div>
               <div className="hidden min-w-0 text-left sm:block">
                 <p className="max-w-28 truncate text-xs font-extrabold text-[#1F2937]">{name || "Customer"}</p>
@@ -353,6 +405,14 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
             <div className="absolute right-0 top-[calc(100%+0.6rem)] z-50 w-48 rounded-xl border border-[#F3E8EF] bg-white p-2 shadow-[0_18px_45px_rgba(31,41,55,0.16)]">
               <button
                 type="button"
+                onClick={onProfile}
+                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-[#1F2937] transition hover:bg-[#FFF0F7] hover:text-[#C85B95] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"
+              >
+                <HiOutlineUserCircle className="h-5 w-5 text-[#D65A9A]" />
+                My profile
+              </button>
+              <button
+                type="button"
                 onClick={onLogout}
                 className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-[#1F2937] transition hover:bg-[#FFF0F7] hover:text-[#C85B95] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"
               >
@@ -361,14 +421,14 @@ function CustomerHeader({ name, email, onLogout, onHistory, recentActivity, noti
               </button>
             </div>
           </details>
-          {activityOpen && <ActivityMenu recentActivity={recentActivity} notifications={notifications} unreadCount={unreadCount} isLoading={isLoading} onClose={() => setActivityOpen(false)} onOpenHistory={onHistory} />}
+          {activityOpen && <ActivityMenu recentActivity={recentActivity} notifications={notifications} unreadCount={unreadCount} isLoading={isLoading} onClose={() => setActivityOpen(false)} onOpenHistory={onHistory} onMarkNotificationRead={onMarkNotificationRead} markingNotificationIds={markingNotificationIds} />}
         </div>
       </div>
     </header>
   );
 }
 
-function ActivityMenu({ recentActivity, notifications, unreadCount, isLoading, onClose, onOpenHistory }) {
+function ActivityMenu({ recentActivity, notifications, unreadCount, isLoading, onClose, onOpenHistory, onMarkNotificationRead, markingNotificationIds }) {
   return (
     <div id="customer-activity-menu" role="dialog" aria-label="Activity and notifications" className="fixed inset-x-4 top-24 z-[80] flex max-h-[min(28rem,calc(100vh-7rem))] flex-col overflow-hidden rounded-2xl border border-[#E9D9E2] bg-white shadow-[0_24px_65px_rgba(31,41,55,0.22)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-[calc(100%+0.65rem)] sm:w-[22rem]">
       <div className="flex items-center justify-between border-b border-[#F3E8EF] px-4 py-3">
@@ -395,7 +455,7 @@ function ActivityMenu({ recentActivity, notifications, unreadCount, isLoading, o
               <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#C85B95]">Notifications</p>
               <div className="space-y-1 rounded-xl bg-[#FFF8FB] p-1">
                 {notifications.slice(0, 3).map((notification) => (
-                  <NotificationCard key={notification.id} type={notification.type} message={notification.message} timestamp={notification.timestamp} isRead={notification.is_read} onClick={notification.type === "receipt" ? () => { onClose(); onOpenHistory(); } : undefined} />
+                  <NotificationCard key={notification.id} type={notification.type} message={notification.message} timestamp={notification.timestamp} isRead={notification.is_read} isMarking={markingNotificationIds.includes(notification.id)} onMarkAsRead={() => onMarkNotificationRead(notification.id)} onClick={notification.type === "receipt" ? () => { onClose(); onOpenHistory(); } : undefined} />
                 ))}
               </div>
             </div>
@@ -454,8 +514,9 @@ function AllServiceCard({ service, onBook }) {
       onClick={onBook}
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
-      role="link"
+      role="button"
       tabIndex={0}
+      aria-label={`Book ${service.name || "salon service"}`}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -475,7 +536,6 @@ function AllServiceCard({ service, onBook }) {
       </div>
       <div className="flex min-w-0 flex-1 flex-col px-4 py-4">
         <h4 className="line-clamp-2 text-base font-extrabold leading-snug text-[#151A2A] sm:text-lg">{service.name || "Salon service"}</h4>
-        {service.branch_name && <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-[#7B8190]"><HiOutlineMapPin className="h-3.5 w-3.5 shrink-0 text-[#B94B86]" /><span className="truncate">{service.branch_name}</span></p>}
         <div className="mt-auto flex min-h-10 items-end justify-between gap-2 pt-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide text-[#98A2B3]">Starting at</p>
@@ -483,42 +543,28 @@ function AllServiceCard({ service, onBook }) {
           </div>
           {validDuration && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#667085]"><HiOutlineClock className="h-3.5 w-3.5 text-[#C85B95]" />{duration} min</span>}
         </div>
-        <button type="button" onClick={(event) => { event.stopPropagation(); onBook(); }} className="mt-2 self-start text-xs font-extrabold text-[#A83F78] transition hover:text-[#7F285B] focus:outline-none focus-visible:underline">
-          Book service <span aria-hidden="true">→</span>
-        </button>
       </div>
     </motion.article>
   );
 }
-function CustomerBranchCard({ branch, selected, onSelect }) {
+function CustomerBranchCard({ branch, image, selected, onSelect }) {
   return (
-    <motion.button
-      type="button"
-      onClick={onSelect}
+    <motion.article
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2 }}
-      className={`flex h-full w-full flex-col rounded-[1.5rem] border bg-white p-5 text-left shadow-[0_12px_34px_rgba(31,41,55,0.055)] transition hover:shadow-[0_18px_44px_rgba(214,90,154,0.13)] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/15 ${selected ? "border-[#D65A9A] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF]"}`}
+      className={`h-full overflow-hidden rounded-[1.5rem] border bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)] transition hover:shadow-[0_18px_44px_rgba(214,90,154,0.13)] ${selected ? "border-[#D65A9A] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF]"}`}
     >
-      <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#FFF0F7] text-[#D65A9A]">
-          <HiOutlineMapPin className="h-6 w-6" />
-        </span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-bold text-[#1F2937]">{branch.name}</h3>
-            {selected && <span className="rounded-full bg-[#C85B95] px-2.5 py-1 text-[10px] font-bold text-white">Selected</span>}
-          </div>
-          <p className="mt-1 text-xs leading-5 text-[#6B7280]">{branch.address}</p>
-        </div>
+      <button type="button" onClick={onSelect} className="group relative block h-40 w-full overflow-hidden bg-[#FFF0F7] text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[#D65A9A]/40 sm:h-48" aria-pressed={selected} aria-label={`${selected ? "Deselect" : "Select"} ${branch.name}`}>
+        <img src={image} alt={`${branch.name} salon`} loading="lazy" className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#1F2A44]/65 via-transparent to-transparent" />
+      </button>
+
+      <div className="p-4 sm:p-5">
+        <h3 className="text-base font-extrabold leading-snug text-[#1F2A44] sm:text-lg">{branch.name}</h3>
+        <p className="mt-2 flex items-start gap-2 text-sm leading-5 text-[#667085]"><HiOutlineMapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#C85B95]" />{branch.address}</p>
+        {branch.phone && <a href={`tel:${branch.phone}`} onClick={(event) => event.stopPropagation()} className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-[#754463]"><HiOutlinePhone className="h-4 w-4 text-[#C85B95]" />{branch.phone}</a>}
       </div>
-
-      {branch.phone && (
-        <span className="mt-4 inline-flex items-center gap-2 text-xs font-semibold text-[#6B7280]">
-          <HiOutlinePhone className="h-4 w-4 text-[#D65A9A]" /> {branch.phone}
-        </span>
-      )}
-
-    </motion.button>
+    </motion.article>
   );
 }
 

@@ -241,7 +241,23 @@ const authService = {
 
   async login(email, password, remember = false) {
     try {
-      const { data } = await api.post("/auth/login", { email: email.trim().toLowerCase(), password });
+      let response;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          response = await api.post("/auth/login", { email: email.trim().toLowerCase(), password });
+          break;
+        } catch (requestError) {
+          const isTransient = !requestError.response
+            || requestError.response.status === 503
+            || requestError.code === "ECONNABORTED";
+          if (attempt === 0 && isTransient) {
+            await new Promise((resolve) => window.setTimeout(resolve, 400));
+            continue;
+          }
+          throw requestError;
+        }
+      }
+      const { data } = response;
       setStoredToken(data.access_token, remember);
       setStoredRefreshToken(data.refresh_token, remember);
       setStoredUser(data.user, remember);
@@ -324,6 +340,11 @@ const authService = {
 
   getStoredUser() {
     return getStoredUser();
+  },
+
+  updateStoredUser(user) {
+    const remembered = localStorage.getItem(REMEMBER_SESSION_KEY) === "true";
+    setStoredUser(user, remembered);
   },
 
   isAuthenticated() {

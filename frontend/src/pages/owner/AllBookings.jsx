@@ -37,7 +37,7 @@ export default function AllBookings() {
   const visibleBookings = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return bookings;
-    return bookings.filter((booking) => [booking.id, booking.customer?.full_name, booking.branch?.name, booking.service?.name, booking.status].join(" ").toLowerCase().includes(term));
+    return bookings.filter((booking) => [booking.id, booking.customer?.full_name, booking.customer?.email, booking.guest_name, booking.guest_email, booking.guest_phone, booking.branch?.name, booking.service?.name, booking.status].join(" ").toLowerCase().includes(term));
   }, [bookings, search]);
   const safePage = Math.min(page, Math.max(1, Math.ceil(visibleBookings.length / PAGE_SIZE)));
   const pagedBookings = useMemo(() => visibleBookings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [visibleBookings, safePage]);
@@ -55,7 +55,9 @@ export default function AllBookings() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2"><p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">Booking #{booking.id}</p><StatusBadge status={booking.status} /></div>
                     <h2 className="mt-3 text-lg font-bold text-[#1F2937]">{booking.service?.name || "Service"}</h2>
-                    <p className="mt-1 text-sm text-[#6B7280]">{booking.customer?.full_name || "Customer"} - {booking.branch?.name || "Branch"}</p>
+                    <p className="mt-1 text-sm text-[#6B7280]">{booking.customer?.full_name || booking.guest_name || "Customer"} - {booking.branch?.name || "Branch"}</p>
+                    {(booking.customer?.email || booking.guest_email) && <p className="mt-1 text-xs text-[#667085]">{booking.customer?.email || booking.guest_email}</p>}
+                    {(booking.customer?.phone_number || booking.guest_phone) && <p className="mt-1 text-xs text-[#667085]">{booking.customer?.phone_number || booking.guest_phone}</p>}
                     {booking.preferred_service_provider && <p className="mt-2 text-sm font-semibold text-[#7C3F62]">Requested: {booking.preferred_service_provider.full_name}</p>}
                   </div>
                   <div className="grid gap-2 text-sm text-[#6B7280]">

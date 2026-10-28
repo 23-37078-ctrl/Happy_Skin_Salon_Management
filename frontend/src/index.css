@@ -96,6 +96,21 @@ textarea {
   font-family: inherit;
 }
 
+button:not(:disabled),
+a[href],
+[role="button"]:not([aria-disabled="true"]),
+summary,
+select:not(:disabled),
+input[type="checkbox"],
+input[type="radio"] {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 :where(button, a, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 3px solid var(--color-focus);
   outline-offset: 2px;

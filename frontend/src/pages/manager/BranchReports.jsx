@@ -1,78 +1,63 @@
 import { useCallback, useEffect, useState } from "react";
-import { HiOutlineBanknotes, HiOutlineCalendarDays, HiOutlineCheckCircle, HiOutlineClock, HiOutlineXCircle } from "react-icons/hi2";
+import { HiOutlineChevronDown } from "react-icons/hi2";
 import managerService from "../../services/managerService";
-import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, EmptyState, ManagerWorkspace, Notice, StatCard } from "./ManagerWorkspace";
-import ModernDatePicker from "../../components/common/ModernDatePicker";
-
-const periods = ["daily", "weekly", "monthly"];
+import { getApiError } from "../staff/staffWorkspaceUtils";
+import { DayReportPopup } from "../staff/DayEndReport";
+import { CardSkeleton, EmptyState, ManagerWorkspace, Notice } from "./ManagerWorkspace";
 
 export default function BranchReports() {
-  const [period, setPeriod] = useState("daily");
-  const [range, setRange] = useState({ start_date: "", end_date: "" });
-  const [report, setReport] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [availableDates, setAvailableDates] = useState([]);
+  const [datesLoading, setDatesLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [summary, setSummary] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
   const [error, setError] = useState("");
 
-  const loadReport = useCallback(async () => {
-    setIsLoading(true);
+  const loadDates = useCallback(async () => {
+    setDatesLoading(true);
     setError("");
     try {
-      setReport(await managerService.reports({ period, ...range }));
+      const result = await managerService.reportDates();
+      setAvailableDates(result.dates || []);
     } catch (err) {
-      setError(getApiError(err, "We couldn't load branch reports."));
+      setError(getApiError(err, "We couldn't load branch report dates."));
     } finally {
-      setIsLoading(false);
+      setDatesLoading(false);
     }
-  }, [period, range]);
+  }, []);
 
-  useEffect(() => {
-    Promise.resolve().then(() => loadReport());
-  }, [loadReport]);
+  useEffect(() => { Promise.resolve().then(loadDates); }, [loadDates]);
 
-  const summary = report?.summary || {};
+  const loadReport = useCallback(async (day, force = false) => {
+    if (!force && selectedDate === day && summary) return;
+    setSelectedDate(day);
+    setReportLoading(true);
+    setReportError("");
+    try {
+      setSummary(await managerService.dayReport(day));
+    } catch (err) {
+      setSummary(null);
+      setReportError(getApiError(err, "We couldn't load this date's report."));
+    } finally {
+      setReportLoading(false);
+    }
+  }, [selectedDate, summary]);
 
-  return (
-    <ManagerWorkspace title="Branch Reports" eyebrow="Daily, weekly, monthly">
-      {error && <Notice message={error} onRetry={loadReport} />}
-      <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-        <div className="grid gap-3 lg:grid-cols-[auto_1fr_1fr_auto] lg:items-end">
-          <div className="flex gap-2 overflow-x-auto">
-            {periods.map((item) => <button key={item} type="button" onClick={() => setPeriod(item)} className={`min-h-10 rounded-xl px-4 py-2 text-sm font-bold capitalize ${period === item ? "bg-[#C85B95] text-white" : "bg-[#FFF8FB] text-[#6B7280]"}`}>{item}</button>)}
-          </div>
-          <DateInput label="Start" value={range.start_date} onChange={(value) => setRange((prev) => ({ ...prev, start_date: value }))} />
-          <DateInput label="End" value={range.end_date} onChange={(value) => setRange((prev) => ({ ...prev, end_date: value }))} />
-          <button type="button" onClick={loadReport} className="min-h-11 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white">Apply</button>
-        </div>
-      </section>
-      <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Bookings" value={summary.bookings || 0} icon={HiOutlineCalendarDays} tone="pink" />
-        <StatCard label="Completed" value={summary.completed || 0} icon={HiOutlineCheckCircle} tone="green" />
-        <StatCard label="Pending" value={summary.pending || 0} icon={HiOutlineClock} tone="amber" />
-        <StatCard label="Cancelled" value={summary.cancelled || 0} icon={HiOutlineXCircle} tone="red" />
-        <StatCard label="Sales" value={formatCurrency(summary.sales)} icon={HiOutlineBanknotes} tone="blue" />
-      </section>
-      <section className="mt-5">
-        {isLoading ? <CardSkeleton rows={4} /> : report?.services?.length ? (
-          <div className="overflow-hidden rounded-[1.25rem] border border-[#F3E8EF] bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-            <div className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-[#F3E8EF] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-wide text-[#6B7280]"><span>Service</span><span>Bookings</span><span>Sales</span></div>
-            {report.services.map((service) => (
-              <div key={service.name} className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-[#F3E8EF] px-5 py-4 last:border-0">
-                <span className="font-bold text-[#1F2937]">{service.name}</span><span className="text-sm text-[#6B7280]">{service.bookings}</span><span className="font-bold text-[#166534]">{formatCurrency(service.sales)}</span>
-              </div>
-            ))}
-          </div>
-        ) : <EmptyState title="No service activity" description="Service performance for the selected dates will appear here." />}
-      </section>
-    </ManagerWorkspace>
-  );
-}
+  const closeReport = () => {
+    setSelectedDate("");
+    setReportError("");
+  };
 
-function DateInput({ label, value, onChange }) {
-  return (
-    <div className="text-sm font-bold text-[#1F2937]">
-      <span>{label}</span>
-      <ModernDatePicker value={value} onChange={onChange} placeholder={`Select ${label.toLowerCase()} date`} className="mt-2" />
-    </div>
-  );
+  return <ManagerWorkspace title="Reports" eyebrow="Daily branch reconciliation">
+    {error && <Notice message={error} onRetry={loadDates} />}
+    <section className="space-y-3">
+      {datesLoading ? <CardSkeleton rows={4} /> : availableDates.map((day) => <button key={day} type="button" onClick={() => loadReport(day)} className="flex min-h-20 w-full items-center justify-between gap-4 rounded-[1.25rem] border border-[#F3E8EF] bg-white px-5 py-4 text-left shadow-sm transition hover:border-[#D65A9A]/40 hover:bg-[#FFF8FB]">
+        <span><strong className="block text-sm text-[#1F2937]">{new Date(`${day}T00:00:00`).toLocaleDateString("en-PH", { dateStyle: "full" })}</strong><span className="mt-1 block text-xs text-[#6B7280]">Click to view this date’s report</span></span>
+        <HiOutlineChevronDown className="h-5 w-5 shrink-0 -rotate-90 text-[#C85B95]" />
+      </button>)}
+      {!datesLoading && !availableDates.length && <EmptyState title="No business dates yet" description="Branch reports will appear here after a transaction is recorded." />}
+    </section>
+    {selectedDate && <DayReportPopup reportDate={selectedDate} summary={summary} loading={reportLoading} error={reportError} onRetry={() => loadReport(selectedDate, true)} onClose={closeReport} />}
+  </ManagerWorkspace>;
 }

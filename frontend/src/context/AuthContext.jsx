@@ -1,5 +1,6 @@
-import { createContext, useState } from "react";
+import { createContext, useCallback, useEffect, useState } from "react";
 import authService from "../services/authService";
+import { getCustomerProfile } from "../services/customerService";
 
 const AuthContext = createContext(null);
 const VALID_ROLES = new Set(["owner", "manager", "staff", "customer"]);
@@ -29,8 +30,8 @@ function restoreSessionUser(token) {
   const storedUser = authService.getStoredUser();
 
   return {
-    ...storedUser,
     ...tokenUser,
+    ...storedUser,
     role: tokenUser.role,
   };
 }
@@ -48,6 +49,30 @@ export function AuthProvider({ children }) {
     return null;
   });
   const loading = false;
+
+  const syncCurrentUser = useCallback(async (profile = null) => {
+    const latestProfile = profile || await getCustomerProfile();
+    setCurrentUser((current) => {
+      if (!current) return current;
+      const updatedUser = { ...current, ...latestProfile, role: current.role };
+      authService.updateStoredUser(updatedUser);
+      return updatedUser;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (currentUser?.role !== "customer") return;
+    const refreshProfile = () => {
+      if (document.visibilityState === "visible") syncCurrentUser().catch(() => {});
+    };
+    refreshProfile();
+    window.addEventListener("focus", refreshProfile);
+    document.addEventListener("visibilitychange", refreshProfile);
+    return () => {
+      window.removeEventListener("focus", refreshProfile);
+      document.removeEventListener("visibilitychange", refreshProfile);
+    };
+  }, [currentUser?.id, currentUser?.role, syncCurrentUser]);
 
   const login = async (email, password, remember = false) => {
     const user = await authService.login(email, password, remember);
@@ -120,6 +145,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         currentUser,
+        syncCurrentUser,
         loading,
         isAuthenticated: !!currentUser,
         login,

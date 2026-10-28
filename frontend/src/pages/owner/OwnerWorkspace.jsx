@@ -3,12 +3,13 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   HiOutlineArrowLeftOnRectangle,
   HiOutlineBanknotes,
-  HiOutlineBuildingStorefront,
+  HiOutlineUserGroup,
+  HiOutlineUsers,
   HiOutlineChartBar,
   HiOutlineClipboardDocumentList,
+  HiOutlineChatBubbleLeftRight,
   HiOutlineHome,
   HiOutlineShieldCheck,
-  HiOutlineUsers,
   HiOutlineBars3,
   HiOutlineXMark,
 } from "react-icons/hi2";
@@ -20,12 +21,13 @@ import useModalLayer from "../../hooks/useModalLayer";
 
 const navItems = [
   { to: "/owner/dashboard", label: "Dashboard", icon: HiOutlineHome },
-  { to: "/owner/branches", label: "Branches", icon: HiOutlineBuildingStorefront },
-  { to: "/owner/users", label: "Users", icon: HiOutlineUsers },
+  { to: "/owner/users", label: "User Management", icon: HiOutlineUsers },
   { to: "/owner/transactions", label: "Transactions", icon: HiOutlineBanknotes },
+  { to: "/owner/commissions", label: "Commissions", icon: HiOutlineBanknotes },
   { to: "/owner/reports", label: "Reports", icon: HiOutlineChartBar },
   { to: "/owner/workforce", label: "Workforce", icon: HiOutlineShieldCheck },
   { to: "/owner/audit-logs", label: "Audit Logs", icon: HiOutlineClipboardDocumentList },
+  { to: "/owner/support", label: "Customer support", icon: HiOutlineChatBubbleLeftRight },
 ];
 
 export function OwnerWorkspace({ children, title, eyebrow, actions, headerStats, brandOnly = false }) {
@@ -94,7 +96,7 @@ export function OwnerWorkspace({ children, title, eyebrow, actions, headerStats,
               <button type="button" onClick={toggleSidebar} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} aria-controls="owner-navigation-drawer" aria-expanded={sidebarOpen} className="grid h-11 w-11 flex-none place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-2 focus:ring-[#D65A9A]/30"><HiOutlineBars3 className="h-7 w-7" /></button>
               {brandOnly ? <Link to="/owner/dashboard" className="flex min-w-0 items-center gap-3"><img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="h-11 w-11 flex-none rounded-full ring-2 ring-[#F8DCEB] sm:h-12 sm:w-12" /><span className="min-w-0"><span className="block truncate text-sm font-bold">Happy Skin</span><span className="block truncate text-[10px] font-semibold uppercase tracking-wide text-[#D65A9A]">Admin Portal</span></span></Link> : <div className="min-w-0">{eyebrow && <p className="truncate text-[10px] font-bold uppercase tracking-wide text-[#D65A9A] sm:text-xs">{eyebrow}</p>}<h1 className="mt-0.5 truncate text-xl font-bold text-[#1F2937] sm:mt-1 sm:text-3xl" style={{ fontFamily: "'Playfair Display', serif" }}>{title}</h1></div>}
             </div>
-            {headerStats?.length > 0 && <div className={`grid w-full flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:mx-4 ${headerStats.length >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>{headerStats.map(({ icon: Icon, label, value, tone = "pink" }) => { const colors = { pink: "bg-[#FFF0F7] text-[#D65A9A]", green: "bg-[#DCFCE7] text-[#16A34A]", blue: "bg-[#DBEAFE] text-[#2563EB]", amber: "bg-[#FEF3C7] text-[#D97706]", red: "bg-[#FEE2E2] text-[#DC2626]" }; return <div key={label} className="flex min-w-0 items-center gap-2 rounded-xl bg-[#FFF8FB] px-2.5 py-2 ring-1 ring-[#F3E8EF]"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${colors[tone] || colors.pink}`}><Icon className="h-4 w-4" /></span><span className="min-w-0"><span className="block truncate text-sm font-extrabold leading-tight text-[#1F2937]">{value}</span><span className="block truncate text-[8px] font-bold uppercase tracking-wide text-[#6B7280]">{label}</span></span></div>; })}</div>}
+            {headerStats?.length > 0 && <div className={`grid w-full min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-3 xl:mx-4 ${headerStats.length >= 6 ? "2xl:grid-cols-6 xl:grid-cols-3" : headerStats.length >= 5 ? "xl:grid-cols-5" : headerStats.length >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>{headerStats.map(({ icon: Icon, label, value, tone = "pink" }) => { const colors = { pink: "bg-[#FFF0F7] text-[#D65A9A]", green: "bg-[#DCFCE7] text-[#16A34A]", blue: "bg-[#DBEAFE] text-[#2563EB]", amber: "bg-[#FEF3C7] text-[#D97706]", red: "bg-[#FEE2E2] text-[#DC2626]" }; return <div key={label} className="flex min-w-0 items-center gap-2 rounded-xl bg-[#FFF8FB] px-2.5 py-2 ring-1 ring-[#F3E8EF]"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${colors[tone] || colors.pink}`}><Icon className="h-4 w-4" /></span><span className="min-w-0"><span className="block truncate text-sm font-extrabold leading-tight text-[#1F2937]">{value}</span><span className="block truncate text-[8px] font-bold uppercase tracking-wide text-[#6B7280]">{label}</span></span></div>; })}</div>}
             <div className="flex min-w-0 shrink-0 items-center gap-3 border-t border-[#F3E8EF] pt-3 xl:ml-auto xl:max-w-72 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
               <ThemeToggle />
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#D65A9A] text-sm font-extrabold text-white">{(currentUser?.full_name || firstName || "O").charAt(0).toUpperCase()}</span>

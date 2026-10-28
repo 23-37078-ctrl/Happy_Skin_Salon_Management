@@ -1,47 +1,4 @@
-import axios from "axios";
-
-/**
- * Axios instance scoped to the customer-facing API.
- * Attaches the JWT from localStorage to every request and
- * centralizes the base URL so it only needs to change in one place.
- */
-const api = axios.create({
-  baseURL:
-    import.meta.env.VITE_API_BASE_URL ||
-    import.meta.env.VITE_API_URL ||
-    "/api/v1",
-  timeout: 15000,
-});
-
-api.interceptors.request.use((config) => {
-  const remembered = localStorage.getItem("auth_remember") === "true";
-  const token =
-    sessionStorage.getItem("access_token") ||
-    (remembered ? localStorage.getItem("access_token") : null);
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Centralized 401 handling: if the session has expired, clear it and
-// send the customer back to login rather than letting requests fail silently.
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      sessionStorage.removeItem("access_token");
-      sessionStorage.removeItem("refresh_token");
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("auth_remember");
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("role");
-      window.location.href = "/";
-    }
-    return Promise.reject(error);
-  }
-);
+import api from "./api";
 
 /**
  * Fetches the full customer dashboard payload in a single call.
@@ -86,6 +43,11 @@ export async function getCustomerBranches(signal) {
   return data;
 }
 
+export async function getPublicDiscovery(signal) {
+  const { data } = await api.get("/public/discovery", { signal });
+  return data;
+}
+
 export async function getCustomerServices(signal) {
   const { data } = await api.get("/customer/services", { signal });
   return data;
@@ -105,8 +67,86 @@ export async function getBookingAvailability(branchId, serviceId, bookingDate, s
   return data;
 }
 
+export async function getGuestBookingAvailability(branchId, serviceId, bookingDate, signal, serviceIds = []) {
+  const { data } = await api.get("/customer/guest/availability", {
+    params: { branch_id: branchId, service_id: serviceId, service_ids: serviceIds, booking_date: bookingDate },
+    paramsSerializer: { indexes: null },
+    signal,
+  });
+  return data;
+}
+
 export async function createAppointment(payload) {
   const { data } = await api.post("/customer/appointments", payload);
+  return data;
+}
+
+export async function createGuestAppointment(payload) {
+  const { data } = await api.post("/customer/guest/appointments", payload);
+  return data;
+}
+
+export async function sendGuestBookingPhoneOtp(payload) {
+  const { data } = await api.post("/customer/guest/phone-verification/send", payload);
+  return data;
+}
+
+export async function verifyGuestBookingPhoneOtp(payload) {
+  const { data } = await api.post("/customer/guest/phone-verification/verify", payload);
+  return data;
+}
+
+export async function getCustomerProfile(signal) {
+  const { data } = await api.get("/customer/profile", { signal });
+  return data;
+}
+
+export async function uploadCustomerProfilePhoto(file) {
+  const formData = new FormData();
+  formData.append("photo", file);
+  const { data } = await api.post("/customer/profile/photo", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function sendCustomerProfilePhoneOtp(payload) {
+  const { data } = await api.post("/customer/profile/phone/send-otp", payload);
+  return data;
+}
+
+export async function verifyCustomerProfilePhoneOtp(payload) {
+  const { data } = await api.post("/customer/profile/phone/verify", payload);
+  return data;
+}
+
+export async function requestCustomerEmailChange(payload) {
+  const { data } = await api.post("/customer/profile/change-requests", payload);
+  return data;
+}
+
+export async function getCustomerProfileChangeRequests(signal) {
+  const { data } = await api.get("/customer/profile/change-requests", { signal });
+  return data;
+}
+
+export async function getCustomerSupportThreads(signal) {
+  const { data } = await api.get("/customer/support/threads", { signal });
+  return data;
+}
+
+export async function createCustomerSupportThread(payload) {
+  const { data } = await api.post("/customer/support/threads", payload);
+  return data;
+}
+
+export async function getCustomerSupportThread(threadId) {
+  const { data } = await api.get(`/customer/support/threads/${threadId}`);
+  return data;
+}
+
+export async function sendCustomerSupportMessage(threadId, body) {
+  const { data } = await api.post(`/customer/support/threads/${threadId}/messages`, { body });
   return data;
 }
 

@@ -3,7 +3,6 @@ import {
   HiArrowRight,
   HiOutlineClock,
   HiOutlineMapPin,
-  HiOutlineShieldCheck,
   HiOutlineSparkles,
 } from "react-icons/hi2";
 
@@ -76,7 +75,6 @@ export default function RecommendedServiceCard({
         <button type="button" onClick={onBook} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#B94B86] px-4 py-2.5 text-sm font-extrabold text-white transition hover:bg-[#A83F78] focus:outline-none focus:ring-4 focus:ring-[#B94B86]/20">
           Check availability <HiArrowRight className="h-4 w-4" />
         </button>
-        <p className="mt-2 flex items-center justify-center gap-1.5 text-[10px] font-semibold text-[#7A6670]"><HiOutlineShieldCheck className="h-3.5 w-3.5 text-[#B94B86]" />Request first—salon confirmation follows</p>
       </div>
     </motion.article>
   );

@@ -3,22 +3,42 @@ from app.core.security import hash_password
 from app.models.user import User
 
 
+# Demo provider roster: 3 nail technicians, 2 nurses, and 5 other staff per branch.
+# Existing seeded accounts are retained where possible so rerunning this script is safe.
 PROVIDERS = [
     # Main Branch
-    (1, "Angela Reyes", "Senior Facialist", "angela.reyes"),
-    (1, "Camille Mendoza", "Massage Therapist", "camille.mendoza"),
     (1, "Nicole Santos", "Nail Technician", "nicole.santos"),
-    (1, "Patricia Cruz", "Skin Care Specialist", "patricia.cruz"),
+    (1, "Mikaela Ramos", "Nail Technician", "mikaela.ramos"),
+    (1, "Sofia Dela Cruz", "Nail Technician", "sofia.delacruz"),
+    (1, "Angela Reyes", "Nurse", "angela.reyes"),
+    (1, "Patricia Cruz", "Nurse", "patricia.cruz"),
+    (1, "Camille Mendoza", "Other Staff", "camille.mendoza"),
+    (1, "Lara Garcia", "Other Staff", "lara.garcia"),
+    (1, "Bea Torres", "Other Staff", "bea.torres"),
+    (1, "Trisha Lim", "Other Staff", "trisha.lim"),
+    (1, "May Flores", "Other Staff", "may.flores"),
     # Lipa Branch
-    (2, "Bianca Garcia", "Hair Stylist", "bianca.garcia"),
-    (2, "Jasmine Torres", "Lash and Brow Artist", "jasmine.torres"),
     (2, "Kristine Ramos", "Nail Technician", "kristine.ramos"),
-    (2, "Marielle Flores", "Hair and Scalp Specialist", "marielle.flores"),
+    (2, "Ella Bautista", "Nail Technician", "ella.bautista"),
+    (2, "Celine Navarro", "Nail Technician", "celine.navarro"),
+    (2, "Mara Villanueva", "Nurse", "mara.villanueva"),
+    (2, "Rina Castillo", "Nurse", "rina.castillo"),
+    (2, "Bianca Garcia", "Other Staff", "bianca.garcia"),
+    (2, "Jasmine Torres", "Other Staff", "jasmine.torres"),
+    (2, "Marielle Flores", "Other Staff", "marielle.flores"),
+    (2, "Nina Mendoza", "Other Staff", "nina.mendoza"),
+    (2, "Kyla Reyes", "Other Staff", "kyla.reyes"),
     # Cavite Branch
-    (3, "Alyssa Bautista", "Laser Treatment Specialist", "alyssa.bautista"),
-    (3, "Danica Villanueva", "Lash Technician", "danica.villanueva"),
-    (3, "Francesca Lim", "Aesthetician", "francesca.lim"),
-    (3, "Sofia Navarro", "Skin Whitening Specialist", "sofia.navarro"),
+    (3, "Alyssa Bautista", "Nurse", "alyssa.bautista"),
+    (3, "Danica Villanueva", "Other Staff", "danica.villanueva"),
+    (3, "Francesca Lim", "Nurse", "francesca.lim"),
+    (3, "Sofia Navarro", "Other Staff", "sofia.navarro"),
+    (3, "Isabella Cruz", "Nail Technician", "isabella.cruz"),
+    (3, "Mia Santos", "Nail Technician", "mia.santos"),
+    (3, "Cheska Ramos", "Nail Technician", "cheska.ramos"),
+    (3, "Gabrielle Reyes", "Other Staff", "gabrielle.reyes"),
+    (3, "Tina Mendoza", "Other Staff", "tina.mendoza"),
+    (3, "Alexis Garcia", "Other Staff", "alexis.garcia"),
 ]
 
 

@@ -8,7 +8,7 @@ import {
   HiOutlineXMark,
 } from "react-icons/hi2";
 import managerService from "../../services/managerService";
-import { formatCurrency, formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
+import { formatCurrency, formatDateTime, getApiError, getAppointmentDateKey } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, ManagerWorkspace, Notice, StatusBadge } from "./ManagerWorkspace";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
 import ListPagination, { PAGE_SIZE } from "../../components/common/ListPagination";
@@ -64,10 +64,9 @@ export default function BranchBookings() {
   const visibleBookings = useMemo(() => {
     const term = search.trim().toLowerCase();
     return bookings.filter((booking) => {
-      const appointmentDate = new Date(booking.appointment_date);
-      const localDate = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth() + 1).padStart(2, "0")}-${String(appointmentDate.getDate()).padStart(2, "0")}`;
-      const matchesDate = !dateFilter || localDate === dateFilter;
-      const matchesSearch = !term || [booking.id, booking.customer?.full_name, booking.customer?.email, booking.service?.name, booking.status, booking.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase().includes(term);
+      const appointmentDate = getAppointmentDateKey(booking.appointment_date);
+      const matchesDate = !dateFilter || appointmentDate === dateFilter;
+      const matchesSearch = !term || [booking.id, booking.customer?.full_name, booking.customer?.email, booking.guest_name, booking.guest_email, booking.guest_phone, booking.service?.name, booking.status, booking.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase().includes(term);
       return matchesDate && matchesSearch;
     });
   }, [bookings, search, dateFilter]);
@@ -164,7 +163,8 @@ function BookingCard({ booking, busy, editing, onEdit, onReschedule, onStatus })
             <StatusBadge status={booking.status} />
           </div>
           <h2 className="mt-3 truncate text-lg font-bold text-[#1F2937]">{booking.service?.name || "Service"}</h2>
-          <p className="mt-1 text-sm text-[#6B7280]">{booking.customer?.full_name || "Customer"} • {booking.customer?.email || "No email"}</p>
+          <p className="mt-1 text-sm text-[#6B7280]">{booking.customer?.full_name || booking.guest_name || "Customer"} • {booking.customer?.email || booking.guest_email || "No email"}</p>
+          {(booking.customer?.phone_number || booking.guest_phone) && <p className="mt-1 text-xs text-[#667085]">{booking.customer?.phone_number || booking.guest_phone}</p>}
           {booking.preferred_service_provider && (
             <p className="mt-2 text-sm font-semibold text-[#7C3F62]">
               Customer preference: {booking.preferred_service_provider.full_name}

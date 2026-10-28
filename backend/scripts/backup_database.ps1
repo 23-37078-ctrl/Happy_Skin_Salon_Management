@@ -4,7 +4,7 @@ param(
 
 $envFile = Join-Path $PSScriptRoot "..\.env"
 if (-not (Test-Path -LiteralPath $envFile)) {
-    throw "Missing backend/.env. Copy .env.example and configure DATABASE_URL first."
+    throw "Missing backend/.env. Create it and configure DATABASE_URL first."
 }
 
 $databaseUrl = (Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^DATABASE_URL=' } | Select-Object -First 1) -replace '^DATABASE_URL=', ''

@@ -41,6 +41,9 @@ const ownerService = {
     return response.data;
   },
 
+  customers: async (search = "") => (await api.get("/owner/customers", { params: search ? { search } : {} })).data,
+  updateCustomer: async (customerId, payload) => (await api.patch(`/owner/customers/${customerId}`, payload)).data,
+
   bookings: async ({ page = 1, page_size = 100, branch_id = null, status_filter = null } = {}) => {
     const params = { page, page_size };
     if (branch_id) params.branch_id = branch_id;
@@ -65,6 +68,10 @@ const ownerService = {
     return response.data;
   },
 
+  reportDates: async () => (await api.get("/owner/reports/dates")).data,
+
+  dayReport: async (reportDate) => (await api.get("/owner/reports/day-summary", { params: { report_date: reportDate }, timeout: 15000 })).data,
+
   forecasting: async () => {
     const response = await api.get("/owner/forecasting");
     return response.data;
@@ -79,6 +86,13 @@ const ownerService = {
     const response = await api.get("/owner/audit-logs");
     return response.data;
   },
+
+  profileChangeRequests: async (status_filter = "pending") => (await api.get("/owner/profile-change-requests", { params: status_filter ? { status_filter } : {} })).data,
+  reviewProfileChangeRequest: async (requestId, payload) => (await api.patch(`/owner/profile-change-requests/${requestId}`, payload)).data,
+  supportThreads: async () => (await api.get("/owner/support/threads")).data,
+  supportThread: async (threadId) => (await api.get(`/owner/support/threads/${threadId}`)).data,
+  updateSupportThread: async (threadId, payload) => (await api.patch(`/owner/support/threads/${threadId}`, payload)).data,
+  sendSupportMessage: async (threadId, body) => (await api.post(`/owner/support/threads/${threadId}/messages`, { body })).data,
 };
 
 export default ownerService;

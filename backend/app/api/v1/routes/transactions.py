@@ -4,7 +4,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -112,12 +112,21 @@ def list_walk_in_service_providers(
     ).order_by(User.full_name).all()
     active_customer_counts = {
         provider_id: count
-        for provider_id, count in db.query(Booking.service_provider_id, func.count(Booking.id)).filter(
+        for provider_id, count in db.query(BookingServiceItem.service_provider_id, func.count(BookingServiceItem.id))
+        .join(Booking, Booking.id == BookingServiceItem.booking_id)
+        .filter(
             Booking.branch_id == current_user.branch_id,
-            Booking.status == "confirmed",
-            Booking.service_provider_id.isnot(None),
-        ).group_by(Booking.service_provider_id).all()
+            Booking.status.in_(["pending", "confirmed"]),
+            BookingServiceItem.service_provider_id.isnot(None),
+        ).group_by(BookingServiceItem.service_provider_id).all()
     }
+    for provider_id, count in db.query(Booking.service_provider_id, func.count(Booking.id)).filter(
+        Booking.branch_id == current_user.branch_id,
+        Booking.status.in_(["pending", "confirmed"]),
+        Booking.service_provider_id.isnot(None),
+        ~Booking.service_items.any(),
+    ).group_by(Booking.service_provider_id).all():
+        active_customer_counts[provider_id] = active_customer_counts.get(provider_id, 0) + count
     return [{"id": item.id, "full_name": item.full_name, "job_title": item.job_title or "Salon Specialist", "active_customer_count": int(active_customer_counts.get(item.id, 0)), "is_busy": active_customer_counts.get(item.id, 0) > 0} for item in staff]
 
 
@@ -126,16 +135,24 @@ def _serialize_walk_in_booking(booking: Booking) -> dict:
     services = [item.service for item in items] or [booking.service]
     return {
         "id": booking.id,
-        "customer": {"id": booking.customer.id, "full_name": booking.customer.full_name},
+        "customer": {
+            "id": booking.customer.id if booking.customer else None,
+            "full_name": booking.customer.full_name if booking.customer else booking.guest_name or "Guest customer",
+            "email": booking.customer.email if booking.customer else booking.guest_email,
+            "phone_number": booking.customer.phone_number if booking.customer else booking.guest_phone,
+        },
         "service": {"id": booking.service.id, "name": ", ".join(service.name for service in services), "price": sum(float(service.price) for service in services), "duration_minutes": sum(service.duration_minutes or 0 for service in services)},
-        "services": [{"id": item.service.id, "name": item.service.name, "price": item.service.price, "duration_minutes": item.service.duration_minutes, "service_provider": {"id": item.service_provider.id, "full_name": item.service_provider.full_name} if item.service_provider else None} for item in items] or [{"id": booking.service.id, "name": booking.service.name, "price": booking.service.price, "duration_minutes": booking.service.duration_minutes, "service_provider": None}],
+        "services": [{"id": item.service.id, "booking_service_item_id": item.id, "name": item.service.name, "price": item.service.price, "duration_minutes": item.service.duration_minutes, "service_provider": {"id": item.service_provider.id, "full_name": item.service_provider.full_name} if item.service_provider else None} for item in items] or [{"id": booking.service.id, "booking_service_item_id": None, "name": booking.service.name, "price": booking.service.price, "duration_minutes": booking.service.duration_minutes, "service_provider": None}],
         "service_provider": {
             "id": booking.service_provider.id,
             "full_name": booking.service_provider.full_name,
         } if booking.service_provider else None,
         "appointment_date": booking.appointment_date,
+        "created_at": booking.created_at,
+        "checked_in_at": booking.checked_in_at,
         "status": booking.status,
         "notes": booking.notes,
+        "updated_at": booking.updated_at,
     }
 
 
@@ -144,6 +161,7 @@ def list_unpaid_walk_in_bookings(
     current_user: User = Depends(require_staff_branch),
     db: Session = Depends(get_db),
 ):
+    _cancel_online_no_shows(db, current_user.branch_id)
     paid_booking_ids = db.query(Transaction.booking_id)
     bookings = (
         db.query(Booking)
@@ -154,10 +172,45 @@ def list_unpaid_walk_in_bookings(
             Booking.status.in_(["confirmed", "treatment_done"]),
             ~Booking.id.in_(paid_booking_ids),
         )
-        .order_by(Booking.created_at.desc())
+        .order_by(Booking.created_at.asc(), Booking.id.asc())
         .all()
     )
     return [_serialize_walk_in_booking(booking) for booking in bookings]
+
+
+def _cancel_online_no_shows(db: Session, branch_id: int) -> None:
+    """Cancel unchecked bookings after 30 minutes late or when their local date has passed."""
+    now_utc = datetime.now(timezone.utc)
+    cutoff = (now_utc - timedelta(minutes=30)).replace(tzinfo=None)
+    today_start = datetime.combine(datetime.now(BUSINESS_TIMEZONE).date(), time.min, BUSINESS_TIMEZONE)
+    today_start_utc = today_start.astimezone(timezone.utc).replace(tzinfo=None)
+    overdue = db.query(Booking).filter(
+        Booking.branch_id == branch_id,
+        Booking.status.in_(["pending", "confirmed"]),
+        or_(
+            and_(
+                or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
+                Booking.appointment_date <= cutoff,
+            ),
+            Booking.appointment_date < today_start_utc,
+        ),
+        Booking.checked_in_at.is_(None),
+    ).all()
+    for booking in overdue:
+        # SQLite drops timezone info when loading DateTime(timezone=True) values.
+        # Treat those stored values as UTC, consistent with booking normalization.
+        appointment_date = booking.appointment_date
+        if appointment_date.tzinfo is not None:
+            appointment_date = appointment_date.astimezone(timezone.utc).replace(tzinfo=None)
+        booking.status = "cancelled"
+        reason = (
+            "appointment date has passed"
+            if appointment_date < today_start_utc
+            else "customer did not arrive within 30 minutes of the appointment time"
+        )
+        booking.notes = f"{booking.notes or ''}\nCancelled automatically: {reason}.".strip()
+    if overdue:
+        db.commit()
 
 
 @router.post("/pos/walk-in/bookings", status_code=status.HTTP_201_CREATED)
@@ -245,6 +298,7 @@ def list_online_bookings(
     current_user: User = Depends(require_staff_branch),
     db: Session = Depends(get_db),
 ):
+    _cancel_online_no_shows(db, current_user.branch_id)
     paid_booking_ids = db.query(Transaction.booking_id)
     bookings = (
         db.query(Booking)
@@ -252,13 +306,64 @@ def list_online_bookings(
         .filter(
             Booking.branch_id == current_user.branch_id,
             or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
-            Booking.status.in_(["pending", "confirmed", "treatment_done", "cancelled"]),
+            Booking.status.in_(["pending", "confirmed", "treatment_done"]),
             ~Booking.id.in_(paid_booking_ids),
         )
-        .order_by(Booking.appointment_date.asc())
+        .order_by(Booking.created_at.asc(), Booking.id.asc())
         .all()
     )
     return [_serialize_walk_in_booking(booking) for booking in bookings]
+
+
+@router.get("/cancelled-bookings")
+def list_cancelled_bookings(
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    _cancel_online_no_shows(db, current_user.branch_id)
+    bookings = (
+        db.query(Booking)
+        .options(
+            joinedload(Booking.customer),
+            joinedload(Booking.service),
+            joinedload(Booking.service_provider),
+            selectinload(Booking.service_items).joinedload(BookingServiceItem.service),
+            selectinload(Booking.service_items).joinedload(BookingServiceItem.service_provider),
+        )
+        .filter(Booking.branch_id == current_user.branch_id, Booking.status == "cancelled")
+        .order_by(Booking.updated_at.desc(), Booking.id.desc())
+        .all()
+    )
+    return [_serialize_walk_in_booking(booking) for booking in bookings]
+
+@router.patch("/online-bookings/{booking_id}/check-in")
+def check_in_online_booking(
+    booking_id: int,
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    booking = db.query(Booking).filter(
+        Booking.id == booking_id,
+        Booking.branch_id == current_user.branch_id,
+        or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
+        Booking.status.in_(["pending", "confirmed"]),
+    ).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Active online booking not found.")
+    if booking.checked_in_at is None:
+        appointment_time = booking.appointment_date
+        if appointment_time.tzinfo is not None:
+            appointment_time = appointment_time.astimezone(timezone.utc).replace(tzinfo=None)
+        no_show_cutoff = appointment_time + timedelta(minutes=30)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if now >= no_show_cutoff:
+            booking.status = "cancelled"
+            booking.notes = f"{booking.notes or ''}\nCancelled automatically: customer did not arrive within 30 minutes of the appointment time.".strip()
+            db.commit()
+            raise HTTPException(status_code=409, detail="This booking was cancelled after the 30-minute late-arrival window.")
+    booking.checked_in_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"id": booking.id, "checked_in_at": booking.checked_in_at}
 
 @router.patch("/online-bookings/{booking_id}/cancel")
 def cancel_online_booking(booking_id: int, payload: BookingCancellationRequest, current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
@@ -280,6 +385,7 @@ def confirm_online_booking(
     current_user: User = Depends(require_staff_branch),
     db: Session = Depends(get_db),
 ):
+    _cancel_online_no_shows(db, current_user.branch_id)
     booking = db.query(Booking).filter(
         Booking.id == booking_id,
         Booking.branch_id == current_user.branch_id,
@@ -471,7 +577,7 @@ def encode_transaction(
         idempotency_key=payload.idempotency_key,
     )
     tendered = float(payload.amount_tendered) if payload.amount_tendered is not None else amount_due
-    return {"id": transaction.id, "transaction_id": transaction.id, "booking_id": booking.id, "customer_name": booking.customer.full_name, "customer_phone": booking.customer.phone_number, "branch_name": booking.branch.name, "appointment_date": booking.appointment_date, "service": ", ".join(service.name for service in booking_services), "service_provider": provider.full_name, "base_price": base_price, "additional_charges": charge_items, "additional_charge": additional_charge, "commission_rate": payload.commission_rate, "commission_amount": commission_amount, "amount": amount_due, "total": amount_due, "amount_tendered": tendered, "change": max(0, tendered - amount_due), "payment_method": payload.payment_method, "created_at": transaction.created_at}
+    return {"id": transaction.id, "transaction_id": transaction.id, "booking_id": booking.id, "customer_name": booking.customer.full_name if booking.customer else booking.guest_name or "Guest customer", "customer_phone": booking.customer.phone_number if booking.customer else booking.guest_phone, "branch_name": booking.branch.name, "appointment_date": booking.appointment_date, "service": ", ".join(service.name for service in booking_services), "service_provider": provider.full_name, "base_price": base_price, "additional_charges": charge_items, "additional_charge": additional_charge, "commission_rate": payload.commission_rate, "commission_amount": commission_amount, "amount": amount_due, "total": amount_due, "amount_tendered": tendered, "change": max(0, tendered - amount_due), "payment_method": payload.payment_method, "created_at": transaction.created_at}
 
 
 @router.get("", response_model=TransactionListResponse)
@@ -516,6 +622,38 @@ def close_business_day(
     return {"is_closed": True, "closed_at": closure.closed_at, "closed_by": current_user.full_name}
 
 
+@router.get("/day-end/dates")
+def list_day_end_dates(
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    timestamps = (
+        db.query(Transaction.created_at)
+        .join(Booking, Transaction.booking_id == Booking.id)
+        .filter(Booking.branch_id == current_user.branch_id)
+        .order_by(Transaction.created_at.desc())
+        .limit(5000)
+        .all()
+    )
+    business_dates = {_current_business_date()}
+    for (created_at,) in timestamps:
+        if not created_at:
+            continue
+        timestamp = created_at.replace(tzinfo=timezone.utc) if created_at.tzinfo is None else created_at
+        local_time = timestamp.astimezone(BUSINESS_TIMEZONE)
+        business_date = local_time.date() if local_time.time() >= BUSINESS_OPEN_TIME else local_time.date() - timedelta(days=1)
+        if business_date <= _current_business_date():
+            business_dates.add(business_date)
+
+    closures = (
+        db.query(DayClosure.business_date)
+        .filter(DayClosure.branch_id == current_user.branch_id, DayClosure.business_date <= _current_business_date())
+        .all()
+    )
+    business_dates.update(day for (day,) in closures if day)
+    return {"dates": [day.isoformat() for day in sorted(business_dates, reverse=True)]}
+
+
 @router.get("/day-end/summary")
 def get_day_end_summary(
     report_date: date,
@@ -525,15 +663,23 @@ def get_day_end_summary(
     start, end = _business_day_bounds(report_date)
     transactions = (
         db.query(Transaction)
-        .options(joinedload(Transaction.booking).joinedload(Booking.customer), joinedload(Transaction.booking).joinedload(Booking.service), joinedload(Transaction.service_provider))
+        .options(
+            joinedload(Transaction.booking).joinedload(Booking.customer),
+            joinedload(Transaction.booking).joinedload(Booking.service),
+            joinedload(Transaction.booking).joinedload(Booking.branch),
+            joinedload(Transaction.service_provider),
+            joinedload(Transaction.staff),
+        )
         .join(Booking, Transaction.booking_id == Booking.id)
         .filter(Booking.branch_id == current_user.branch_id, Transaction.created_at >= start, Transaction.created_at < end)
         .order_by(Transaction.created_at.asc())
         .all()
     )
     branch = db.query(Branch).filter(Branch.id == current_user.branch_id).first()
-    _auto_close_if_due(db, current_user.branch_id, report_date)
     closure = db.query(DayClosure).options(joinedload(DayClosure.closed_by)).filter(DayClosure.branch_id == current_user.branch_id, DayClosure.business_date == report_date).first()
+    automatic_cutoff = datetime.combine(report_date + timedelta(days=1), AUTOMATIC_CUTOFF_TIME, BUSINESS_TIMEZONE)
+    automatically_closed = datetime.now(BUSINESS_TIMEZONE) >= automatic_cutoff
+    automatic_cutoff_utc = automatic_cutoff.astimezone(timezone.utc).replace(tzinfo=None)
     methods = {method: 0.0 for method in ("cash", "gcash", "card", "bank_transfer")}
     provider_totals: dict[int, dict] = {}
     online_count = 0
@@ -559,10 +705,34 @@ def get_day_end_summary(
         "branch_name": branch.name if branch else "Assigned Branch",
         "prepared_by": current_user.full_name,
         "generated_at": datetime.now(),
-        "is_closed": bool(closure),
-        "closed_at": closure.closed_at if closure else None,
-        "closed_by": closure.closed_by.full_name if closure and closure.closed_by else "Automatic 5:00 AM cutoff" if closure else None,
+        "is_closed": bool(closure) or automatically_closed,
+        "closed_at": closure.closed_at if closure else automatic_cutoff_utc if automatically_closed else None,
+        "closed_by": closure.closed_by.full_name if closure and closure.closed_by else "Automatic 5:00 AM cutoff" if automatically_closed else None,
         "transaction_count": len(transactions),
+        "transactions": [
+            {
+                "id": transaction.id,
+                "booking": {
+                    "id": transaction.booking.id,
+                    "status": transaction.booking.status,
+                    "customer": {
+                        "full_name": transaction.booking.customer.full_name if transaction.booking.customer else transaction.booking.guest_name,
+                        "phone_number": transaction.booking.customer.phone_number if transaction.booking.customer else transaction.booking.guest_phone,
+                    },
+                    "service": {"name": transaction.booking.service.name} if transaction.booking.service else None,
+                    "branch": {"name": transaction.booking.branch.name} if transaction.booking.branch else None,
+                },
+                "staff": {"full_name": transaction.staff.full_name} if transaction.staff else None,
+                "service_provider": {"full_name": transaction.service_provider.full_name} if transaction.service_provider else None,
+                "amount": float(transaction.amount or 0),
+                "payment_method": transaction.payment_method,
+                "additional_charge": float(transaction.additional_charge or 0),
+                "charge_reason": transaction.charge_reason,
+                "commission_amount": float(transaction.commission_amount or 0),
+                "created_at": transaction.created_at,
+            }
+            for transaction in transactions
+        ],
         "online_count": online_count,
         "walk_in_count": walk_in_count,
         "total_collected": round(total_collected, 2),
@@ -626,7 +796,8 @@ def get_staff_period_report(
         row = providers.setdefault(provider_id, {"name": provider.full_name if provider else "Unassigned", "services": 0, "commission": 0.0, "sales": 0.0})
         row["services"] += 1
         row["commission"] += commission
-        row["sales"] += amount
+        # Revenue belongs to the salon; staff commission/tips are shown separately.
+        row["sales"] += max(0.0, amount - commission)
 
     return {
         "period": period,

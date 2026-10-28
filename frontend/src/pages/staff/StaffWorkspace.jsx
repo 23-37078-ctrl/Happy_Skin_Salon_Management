@@ -7,7 +7,6 @@ import {
   HiOutlineChartBar,
   HiOutlineClipboardDocumentList,
   HiOutlineHome,
-  HiOutlinePresentationChartLine,
   HiOutlineBars3,
   HiOutlineXMark,
 } from "react-icons/hi2";
@@ -21,8 +20,8 @@ const navItems = [
   { to: "/staff/dashboard", label: "Dashboard", icon: HiOutlineHome },
   { to: "/staff/online-bookings", label: "Bookings", icon: HiOutlineCalendarDays },
   { to: "/staff/transactions", label: "Transactions", icon: HiOutlineBanknotes },
-  { to: "/staff/reports", label: "Reports", icon: HiOutlinePresentationChartLine },
-  { to: "/staff/day-end", label: "Day End", icon: HiOutlineChartBar },
+  { to: "/staff/commissions", label: "Commissions", icon: HiOutlineBanknotes },
+  { to: "/staff/day-end", label: "Reports", icon: HiOutlineChartBar },
 ];
 
 export function StaffWorkspace({ children, title, eyebrow, actions, brandOnly = false, headerStats, identity }) {

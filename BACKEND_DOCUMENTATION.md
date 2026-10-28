@@ -14,7 +14,7 @@ The backend is a FastAPI application using SQLAlchemy, Alembic migrations, Postg
 
 ## Environment configuration
 
-Copy `backend/.env.example` to `backend/.env`, then replace each placeholder. Never commit this file or share real credentials in documentation or chat.
+Create `backend/.env` and configure the required values. Never commit this file or share real credentials in documentation or chat.
 
 ```dotenv
 # Database
@@ -32,6 +32,9 @@ SMTP_PORT=2525
 SMTP_USERNAME=<mailtrap-username>
 SMTP_PASSWORD=<mailtrap-password>
 EMAIL_FROM=noreply@happyskinsalon.com
+
+# Password reset uses the SMTP settings above to send a six-digit code.
+# Configure the Mailtrap credentials in backend/.env.
 
 # SMS (iProgSMS)
 IPROG_API_TOKEN=<iprog-api-token>
@@ -58,6 +61,7 @@ Notes:
 - `VITE_API_URL` must include `/api/v1` because the frontend appends paths such as `/auth/login` and `/customer/dashboard` directly.
 - `FACEBOOK_APP_SECRET` must never be placed in a `VITE_*` variable because Vite exposes those values to the browser.
 - The current Facebook backend flow validates a user access token through the Graph API and does not read `FACEBOOK_APP_ID` or `FACEBOOK_APP_SECRET` from backend settings.
+- Google sign-in requires the exact frontend origin in Google Cloud Console under **Google Auth Platform → Clients → OAuth web client → Authorized JavaScript origins**. The local Vite server uses HTTPS at `https://localhost:5173`, matching the configured origin. Accept the local development certificate in the browser when prompted. Origins must match the browser address exactly and must not include a path or trailing slash. Set the same web OAuth client ID in backend `GOOGLE_CLIENT_ID` and frontend `VITE_GOOGLE_CLIENT_ID`, then restart both servers.
 - Replace the sample JWT secret with a cryptographically random value before running the application.
 
 Generate a suitable JWT secret with Python:

@@ -31,6 +31,7 @@ import ModernDatePicker from "../../components/common/ModernDatePicker";
 
 export default function BookingHistory() {
   const [transactions, setTransactions] = useState([]);
+  const [cancelledBookings, setCancelledBookings] = useState([]);
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -44,9 +45,10 @@ export default function BookingHistory() {
     setIsLoading(true);
     setError("");
     try {
-      const [payload, contextData] = await Promise.all([staffTransactionService.list({ page: 1, page_size: 100 }), staffTransactionService.posContext()]);
+      const [payload, contextData, cancelledData] = await Promise.all([staffTransactionService.list({ page: 1, page_size: 100 }), staffTransactionService.posContext(), staffTransactionService.cancelledBookings()]);
       setTransactions(payload.transactions || []);
       setStaffContext(contextData);
+      setCancelledBookings(cancelledData || []);
     } catch (err) {
       setError(getApiError(err, "We couldn't load branch transactions."));
     } finally {
@@ -75,7 +77,9 @@ export default function BookingHistory() {
         transaction.staff?.full_name,
         transaction.service_provider?.full_name,
         transaction.booking?.customer?.full_name,
+        transaction.booking?.guest_name,
         transaction.booking?.customer?.phone_number,
+        transaction.booking?.guest_phone,
         transaction.booking?.service?.name,
         transaction.payment_method,
         transaction.amount,
@@ -125,25 +129,29 @@ export default function BookingHistory() {
             <div className="divide-y divide-[#F3E8EF]">
               {visibleTransactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} />)}
             </div>
-            <div className="border-t border-[#F3E8EF] px-4 pb-5"><ListPagination page={page} totalItems={filteredTransactions.length} onPageChange={setPage} itemLabel="transactions" /></div>
+            <div className="border-t border-[#F3E8EF] px-4 pb-3"><ListPagination page={page} totalItems={filteredTransactions.length} onPageChange={setPage} itemLabel="transactions" /></div>
           </div>
         ) : (
           <EmptyState icon={HiOutlineBanknotes} title="No transactions found" description="Payments recorded by staff will appear in this ledger for quick branch reconciliation." />
         )}
       </section>
+      {cancelledBookings.length > 0 && <section className="mt-5 rounded-[1.5rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-[#B42318]">Booking records</p><h2 className="mt-1 text-lg font-extrabold text-[#1F2937]">Cancelled bookings</h2><p className="mt-1 text-sm text-[#6B7280]">Cancellation records are shown here and are not counted as payments.</p></div><span className="rounded-full bg-[#FEE2E2] px-3 py-1 text-xs font-bold text-[#991B1B]">{cancelledBookings.length} cancelled</span></div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">{cancelledBookings.map((booking) => <article key={booking.id} className="rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-extrabold text-[#1F2937]">{booking.customer?.full_name || "Guest customer"}</p><p className="mt-1 text-sm text-[#6B7280]">{booking.service?.name || "Salon service"}</p><p className="mt-2 text-xs text-[#667085]">Scheduled: {formatDateTime(booking.appointment_date)}</p><p className="mt-1 text-xs text-[#667085]">Cancelled: {formatDateTime(booking.updated_at || booking.created_at)}</p></div><StatusBadge status="cancelled" /></div><p className="mt-3 border-t border-[#F0DCE7] pt-3 text-xs leading-5 text-[#6B7280]">{booking.notes?.split("\n").filter((line) => /cancel/i.test(line)).join(" ") || "This appointment was cancelled."}</p></article>)}</div>
+      </section>}
     </StaffWorkspace>
   );
 }
 
 function TransactionRow({ transaction }) {
   return (
-    <article className="px-4 py-5 lg:px-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div><div className="flex flex-wrap items-center gap-2"><StatusBadge status={transaction.booking?.status || "completed"} /><span className="rounded-full bg-[#FFF0F7] px-2.5 py-1 text-[10px] font-bold text-[#C85B95]">{transaction.booking?.notes?.startsWith("Walk-in") ? "Walk-in" : "Online reservation"}</span></div><p className="mt-1 text-xs font-semibold text-[#9CA3AF]">{formatDateTime(transaction.created_at)} · Booking #{transaction.booking?.id}</p><h3 className="mt-3 text-lg font-extrabold text-[#1F2937]">{transaction.booking?.service?.name || "Salon service"}</h3><p className="mt-1 text-sm text-[#6B7280]">Customer: {transaction.booking?.customer?.full_name || "Walk-in customer"}</p></div>
-        <div className="grid gap-2 text-sm text-[#6B7280] sm:grid-cols-2 lg:min-w-[25rem]"><p className="inline-flex items-center gap-2"><HiOutlineUserCircle className="h-5 w-5 text-[#D65A9A]" /> Provider: {transaction.service_provider?.full_name || "Staff"}</p><p className="inline-flex items-center gap-2"><HiOutlineCreditCard className="h-5 w-5 text-[#D65A9A]" /> {paymentLabels[transaction.payment_method] || transaction.payment_method}</p><p className="inline-flex items-center gap-2"><HiOutlinePhone className="h-5 w-5 text-[#D65A9A]" /> Customer phone: {transaction.booking?.customer?.phone_number || "Not provided"}</p><p>Processed by: {transaction.staff?.full_name || "Staff"}</p></div>
-        <div className="min-w-[13rem] rounded-xl bg-[#FFF8FB] p-3"><p className="flex justify-between gap-4 text-sm"><span>Sale</span><strong className="text-[#166534]">{formatCurrency(getTransactionSale(transaction))}</strong></p><p className="mt-2 flex justify-between gap-4 text-sm"><span>Commission / tip</span><strong className="text-[#C85B95]">{formatCurrency(transaction.commission_amount)}</strong></p><p className="mt-2 flex justify-between gap-4 border-t border-[#F3E8EF] pt-2"><span className="font-bold">Total paid</span><strong>{formatCurrency(transaction.amount)}</strong></p><button type="button" onClick={() => printTransactionReceipt(transaction)} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-white px-3 text-sm font-bold text-[#713B5A] shadow-sm"><HiOutlinePrinter className="h-5 w-5" /> Print receipt</button></div>
+    <article className="px-4 py-3 lg:px-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div><div className="flex flex-wrap items-center gap-2"><StatusBadge status={transaction.booking?.status || "completed"} /><span className="rounded-full bg-[#FFF0F7] px-2 py-0.5 text-[10px] font-bold text-[#C85B95]">{transaction.booking?.notes?.startsWith("Walk-in") ? "Walk-in" : "Online reservation"}</span></div><p className="mt-1 text-[11px] font-semibold text-[#9CA3AF]">{formatDateTime(transaction.created_at)} · Booking #{transaction.booking?.id}</p><h3 className="mt-1 text-base font-extrabold text-[#1F2937]">{transaction.booking?.service?.name || "Salon service"}</h3><p className="text-xs text-[#6B7280]">Customer: {transaction.booking?.customer?.full_name || transaction.booking?.guest_name || "Walk-in customer"}</p></div>
+        <div className="grid gap-x-3 gap-y-1 text-xs text-[#6B7280] sm:grid-cols-2 lg:min-w-[22rem]"><p className="inline-flex items-center gap-1.5"><HiOutlineUserCircle className="h-4 w-4 shrink-0 text-[#D65A9A]" /> Provider: {transaction.service_provider?.full_name || "Staff"}</p><p className="inline-flex items-center gap-1.5"><HiOutlineCreditCard className="h-4 w-4 shrink-0 text-[#D65A9A]" /> {paymentLabels[transaction.payment_method] || transaction.payment_method}</p><p className="inline-flex items-center gap-1.5"><HiOutlinePhone className="h-4 w-4 shrink-0 text-[#D65A9A]" /> Customer phone: {transaction.booking?.customer?.phone_number || transaction.booking?.guest_phone || "Not provided"}</p><p>Processed by: {transaction.staff?.full_name || "Staff"}</p></div>
+        <div className="min-w-[11rem] rounded-lg bg-[#FFF8FB] p-2"><p className="flex justify-between gap-3 text-xs"><span>Sale</span><strong className="text-[#166534]">{formatCurrency(getTransactionSale(transaction))}</strong></p><div className="mt-1 flex justify-between gap-3 text-xs"><span>Commission / tip</span><strong className="text-[#C85B95]">{formatCurrency(transaction.commission_amount)}</strong></div>{Number(transaction.commission_amount || 0) > 0 && <p className="mt-1 text-right text-[10px] text-[#6B7280]">Paid to {transaction.service_provider?.full_name || "Unassigned provider"}</p>}<p className="mt-1 flex justify-between gap-3 border-t border-[#F3E8EF] pt-1 text-xs"><span className="font-bold">Total paid</span><strong>{formatCurrency(transaction.amount)}</strong></p><button type="button" onClick={() => printTransactionReceipt(transaction)} className="mt-2 inline-flex min-h-8 w-full items-center justify-center gap-2 rounded-lg bg-white px-2 text-xs font-bold text-[#713B5A] shadow-sm"><HiOutlinePrinter className="h-4 w-4" /> Print receipt</button></div>
       </div>
-      {(transaction.additional_charge > 0 || transaction.charge_reason) && <div className="mt-4 rounded-xl bg-[#FFF8FB] px-4 py-3 text-sm"><p className="font-bold text-[#C85B95]">Additional charges: {formatCurrency(transaction.additional_charge)}</p><p className="mt-1 text-[#6B7280]">{transaction.charge_reason}</p></div>}
+      {(transaction.additional_charge > 0 || transaction.charge_reason) && <div className="mt-2 rounded-lg bg-[#FFF8FB] px-3 py-2 text-xs"><p className="font-bold text-[#C85B95]">Additional charges: {formatCurrency(transaction.additional_charge)}</p><p className="mt-1 text-[#6B7280]">{transaction.charge_reason}</p></div>}
     </article>
   );
 }

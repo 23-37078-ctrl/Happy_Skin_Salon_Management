@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
       setStep("reset");
       setNotification({ type: "success", message: "If an active account uses this email, a reset code has been sent." });
     } catch (error) {
-      setNotification({ type: "error", message: error.message });
+      setNotification({ type: "error", message: error.message || "Could not send the reset email. Please try again." });
     } finally {
       setLoading(false);
     }

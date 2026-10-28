@@ -1,14 +1,18 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from app.api.v1.api import api_router
-from app.core.config import settings
+from app.core.config import BACKEND_DIR, settings
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
+uploads_dir = BACKEND_DIR / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 
 @app.exception_handler(SQLAlchemyError)

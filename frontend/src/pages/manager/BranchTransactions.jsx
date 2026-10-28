@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { HiOutlineBanknotes, HiOutlineCalendarDays, HiOutlineCreditCard, HiOutlineFunnel, HiOutlineMagnifyingGlass, HiOutlinePhone, HiOutlinePrinter, HiOutlineReceiptRefund, HiOutlineUserCircle } from "react-icons/hi2";
+import { HiOutlineBanknotes, HiOutlineCalendarDays, HiOutlineCreditCard, HiOutlineFunnel, HiOutlineMagnifyingGlass, HiOutlinePhone, HiOutlinePrinter, HiOutlineReceiptRefund, HiOutlineUserCircle, HiOutlineUserGroup } from "react-icons/hi2";
 import managerService from "../../services/managerService";
 import { formatCurrency, formatDateTime, getApiError, paymentLabels } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, ManagerWorkspace, Notice, StatusBadge } from "./ManagerWorkspace";
@@ -42,7 +42,7 @@ export default function BranchTransactions() {
       const localDate = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}-${String(created.getDate()).padStart(2, "0")}`;
       const matchesDate = !dateFilter || localDate === dateFilter;
       const matchesMethod = methodFilter === "all" || transaction.payment_method === methodFilter;
-      const searchable = [transaction.id, transaction.booking?.id, transaction.booking?.customer?.full_name, transaction.booking?.customer?.phone_number, transaction.booking?.service?.name, transaction.staff?.full_name, transaction.service_provider?.full_name, transaction.payment_method, transaction.amount, transaction.charge_reason].filter(Boolean).join(" ").toLowerCase();
+      const searchable = [transaction.id, transaction.booking?.id, transaction.booking?.customer?.full_name, transaction.booking?.guest_name, transaction.booking?.customer?.phone_number, transaction.booking?.guest_phone, transaction.booking?.service?.name, transaction.staff?.full_name, transaction.service_provider?.full_name, transaction.payment_method, transaction.amount, transaction.charge_reason].filter(Boolean).join(" ").toLowerCase();
       return matchesDate && matchesMethod && (!term || searchable.includes(term));
     });
   }, [transactions, search, dateFilter, methodFilter]);
@@ -50,10 +50,14 @@ export default function BranchTransactions() {
   const visibleTransactions = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage]);
 
   const stats = useMemo(() => {
-    const total = filtered.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
+    const salonRevenue = filtered.reduce((sum, transaction) => sum + getTransactionSale(transaction), 0);
+    const staffCommission = filtered.reduce((sum, transaction) => sum + Number(transaction.commission_amount || 0), 0);
+    const totalCollected = filtered.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
     const today = new Date().toDateString();
     return [
-      { label: "Total Sales", value: formatCurrency(total), icon: HiOutlineBanknotes, tone: "green" },
+      { label: "Salon Revenue", value: formatCurrency(salonRevenue), icon: HiOutlineBanknotes, tone: "green" },
+      { label: "Staff Commission", value: formatCurrency(staffCommission), icon: HiOutlineUserGroup, tone: "pink" },
+      { label: "Total Collected", value: formatCurrency(totalCollected), icon: HiOutlineCreditCard, tone: "blue" },
       { label: "Transactions", value: filtered.length, icon: HiOutlineReceiptRefund, tone: "pink" },
       { label: "Today", value: filtered.filter((transaction) => new Date(transaction.created_at).toDateString() === today).length, icon: HiOutlineCalendarDays, tone: "amber" },
     ];
@@ -77,7 +81,7 @@ export default function BranchTransactions() {
         {isLoading ? <CardSkeleton rows={5} /> : filtered.length ? (
           <div className="overflow-hidden rounded-[1.25rem] border border-[#F3E8EF] bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
             <div className="hidden grid-cols-[0.8fr_1.1fr_1.1fr_1.1fr_0.8fr_0.8fr_0.8fr_auto] gap-4 border-b border-[#F3E8EF] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-wide text-[#6B7280] xl:grid">
-              <span>Receipt</span><span>Client</span><span>Service</span><span>Service provider</span><span>Method</span><span>Sale</span><span>Commission</span><span className="text-right">Receipt</span>
+              <span>Date</span><span>Client</span><span>Service</span><span>Service provider</span><span>Method</span><span>Sale</span><span>Commission</span><span className="text-right">Print</span>
             </div>
             <div className="divide-y divide-[#F3E8EF]">{visibleTransactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} />)}</div>
             <div className="border-t border-[#F3E8EF] px-4 pb-5"><ListPagination page={page} totalItems={filtered.length} onPageChange={setPage} itemLabel="transactions" /></div>
@@ -91,13 +95,13 @@ export default function BranchTransactions() {
 function TransactionRow({ transaction }) {
   return (
     <article className="grid gap-4 px-4 py-4 sm:grid-cols-2 xl:grid-cols-[0.8fr_1.1fr_1.1fr_1.1fr_0.8fr_0.8fr_0.8fr_auto] xl:items-center xl:px-5">
-      <div><p className="text-sm font-bold text-[#1F2937]">Receipt #{transaction.id}</p><p className="mt-1 text-xs font-semibold text-[#9CA3AF]">{formatDateTime(transaction.created_at)}</p><div className="mt-2"><StatusBadge status={transaction.booking?.status || "completed"} /></div></div>
-      <div><p className="text-[10px] font-bold uppercase text-[#9CA3AF] xl:hidden">Client</p><p className="mt-1 text-sm font-bold text-[#1F2937]">{transaction.booking?.customer?.full_name || "Walk-in client"}</p><p className="mt-1 inline-flex items-center gap-1 text-xs text-[#6B7280]"><HiOutlinePhone className="h-4 w-4 text-[#D65A9A]" /> {transaction.booking?.customer?.phone_number || "Not provided"}</p><p className="mt-1 text-xs text-[#6B7280]">Booking #{transaction.booking?.id}</p></div>
+      <div><p className="text-sm font-bold text-[#1F2937]">{formatDateTime(transaction.created_at)}</p><div className="mt-2"><StatusBadge status={transaction.booking?.status || "completed"} /></div></div>
+      <div><p className="text-[10px] font-bold uppercase text-[#9CA3AF] xl:hidden">Client</p><p className="mt-1 text-sm font-bold text-[#1F2937]">{transaction.booking?.customer?.full_name || transaction.booking?.guest_name || "Walk-in client"}</p><p className="mt-1 inline-flex items-center gap-1 text-xs text-[#6B7280]"><HiOutlinePhone className="h-4 w-4 text-[#D65A9A]" /> {transaction.booking?.customer?.phone_number || transaction.booking?.guest_phone || "Not provided"}</p><p className="mt-1 text-xs text-[#6B7280]">Booking #{transaction.booking?.id}</p></div>
       <div><p className="text-[10px] font-bold uppercase text-[#9CA3AF] xl:hidden">Service</p><p className="mt-1 text-sm font-bold text-[#1F2937]">{transaction.booking?.service?.name || "Salon service"}</p>{Number(transaction.additional_charge || 0) > 0 && <p className="mt-1 text-xs text-[#C85B95]">Add-ons: {formatCurrency(transaction.additional_charge)}{transaction.charge_reason ? ` · ${transaction.charge_reason}` : ""}</p>}</div>
       <div><p className="text-[10px] font-bold uppercase text-[#9CA3AF] xl:hidden">Service provider</p><p className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-[#374151]"><HiOutlineUserCircle className="h-5 w-5 shrink-0 text-[#D65A9A]" /> {transaction.service_provider?.full_name || "Not assigned"}</p><p className="mt-1 text-[10px] text-[#9CA3AF]">Encoded by {transaction.staff?.full_name || "Staff"}</p></div>
       <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#6B7280]"><HiOutlineCreditCard className="h-5 w-5 text-[#D65A9A]" /> {paymentLabels[transaction.payment_method] || transaction.payment_method}</p>
       <div><p className="text-[10px] font-bold uppercase text-[#9CA3AF] xl:hidden">Sale</p><p className="mt-1 text-sm font-extrabold text-[#166534]">{formatCurrency(getTransactionSale(transaction))}</p></div>
-      <div><p className="text-[10px] font-bold uppercase text-[#9CA3AF] xl:hidden">Commission</p><p className="mt-1 text-sm font-extrabold text-[#C85B95]">{formatCurrency(transaction.commission_amount)}</p></div>
+      <div><p className="text-[10px] font-bold uppercase text-[#9CA3AF] xl:hidden">Staff commission / tip</p><p className="mt-1 text-sm font-extrabold text-[#C85B95]">{formatCurrency(transaction.commission_amount)}</p>{Number(transaction.commission_amount || 0) > 0 && <p className="mt-1 text-xs text-[#6B7280]">Paid to {transaction.service_provider?.full_name || "Unassigned provider"}</p>}</div>
       <button type="button" onClick={() => printTransactionReceipt(transaction)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#F3E8EF] bg-white px-3 text-xs font-bold text-[#713B5A]"><HiOutlinePrinter className="h-4 w-4" /> Print</button>
     </article>
   );

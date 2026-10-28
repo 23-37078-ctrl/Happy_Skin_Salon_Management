@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HiOutlineChatBubbleLeftRight, HiOutlineStar } from "react-icons/hi2";
 import managerService from "../../services/managerService";
 import { formatDateTime, getApiError } from "../staff/staffWorkspaceUtils";
-import { CardSkeleton, EmptyState, ManagerWorkspace, Notice, StatCard } from "./ManagerWorkspace";
+import { CardSkeleton, EmptyState, ManagerWorkspace, Notice } from "./ManagerWorkspace";
 
 export default function CustomerFeedback() {
   const [data, setData] = useState({ feedback: [], average_rating: 0, total: 0 });
@@ -25,13 +25,14 @@ export default function CustomerFeedback() {
     Promise.resolve().then(() => loadFeedback());
   }, [loadFeedback]);
 
+  const headerStats = [
+    { label: "Average Rating", value: Number(data.average_rating || 0).toFixed(1), icon: HiOutlineStar, tone: "amber" },
+    { label: "Reviews", value: data.total || 0, icon: HiOutlineChatBubbleLeftRight, tone: "pink" },
+  ];
+
   return (
-    <ManagerWorkspace title="Customer Feedback" eyebrow="Ratings for your branch">
+    <ManagerWorkspace title="Customer Feedback" eyebrow="Ratings for your branch" headerStats={headerStats}>
       {error && <Notice message={error} onRetry={loadFeedback} />}
-      <section className="grid gap-3 sm:grid-cols-2">
-        <StatCard label="Average Rating" value={Number(data.average_rating || 0).toFixed(1)} icon={HiOutlineStar} tone="amber" />
-        <StatCard label="Reviews" value={data.total || 0} icon={HiOutlineChatBubbleLeftRight} tone="pink" />
-      </section>
       <section className="mt-5">
         {isLoading ? <CardSkeleton rows={5} /> : data.feedback?.length ? (
           <div className="space-y-3">{data.feedback.map((item) => <FeedbackCard key={item.id} item={item} />)}</div>

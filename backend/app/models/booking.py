@@ -7,13 +7,17 @@ class Booking(Base):
     __tablename__ = "bookings"
 
     id               = Column(Integer, primary_key=True, index=True)
-    customer_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    customer_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    guest_name       = Column(String(100), nullable=True)
+    guest_email      = Column(String(255), nullable=True)
+    guest_phone      = Column(String(20), nullable=True)
     branch_id        = Column(Integer, ForeignKey("branches.id"), nullable=False)
     service_id       = Column(Integer, ForeignKey("services.id"), nullable=False)
     service_provider_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     preferred_service_provider_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     appointment_date = Column(DateTime(timezone=True), nullable=False)
+    checked_in_at = Column(DateTime(timezone=True), nullable=True)
     status           = Column(String(20), default="pending", nullable=False)
     # status values: pending | confirmed | completed | cancelled
 

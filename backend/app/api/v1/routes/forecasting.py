@@ -11,8 +11,6 @@ from app.services.forecast_service import InsufficientForecastData, build_branch
 
 
 router = APIRouter(prefix="/forecast", tags=["Forecasting"])
-
-
 def _authorize_branch(user: User, branch_id: int) -> None:
     if user.role == "owner":
         return

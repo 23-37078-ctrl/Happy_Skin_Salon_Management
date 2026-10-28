@@ -199,6 +199,9 @@ class TransactionBookingOut(BaseModel):
     appointment_date: datetime
     status: str
     notes: Optional[str] = None
+    guest_name: Optional[str] = None
+    guest_email: Optional[str] = None
+    guest_phone: Optional[str] = None
     customer: Optional[TransactionStaffOut] = None
     service: Optional[TransactionServiceOut] = None
     branch: Optional[TransactionBranchOut] = None

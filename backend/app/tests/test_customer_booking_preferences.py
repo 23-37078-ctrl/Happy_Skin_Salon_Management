@@ -29,7 +29,7 @@ def booking_context():
     other_branch = Branch(name="North", address="North Street", is_active=True)
     service = Service(name="Manicure", price=500, duration_minutes=60, is_active=True)
     branch.services.append(service)
-    customer = User(full_name="Customer", email="customer@example.com", role="customer")
+    customer = User(full_name="Customer", email="customer@example.com", role="customer", phone_number="+639171234567", phone_verified=True)
     preferred = User(full_name="Ana Cruz", email="ana@example.com", role="staff", branch_id=None, job_title="Nail Technician")
     wrong_branch_provider = User(full_name="Other Staff", email="other@example.com", role="staff", branch_id=None, job_title="Nail Technician")
     session.add_all([branch, other_branch, customer, preferred, wrong_branch_provider])
@@ -77,3 +77,21 @@ def test_customer_cannot_book_a_full_time_slot(booking_context):
         create_customer_appointment(payload, current_user=customer, db=session)
 
     assert exc_info.value.status_code == 409
+
+
+def test_cancelled_booking_releases_time_slot_immediately(booking_context):
+    from app.api.v1.routes.customer import cancel_customer_appointment
+
+    session, customer, branch, service, _, _ = booking_context
+    payload = BookingCreateRequest(
+        branch_id=branch.id,
+        service_id=service.id,
+        appointment_date=_tomorrow_at_ten(),
+    )
+    created = create_customer_appointment(payload, current_user=customer, db=session)
+
+    cancelled = cancel_customer_appointment(created.id, current_user=customer, db=session)
+    assert cancelled.status == "cancelled"
+
+    replacement = create_customer_appointment(payload, current_user=customer, db=session)
+    assert replacement.status == "pending"

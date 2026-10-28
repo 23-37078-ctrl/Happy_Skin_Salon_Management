@@ -14,6 +14,7 @@ class User(Base):
     session_version           = Column(Integer, default=0, nullable=False)
     branch_id                 = Column(Integer, ForeignKey("branches.id"), nullable=True)
     job_title                 = Column(String(80), nullable=True)
+    profile_image_url         = Column(String(500), nullable=True)
 
     # ── Contact ───────────────────────────────────────────────
     phone_number              = Column(String(20), nullable=True)   # e.g. 09171234567

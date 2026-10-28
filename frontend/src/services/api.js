@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "/api/v1";
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
 const REMEMBER_SESSION_KEY = "auth_remember";
@@ -53,7 +53,7 @@ async function refreshAccessToken() {
 
   if (!refreshRequest) {
     refreshRequest = axios
-      .post(`${BASE_URL}/auth/refresh`, { refresh_token: refreshToken })
+      .post(`${BASE_URL}/auth/refresh`, { refresh_token: refreshToken }, { timeout: 10000 })
       .then(({ data }) => {
         const storage = isRememberedSession() ? localStorage : sessionStorage;
         storage.setItem(ACCESS_TOKEN_KEY, data.access_token);

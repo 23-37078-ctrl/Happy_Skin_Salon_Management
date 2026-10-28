@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 
 
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
@@ -21,6 +21,8 @@ class BookingCreateRequest(BaseModel):
     service_id: int
     service_ids: list[int] = Field(default_factory=list)
     appointment_date: datetime
+    allow_duplicate: bool = False
+    phone_verification_id: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=255)
 
     @field_validator("appointment_date")
@@ -42,6 +44,26 @@ class BookingCreateRequest(BaseModel):
         if len(unique) > 20:
             raise ValueError("A booking can contain at most 20 services.")
         return unique
+
+
+class GuestBookingCreateRequest(BookingCreateRequest):
+    guest_name: str = Field(min_length=2, max_length=100)
+    guest_email: EmailStr
+    guest_phone: str = Field(min_length=7, max_length=20)
+    phone_verification_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator("guest_name", "guest_email", "guest_phone", mode="before")
+    @classmethod
+    def trim_guest_contact(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("guest_phone")
+    @classmethod
+    def validate_guest_phone(cls, value: str) -> str:
+        digits = "".join(character for character in value if character.isdigit())
+        if not 7 <= len(digits) <= 15 or any(character not in "+0123456789 ()-" for character in value):
+            raise ValueError("Enter a valid mobile number.")
+        return value
 
 
 class BookingStatusUpdateRequest(BaseModel):
@@ -114,13 +136,18 @@ class BookingServiceItemOut(BaseModel):
 
 class BookingOut(BaseModel):
     id: int
-    customer: BookingCustomerOut
+    customer: Optional[BookingCustomerOut] = None
+    guest_name: Optional[str] = None
+    guest_email: Optional[str] = None
+    guest_phone: Optional[str] = None
     branch: BookingBranchOut
     service: BookingServiceOut
     service_provider: Optional[BookingProviderOut] = None
     preferred_service_provider: Optional[BookingProviderOut] = None
     service_items: list[BookingServiceItemOut] = Field(default_factory=list)
     appointment_date: datetime
+    checked_in_at: Optional[datetime] = None
+    confirmation_sms_sent: Optional[bool] = None
     status: str
     notes: Optional[str] = None
     created_at: datetime

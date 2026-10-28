@@ -1,4 +1,5 @@
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr, field_validator
@@ -13,10 +14,26 @@ from app.models.branch import Branch
 from app.models.feedback import Feedback
 from app.models.service import Service
 from app.models.transaction import Transaction
+from app.models.day_closure import DayClosure
 from app.models.user import User
 from app.services.forecast_service import build_branch_forecast
+from app.services.sms_service import normalize_phone_number
 
 router = APIRouter(prefix="/owner", tags=["Owner"])
+BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
+BUSINESS_OPEN_TIME = time(8, 30)
+AUTOMATIC_CUTOFF_TIME = time(5, 0)
+
+
+def _owner_business_date() -> date:
+    local_now = datetime.now(BUSINESS_TIMEZONE)
+    return local_now.date() if local_now.time() >= BUSINESS_OPEN_TIME else local_now.date() - timedelta(days=1)
+
+
+def _owner_business_day_bounds(business_date: date) -> tuple[datetime, datetime]:
+    local_start = datetime.combine(business_date, BUSINESS_OPEN_TIME, BUSINESS_TIMEZONE)
+    local_end = datetime.combine(business_date + timedelta(days=1), AUTOMATIC_CUTOFF_TIME, BUSINESS_TIMEZONE)
+    return local_start.astimezone(timezone.utc).replace(tzinfo=None), local_end.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class BranchPayload(BaseModel):
@@ -69,7 +86,6 @@ class UserUpdatePayload(BaseModel):
     role: str
     branch_id: int | None = None
     phone_number: str | None = None
-    email_verified: bool = True
 
     @field_validator("full_name")
     @classmethod
@@ -133,10 +149,14 @@ def _serialize_booking(booking: Booking) -> dict:
     return {
         "id": booking.id,
         "customer": {
-            "id": booking.customer.id,
-            "full_name": booking.customer.full_name,
-            "email": booking.customer.email,
-        } if booking.customer else None,
+            "id": booking.customer.id if booking.customer else None,
+            "full_name": booking.customer.full_name if booking.customer else booking.guest_name or "Guest customer",
+            "email": booking.customer.email if booking.customer else booking.guest_email,
+            "phone_number": booking.customer.phone_number if booking.customer else booking.guest_phone,
+        },
+        "guest_name": booking.guest_name,
+        "guest_email": booking.guest_email,
+        "guest_phone": booking.guest_phone,
         "branch": {"id": booking.branch.id, "name": booking.branch.name} if booking.branch else None,
         "service": {
             "id": booking.service.id,
@@ -188,7 +208,7 @@ def _serialize_transaction(transaction: Transaction) -> dict:
             "status": booking.status,
             "branch": {"id": booking.branch.id, "name": booking.branch.name} if booking and booking.branch else None,
             "service": {"id": booking.service.id, "name": booking.service.name} if booking and booking.service else None,
-            "customer": {"id": booking.customer.id, "full_name": booking.customer.full_name, "phone_number": booking.customer.phone_number} if booking and booking.customer else None,
+            "customer": {"id": booking.customer.id if booking.customer else None, "full_name": booking.customer.full_name if booking.customer else booking.guest_name or "Guest customer", "phone_number": booking.customer.phone_number if booking.customer else booking.guest_phone} if booking else None,
         } if booking else None,
     }
 
@@ -222,7 +242,10 @@ def get_owner_dashboard(
     today_start = datetime.combine(today, time.min)
     tomorrow_start = today_start + timedelta(days=1)
 
-    total_sales = db.query(func.coalesce(func.sum(Transaction.amount), 0)).scalar() or 0
+    salon_revenue_expr = Transaction.amount - func.coalesce(Transaction.commission_amount, 0)
+    total_sales = db.query(func.coalesce(func.sum(salon_revenue_expr), 0)).scalar() or 0
+    total_staff_commission = db.query(func.coalesce(func.sum(Transaction.commission_amount), 0)).scalar() or 0
+    total_collected = db.query(func.coalesce(func.sum(Transaction.amount), 0)).scalar() or 0
     today_bookings = db.query(Booking).filter(
         Booking.appointment_date >= today_start,
         Booking.appointment_date < tomorrow_start,
@@ -237,6 +260,8 @@ def get_owner_dashboard(
         "today_bookings": today_bookings,
         "transactions": db.query(Transaction).count(),
         "total_sales": float(total_sales),
+        "staff_commission": float(total_staff_commission),
+        "total_collected": float(total_collected),
     }
 
     branch_rows = (
@@ -244,7 +269,7 @@ def get_owner_dashboard(
             Branch.id,
             Branch.name,
             func.count(Booking.id).label("bookings"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("sales"),
+            func.coalesce(func.sum(salon_revenue_expr), 0).label("sales"),
         )
         .outerjoin(Booking, Booking.branch_id == Branch.id)
         .outerjoin(Transaction, Transaction.booking_id == Booking.id)
@@ -272,7 +297,7 @@ def get_owner_dashboard(
         db.query(
             Service.name,
             func.count(Booking.id).label("bookings"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("sales"),
+            func.coalesce(func.sum(salon_revenue_expr), 0).label("sales"),
         )
         .outerjoin(Booking, Booking.service_id == Service.id)
         .outerjoin(Transaction, Transaction.booking_id == Booking.id)
@@ -314,7 +339,7 @@ def list_owner_branches(
                 **_serialize_branch(branch),
                 "bookings": db.query(Booking).filter(Booking.branch_id == branch.id).count(),
                 "sales": float(
-                    db.query(func.coalesce(func.sum(Transaction.amount), 0))
+                    db.query(func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0))
                     .join(Booking, Transaction.booking_id == Booking.id)
                     .filter(Booking.branch_id == branch.id)
                     .scalar()
@@ -388,14 +413,15 @@ def create_owner_user(
 ):
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="Email is already registered.")
-    if payload.branch_id and not db.query(Branch).filter(Branch.id == payload.branch_id).first():
+    branch_id = None if payload.role == "customer" else payload.branch_id
+    if branch_id and not db.query(Branch).filter(Branch.id == branch_id).first():
         raise HTTPException(status_code=404, detail="Branch not found.")
     user = User(
         full_name=payload.full_name,
         email=str(payload.email).lower(),
         password_hash=hash_password(payload.password),
         role=payload.role,
-        branch_id=payload.branch_id,
+        branch_id=branch_id,
         phone_number=payload.phone_number,
         email_verified=True,
         otp_method="email",
@@ -417,13 +443,24 @@ def update_owner_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-    if payload.branch_id and not db.query(Branch).filter(Branch.id == payload.branch_id).first():
+    if user.role == "customer" and payload.role != "customer":
+        raise HTTPException(status_code=409, detail="A customer account's role cannot be changed after registration.")
+    branch_id = None if payload.role == "customer" else payload.branch_id
+    if branch_id and not db.query(Branch).filter(Branch.id == branch_id).first():
         raise HTTPException(status_code=404, detail="Branch not found.")
+    phone_number = None
+    if payload.phone_number and payload.phone_number.strip():
+        try:
+            phone_number = normalize_phone_number(payload.phone_number)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    phone_changed = phone_number != user.phone_number
     user.full_name = payload.full_name
     user.role = payload.role
-    user.branch_id = payload.branch_id
-    user.phone_number = payload.phone_number
-    user.email_verified = payload.email_verified
+    user.branch_id = branch_id
+    user.phone_number = phone_number
+    if phone_changed:
+        user.phone_verified = False
     user.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(user)
@@ -485,7 +522,7 @@ def get_owner_reports(
         transaction_query = transaction_query.filter(Booking.branch_id == branch_id)
 
     transaction_totals = (
-        db.query(Transaction.booking_id.label("booking_id"), func.sum(Transaction.amount).label("sales"))
+        db.query(Transaction.booking_id.label("booking_id"), func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)).label("sales"))
         .group_by(Transaction.booking_id)
         .subquery()
     )
@@ -527,16 +564,127 @@ def get_owner_reports(
             "completed": booking_query.filter(Booking.status == "completed").count(),
             "pending": booking_query.filter(Booking.status == "pending").count(),
             "cancelled": booking_query.filter(Booking.status == "cancelled").count(),
-            "sales": float(transaction_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar() or 0),
+            "sales": float(transaction_query.with_entities(func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0)).scalar() or 0),
+            "staff_commission": float(transaction_query.with_entities(func.coalesce(func.sum(Transaction.commission_amount), 0)).scalar() or 0),
+            "total_collected": float(transaction_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar() or 0),
         },
         "branches": [{"name": row.name, "bookings": row.bookings, "sales": float(row.sales or 0)} for row in branch_rows],
         "services": [{"name": row.name, "bookings": row.bookings, "sales": float(row.sales or 0)} for row in service_rows],
     }
 
 
+@router.get("/reports/dates")
+def list_owner_report_dates(
+    current_user: User = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+):
+    branch_ids = [row[0] for row in db.query(Branch.id).filter(Branch.is_active.is_(True)).all()]
+    current_business_date = _owner_business_date()
+    business_dates = {current_business_date}
+    if branch_ids:
+        timestamps = (
+            db.query(Transaction.created_at)
+            .join(Booking, Transaction.booking_id == Booking.id)
+            .filter(Booking.branch_id.in_(branch_ids))
+            .order_by(Transaction.created_at.desc())
+            .limit(10000)
+            .all()
+        )
+        for (created_at,) in timestamps:
+            if not created_at:
+                continue
+            timestamp = created_at.replace(tzinfo=timezone.utc) if created_at.tzinfo is None else created_at
+            local_timestamp = timestamp.astimezone(BUSINESS_TIMEZONE)
+            business_date = local_timestamp.date() if local_timestamp.time() >= BUSINESS_OPEN_TIME else local_timestamp.date() - timedelta(days=1)
+            if business_date <= current_business_date:
+                business_dates.add(business_date)
+        closures = db.query(DayClosure.business_date).filter(
+            DayClosure.branch_id.in_(branch_ids),
+            DayClosure.business_date <= current_business_date,
+        ).all()
+        business_dates.update(day for (day,) in closures if day)
+    return {"dates": [day.isoformat() for day in sorted(business_dates, reverse=True)]}
+
+
+@router.get("/reports/day-summary")
+def get_owner_day_report(
+    report_date: date,
+    current_user: User = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+):
+    branch_rows = db.query(Branch).filter(Branch.is_active.is_(True)).order_by(Branch.name).all()
+    branch_ids = [branch.id for branch in branch_rows]
+    start, end = _owner_business_day_bounds(report_date)
+    transactions = []
+    if branch_ids:
+        transactions = (
+            db.query(Transaction)
+            .options(
+                joinedload(Transaction.booking).joinedload(Booking.service),
+                joinedload(Transaction.booking).joinedload(Booking.branch),
+            )
+            .join(Booking, Transaction.booking_id == Booking.id)
+            .filter(Booking.branch_id.in_(branch_ids), Transaction.created_at >= start, Transaction.created_at < end)
+            .order_by(Transaction.created_at.asc())
+            .all()
+        )
+    closures = db.query(DayClosure).options(joinedload(DayClosure.closed_by)).filter(
+        DayClosure.branch_id.in_(branch_ids),
+        DayClosure.business_date == report_date,
+    ).all() if branch_ids else []
+    automatic_cutoff = datetime.combine(report_date + timedelta(days=1), AUTOMATIC_CUTOFF_TIME, BUSINESS_TIMEZONE)
+    automatically_closed = datetime.now(BUSINESS_TIMEZONE) >= automatic_cutoff
+    automatic_cutoff_utc = automatic_cutoff.astimezone(timezone.utc).replace(tzinfo=None)
+    branch_reports = {
+        branch.id: {
+            "branch_id": branch.id,
+            "branch_name": branch.name,
+            "online_count": 0,
+            "walk_in_count": 0,
+            "total_collected": 0.0,
+            "commission_total": 0.0,
+            "payment_methods": {method: 0.0 for method in ("cash", "gcash", "card", "bank_transfer")},
+            "services": {},
+        }
+        for branch in branch_rows
+    }
+    for transaction in transactions:
+        booking = transaction.booking
+        amount = float(transaction.amount or 0)
+        commission = float(transaction.commission_amount or 0)
+        branch_report = branch_reports[booking.branch_id]
+        branch_report["total_collected"] += amount
+        branch_report["commission_total"] += commission
+        branch_report["payment_methods"][transaction.payment_method] = branch_report["payment_methods"].get(transaction.payment_method, 0.0) + amount
+        service_name = booking.service.name if booking.service else "Salon service"
+        branch_report["services"][service_name] = branch_report["services"].get(service_name, 0) + 1
+        if (booking.notes or "").startswith("Walk-in"):
+            branch_report["walk_in_count"] += 1
+        else:
+            branch_report["online_count"] += 1
+
+    all_branches_closed = bool(branch_ids) and len({closure.branch_id for closure in closures}) == len(branch_ids)
+    is_closed = all_branches_closed or automatically_closed
+    for branch_report in branch_reports.values():
+        branch_report["salon_sales"] = round(branch_report["total_collected"] - branch_report.pop("commission_total"), 2)
+        branch_report["total_collected"] = round(branch_report["total_collected"], 2)
+        branch_report["payment_methods"] = {key: round(value, 2) for key, value in branch_report["payment_methods"].items()}
+        branch_report["services"] = [{"name": name, "count": count} for name, count in sorted(branch_report["services"].items(), key=lambda item: item[1], reverse=True)]
+    return {
+        "report_date": report_date,
+        "branch_name": "All branches",
+        "prepared_by": current_user.full_name,
+        "generated_at": datetime.now(),
+        "is_closed": is_closed,
+        "closed_at": max((closure.closed_at for closure in closures), default=automatic_cutoff_utc if automatically_closed else None),
+        "closed_by": "All branches" if all_branches_closed else "Automatic 5:00 AM cutoff" if automatically_closed else None,
+        "branches": list(branch_reports.values()),
+    }
+
+
 @router.get("/dashboard/performance")
 def get_owner_dashboard_performance(
-    period: str = Query("weekly", pattern="^(weekly|monthly|yearly)$"),
+    period: str = Query("weekly", pattern="^(daily|weekly|monthly|yearly)$"),
     current_user: User = Depends(require_role("owner")),
     db: Session = Depends(get_db),
 ):
@@ -547,9 +695,9 @@ def get_owner_dashboard_performance(
         bookings = db.query(Booking).filter(Booking.branch_id == branch.id, Booking.appointment_date >= start, Booking.appointment_date < end)
         booking_count = bookings.count()
         completed = bookings.filter(Booking.status == "completed").count()
-        sales = float(db.query(func.coalesce(func.sum(Transaction.amount), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
+        sales = float(db.query(func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
         branch_rating = float(db.query(func.avg(Feedback.branch_rating)).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Feedback.branch_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).scalar() or 0)
-        transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
+        transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
         transaction_metrics = {row.provider_id: row for row in transaction_rows}
         rating_rows = db.query(Feedback.service_provider_id.label("provider_id"), func.avg(Feedback.staff_rating).label("average"), func.count(Feedback.id).label("count")).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Feedback.service_provider_id.isnot(None), Feedback.staff_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).group_by(Feedback.service_provider_id).all()
         rating_metrics = {row.provider_id: row for row in rating_rows}
@@ -614,7 +762,7 @@ def get_owner_audit_logs(
     for user in db.query(User).order_by(User.created_at.desc()).limit(10).all():
         events.append({"type": "user", "action": f"{user.role.title()} account registered", "actor": user.full_name, "created_at": user.created_at})
     for booking in _booking_query(db).order_by(Booking.updated_at.desc()).limit(10).all():
-        events.append({"type": "booking", "action": f"Booking marked {booking.status}", "actor": booking.customer.full_name if booking.customer else "Customer", "created_at": booking.updated_at or booking.created_at})
+        events.append({"type": "booking", "action": f"Booking marked {booking.status}", "actor": booking.customer.full_name if booking.customer else booking.guest_name or "Customer", "created_at": booking.updated_at or booking.created_at})
     for transaction in _transaction_query(db).order_by(Transaction.created_at.desc()).limit(10).all():
         events.append({"type": "transaction", "action": f"Payment recorded via {transaction.payment_method}", "actor": transaction.staff.full_name if transaction.staff else "Staff", "created_at": transaction.created_at})
     events.sort(key=lambda event: event["created_at"] or datetime.min, reverse=True)

@@ -59,6 +59,10 @@ export const staffTransactionService = {
     const response = await api.get("/staff/transactions/online-bookings");
     return response.data;
   },
+  cancelledBookings: async () => {
+    const response = await api.get("/staff/transactions/cancelled-bookings");
+    return response.data;
+  },
 
   confirmOnlineBooking: async (bookingId, serviceProviderId, serviceProviderIds = {}) => {
     const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/confirm`, { service_provider_id: Number(serviceProviderId), service_provider_ids: Object.fromEntries(Object.entries(serviceProviderIds).map(([key, value]) => [Number(key), Number(value)])) });
@@ -69,13 +73,22 @@ export const staffTransactionService = {
     const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/treatment-done`);
     return response.data;
   },
+  checkInOnlineBooking: async (bookingId) => {
+    const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/check-in`);
+    return response.data;
+  },
   cancelOnlineBooking: async (bookingId, reason) => {
     const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/cancel`, { reason });
     return response.data;
   },
 
   dayEndSummary: async (reportDate) => {
-    const response = await api.get("/staff/transactions/day-end/summary", { params: { report_date: reportDate } });
+    const response = await api.get("/staff/transactions/day-end/summary", { params: { report_date: reportDate }, timeout: 10000 });
+    return response.data;
+  },
+
+  dayEndDates: async () => {
+    const response = await api.get("/staff/transactions/day-end/dates");
     return response.data;
   },
 

@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     PASSWORD_RESET_MAX_ATTEMPTS: int = 5
 
     # SMTP
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
+    SMTP_HOST: str = "sandbox.smtp.mailtrap.io"
+    SMTP_PORT: int = 2525
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""      
     EMAIL_FROM: str = ""

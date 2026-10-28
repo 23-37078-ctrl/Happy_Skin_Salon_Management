@@ -57,7 +57,7 @@ export default function BranchManagement() {
   };
 
   return (
-    <OwnerWorkspace title="Branch Management" eyebrow="Create and maintain salon branches" headerStats={[{ label: "Branches", value: branches.length, icon: HiOutlineBuildingStorefront, tone: "pink" }, { label: "Active", value: branches.filter((branch) => branch.is_active).length, icon: HiOutlineBuildingStorefront, tone: "green" }, { label: "Sales", value: formatCurrency(branches.reduce((sum, branch) => sum + Number(branch.sales || 0), 0)), icon: HiOutlineBuildingStorefront, tone: "blue" }]}>
+    <OwnerWorkspace title="Branch Management" eyebrow="Create and maintain salon branches" headerStats={[{ label: "Branches", value: branches.length, icon: HiOutlineBuildingStorefront, tone: "pink" }, { label: "Active", value: branches.filter((branch) => branch.is_active).length, icon: HiOutlineBuildingStorefront, tone: "green" }, { label: "Salon Revenue", value: formatCurrency(branches.reduce((sum, branch) => sum + Number(branch.sales || 0), 0)), icon: HiOutlineBuildingStorefront, tone: "blue" }]}>
       {error && <Notice message={error} onRetry={loadBranches} />}
       {success && <Notice tone="success" message={success} />}
 
@@ -93,7 +93,7 @@ export default function BranchManagement() {
                 <div className="mt-4 grid grid-cols-2 gap-2 text-sm min-[420px]:grid-cols-3 sm:gap-3">
                   <Metric label="Bookings" value={branch.bookings || 0} />
                   <Metric label="Users" value={branch.assigned_users || 0} />
-                  <Metric label="Sales" value={formatCurrency(branch.sales)} />
+                  <Metric label="Salon revenue" value={formatCurrency(branch.sales)} />
                 </div>
                 <button type="button" onClick={() => startEdit(branch)} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D65A9A]/25 bg-white px-4 py-2 text-sm font-bold text-[#1F2937] hover:bg-[#FFF0F7] sm:w-auto">
                   <HiOutlinePencilSquare className="h-5 w-5 text-[#D65A9A]" />

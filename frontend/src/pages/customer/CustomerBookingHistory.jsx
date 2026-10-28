@@ -146,11 +146,11 @@ export default function CustomerBookingHistory() {
 
       <section className="mt-5">
         {isLoading ? (
-          <div className="grid gap-3">
-            {Array.from({ length: 5 }).map((_, index) => <div key={index} className="h-44 animate-pulse rounded-[1.25rem] border border-[#F3E8EF] bg-white" />)}
+        <div className="grid gap-2.5">
+            {Array.from({ length: 5 }).map((_, index) => <div key={index} className="h-36 animate-pulse rounded-2xl border border-[#F3E8EF] bg-white" />)}
           </div>
         ) : filteredAppointments.length ? (
-          <div className="grid gap-3">
+          <div className="grid gap-2.5">
             {visibleAppointments.map((appointment) => (
               <AppointmentCard
                 key={appointment.id}
@@ -180,40 +180,40 @@ function AppointmentCard({ appointment, busy, onCancel }) {
   const canReview = appointment.status === "completed";
   const statusDetail = statusDetails[appointment.status] || statusDetails.pending;
   return (
-    <article className="group overflow-hidden rounded-[1.25rem] border border-[#EEDFE7] bg-white shadow-[0_8px_24px_rgba(31,41,55,0.045)] transition duration-200 hover:border-[#E3BDD1] hover:shadow-[0_14px_32px_rgba(31,41,55,0.08)]">
-      <div className="grid lg:grid-cols-[minmax(13rem,0.8fr)_minmax(24rem,1.45fr)_minmax(18rem,0.9fr)]">
-        <header className="border-b border-[#F3E8EF] p-5 lg:border-b-0 lg:border-r">
-          <div className="flex items-start justify-between gap-3 lg:block">
+    <article className="group overflow-hidden rounded-2xl border border-[#EEDFE7] bg-white shadow-[0_5px_16px_rgba(31,41,55,0.035)] transition duration-200 hover:border-[#E3BDD1] hover:shadow-[0_10px_24px_rgba(31,41,55,0.07)]">
+      <div className="grid lg:grid-cols-[minmax(11rem,0.75fr)_minmax(21rem,1.4fr)_minmax(16rem,0.85fr)]">
+        <header className="border-b border-[#F3E8EF] p-4 lg:border-b-0 lg:border-r">
+          <div className="flex items-start justify-between gap-2 lg:block">
             <div className="min-w-0">
-              <h2 className="text-lg font-extrabold leading-snug text-[#1F2937]">{appointment.service_items?.length ? appointment.service_items.map((item) => item.service?.name).filter(Boolean).join(", ") : appointment.service?.name || "Service"}</h2>
+              <h2 className="text-base font-extrabold leading-snug text-[#1F2937]">{appointment.service_items?.length ? appointment.service_items.map((item) => item.service?.name).filter(Boolean).join(", ") : appointment.service?.name || "Service"}</h2>
             </div>
-            <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-extrabold capitalize lg:mt-3 lg:inline-flex ${statusStyles[appointment.status] || statusStyles.pending}`}>{appointment.status}</span>
+            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold capitalize lg:mt-2 lg:inline-flex ${statusStyles[appointment.status] || statusStyles.pending}`}>{appointment.status}</span>
           </div>
-          {appointment.notes && <div className="mt-4 border-t border-[#F3E8EF] pt-3"><p className="text-[11px] font-bold uppercase tracking-wide text-[#9CA3AF]">Customer note</p><p className="mt-1 line-clamp-2 text-sm leading-5 text-[#6B7280]">{appointment.notes}</p></div>}
+          {appointment.notes && <div className="mt-3 border-t border-[#F3E8EF] pt-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-[#9CA3AF]">Customer note</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-[#6B7280]">{appointment.notes}</p></div>}
         </header>
 
-        <section aria-label="Appointment schedule" className="border-b border-[#F3E8EF] p-5 lg:border-b-0 lg:border-r">
-          <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#9CA3AF]">Schedule and location</p>
-          <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-            <span className="inline-flex items-center gap-2.5 text-sm font-bold text-[#374151]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineCalendarDays className="h-5 w-5 text-[#D65A9A]" /></span>{formatAppointmentDate(appointment.appointment_date)}</span>
-            <span className="inline-flex items-center gap-2.5 text-sm font-bold text-[#374151]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineClock className="h-5 w-5 text-[#D65A9A]" /></span>{formatAppointmentTime(appointment.appointment_date)}</span>
-            <span className="inline-flex items-center gap-2.5 text-sm font-semibold text-[#4B5563]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineMapPin className="h-5 w-5 text-[#D65A9A]" /></span>{appointment.branch?.name || "Branch"}</span>
-            {appointment.preferred_service_provider && <span className="inline-flex items-center gap-2.5 text-sm font-semibold text-[#4B5563]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#FFF0F7]"><HiOutlineUserGroup className="h-5 w-5 text-[#D65A9A]" /></span>{appointment.preferred_service_provider.full_name}</span>}
+        <section aria-label="Appointment schedule" className="border-b border-[#F3E8EF] p-4 lg:border-b-0 lg:border-r">
+          <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#9CA3AF]">Schedule and location</p>
+          <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+            <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#374151]"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#FFF0F7]"><HiOutlineCalendarDays className="h-4 w-4 text-[#D65A9A]" /></span>{formatAppointmentDate(appointment.appointment_date)}</span>
+            <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#374151]"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#FFF0F7]"><HiOutlineClock className="h-4 w-4 text-[#D65A9A]" /></span>{formatAppointmentTime(appointment.appointment_date)}</span>
+            <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#4B5563]"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#FFF0F7]"><HiOutlineMapPin className="h-4 w-4 text-[#D65A9A]" /></span>{appointment.branch?.name || "Branch"}</span>
+            {appointment.preferred_service_provider && <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#4B5563]"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#FFF0F7]"><HiOutlineUserGroup className="h-4 w-4 text-[#D65A9A]" /></span>{appointment.preferred_service_provider.full_name}</span>}
           </div>
         </section>
 
-        <aside className="flex flex-col justify-between gap-4 bg-[#FFFCFD] p-5">
+        <aside className="flex flex-col justify-between gap-3 bg-[#FFFCFD] p-4">
           {appointment.receipt ? (
-            <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-3.5 text-sm text-[#166534]">
-              <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 font-extrabold"><HiOutlineReceiptPercent className="h-5 w-5" /> Receipt</span><span className="text-base font-black">{Number(appointment.receipt.amount || 0).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span></div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-[#39734E]"><span>{appointment.receipt.service_provider || "Salon staff"}</span><span className="capitalize">{appointment.receipt.payment_method?.replace("_", " ")}</span>{appointment.receipt.additional_charges && <span className="w-full">Add-ons: {appointment.receipt.additional_charges}</span>}{Number(appointment.receipt.commission_amount || 0) > 0 && <span className="w-full">Staff commission / tip: {Number(appointment.receipt.commission_amount).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span>}</div>
+            <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-3 text-[13px] text-[#166534]">
+              <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5 font-extrabold"><HiOutlineReceiptPercent className="h-4 w-4" /> Receipt</span><span className="text-sm font-black">{Number(appointment.receipt.amount || 0).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span></div>
+              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-[#39734E]"><span>{appointment.receipt.service_provider || "Salon staff"}</span><span className="capitalize">{appointment.receipt.payment_method?.replace("_", " ")}</span>{appointment.receipt.additional_charges && <span className="w-full">Add-ons: {appointment.receipt.additional_charges}</span>}</div>
             </div>
           ) : (
-            <div className="rounded-xl border border-[#F3E8EF] bg-white p-3.5"><p className="text-sm font-extrabold text-[#374151]">{statusDetail.title}</p><p className="mt-1 text-xs leading-5 text-[#6B7280]">{statusDetail.description}</p></div>
+            <div className="rounded-xl border border-[#F3E8EF] bg-white p-3"><p className="text-[13px] font-extrabold text-[#374151]">{statusDetail.title}</p><p className="mt-1 text-[11px] leading-4 text-[#6B7280]">{statusDetail.description}</p></div>
           )}
           {(canReview || canCancel) && <div className="flex flex-wrap justify-end gap-2">
-            {canReview && <Link to={`/customer/feedback?booking=${encodeURIComponent(String(appointment.id))}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#C9558F] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#B94780] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineChatBubbleLeftRight className="h-5 w-5" /> Review service</Link>}
-            {canCancel && <button type="button" disabled={busy} onClick={() => onCancel(appointment.id)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#F1C7D5] bg-white px-4 py-2 text-sm font-bold text-[#B42318] transition hover:border-[#FDA29B] hover:bg-[#FFF5F5] focus:outline-none focus:ring-4 focus:ring-[#EF4444]/10 disabled:opacity-60"><HiOutlineXMark className="h-5 w-5" /> Cancel booking</button>}
+            {canReview && <Link to={`/customer/feedback?booking=${encodeURIComponent(String(appointment.id))}`} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#C9558F] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#B94780] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineChatBubbleLeftRight className="h-4 w-4" /> Review service</Link>}
+            {canCancel && <button type="button" disabled={busy} onClick={() => onCancel(appointment.id)} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#F1C7D5] bg-white px-3 py-1.5 text-xs font-bold text-[#B42318] transition hover:border-[#FDA29B] hover:bg-[#FFF5F5] focus:outline-none focus:ring-4 focus:ring-[#EF4444]/10 disabled:opacity-60"><HiOutlineXMark className="h-4 w-4" /> Cancel</button>}
           </div>}
         </aside>
       </div>

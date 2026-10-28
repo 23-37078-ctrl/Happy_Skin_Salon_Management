@@ -6,8 +6,8 @@ const managerService = {
     return response.data;
   },
 
-  dashboardPerformance: async (period = "weekly") => {
-    const response = await api.get("/manager/dashboard/performance", { params: { period } });
+  dashboardPerformance: async (period = "daily", report_date = null) => {
+    const response = await api.get("/manager/dashboard/performance", { params: { period, report_date } });
     return response.data;
   },
 
@@ -41,6 +41,10 @@ const managerService = {
     return response.data;
   },
 
+  reportDates: async () => (await api.get("/manager/reports/dates")).data,
+
+  dayReport: async (reportDate) => (await api.get("/manager/reports/day-summary", { params: { report_date: reportDate }, timeout: 10000 })).data,
+
   forecasting: async () => {
     const response = await api.get("/manager/forecasting");
     return response.data;
@@ -61,7 +65,6 @@ const managerService = {
     return response.data;
   },
   auditLogs: async () => (await api.get("/manager/audit-logs")).data,
-
   updateProfile: async ({ full_name, phone_number }) => {
     const response = await api.patch("/manager/profile", { full_name, phone_number });
     return response.data;
