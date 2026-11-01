@@ -22,7 +22,6 @@ import NotificationCard from "../../components/customer/NotificationCard";
 import PromotionCard from "../../components/customer/PromotionCard";
 import RecentActivityCard from "../../components/customer/RecentActivityCard";
 import RecommendedServiceCard from "../../components/customer/RecommendedServiceCard";
-import CustomerSupportWidget from "../../components/customer/CustomerSupportWidget";
 import Footer from "../../components/public/Footer";
 import SystemPopup from "../../components/common/SystemPopup";
 import ThemeToggle from "../../components/common/ThemeToggle";
@@ -339,7 +338,6 @@ export default function CustomerDashboard() {
         <PromotionModal promotions={data?.promotions || []} onClose={() => setShowPromotions(false)} onBook={(promo) => navigate(`/customer/book?branch=${encodeURIComponent(promo.branch_id)}`)} />
       )}
 
-      <CustomerSupportWidget />
     </main>
   );
 }
@@ -555,7 +553,7 @@ function CustomerBranchCard({ branch, image, selected, onSelect }) {
       className={`h-full overflow-hidden rounded-[1.5rem] border bg-white shadow-[0_12px_34px_rgba(31,41,55,0.055)] transition hover:shadow-[0_18px_44px_rgba(214,90,154,0.13)] ${selected ? "border-[#D65A9A] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF]"}`}
     >
       <button type="button" onClick={onSelect} className="group relative block h-40 w-full overflow-hidden bg-[#FFF0F7] text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[#D65A9A]/40 sm:h-48" aria-pressed={selected} aria-label={`${selected ? "Deselect" : "Select"} ${branch.name}`}>
-        <img src={image} alt={`${branch.name} salon`} loading="lazy" className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+        <img src={image} alt={`${branch.name} salon`} loading="lazy" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = SERVICE_FALLBACK_IMAGE; }} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#1F2A44]/65 via-transparent to-transparent" />
       </button>
 

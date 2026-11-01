@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import text, inspect
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import engine
@@ -17,6 +17,11 @@ def health_check():
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
+            inspector = inspect(connection)
+            if inspector.has_table("alembic_version"):
+                version = connection.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+            else:
+                version = None
     except SQLAlchemyError:
         logger.exception("Database health check failed")
         return JSONResponse(
@@ -24,4 +29,4 @@ def health_check():
             content={"status": "degraded", "database": "unavailable"},
         )
 
-    return {"status": "ok", "database": "ok"}
+    return {"status": "ok", "database": "ok", "schema_version": version}

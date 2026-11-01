@@ -16,6 +16,7 @@ import react from "@vitejs/plugin-react";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 
 export default defineConfig({
+  envDir: "..",
   plugins: [react(), basicSsl()],
   server: {
     host: "0.0.0.0",

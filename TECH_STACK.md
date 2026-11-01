@@ -49,7 +49,7 @@ Transactions have a unique constraint on `booking_id`, so the schema permits at 
 
 The implemented forecasting workflow currently predicts **daily completed appointment demand per branch**, not sales transaction revenue. Its target is the count of completed appointments on each branch business date. It derives calendar features and lag/rolling features from historical daily demand, with history shifted to avoid target leakage.
 
-The training code compares a seven-day seasonal-naive baseline with Ridge regression, Random Forest, and Histogram Gradient Boosting using chronological validation. It reports MAE, RMSE, and WAPE, and registers the selected model. The API provides forecasts and recommendations to authorized owners and assigned managers. A readiness gate prevents training when the history is too small; forecast reads can use a clearly identified moving-average fallback.
+The training code uses scikit-learn Linear Regression with chronological validation and reports MAE, RMSE, and WAPE. The trained model is registered with its version and metrics. The API provides forecasts and recommendations to authorized owners and assigned managers. A readiness gate prevents training when the history is too small; forecast reads can use a clearly identified moving-average fallback.
 
 **Implication for sales prediction:** The current documented/model implementation is an appointment-demand forecaster. A sales-revenue model would need a separately defined target (for example, daily transaction revenue) and compatible revenue features and training pipeline. Do not treat the current appointment-count forecast as a sales forecast.
 

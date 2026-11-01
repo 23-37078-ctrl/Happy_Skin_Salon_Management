@@ -15,6 +15,8 @@ import {
   getBookingAvailability,
   getCustomerBranches,
   getCustomerServices,
+  getBookingPaymentStatus,
+  getCustomerPaymentStatus,
   getGuestBookingAvailability,
   getPublicDiscovery,
   sendGuestBookingPhoneOtp,
@@ -24,6 +26,7 @@ import { CustomerShell, Notice } from "./CustomerShell";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
 import { getSalonServiceCategory, SALON_SERVICE_CATEGORIES } from "../../constants/salonServices";
 import { useAuth } from "../../hooks/useAuth";
+import PayPalBookingButton from "../../components/payments/PayPalBookingButton";
 
 const today = () => {
   const date = new Date();
@@ -68,16 +71,62 @@ export default function CustomerBookAppointment() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [bookingSuccess, setBookingSuccess] = useState(false);
   const [doubleBookingMessage, setDoubleBookingMessage] = useState("");
   const [showDuplicateBookingConfirm, setShowDuplicateBookingConfirm] = useState(false);
   const [showBookingConfirm, setShowBookingConfirm] = useState(false);
   const [showGuestContact, setShowGuestContact] = useState(false);
-  const [guestContact, setGuestContact] = useState({ guest_name: "", guest_email: "", guest_phone: "" });
+  const [guestContact, setGuestContact] = useState({ guest_name: "", guest_phone: "" });
   const [guestPhoneVerificationId, setGuestPhoneVerificationId] = useState("");
   const [guestPhoneVerified, setGuestPhoneVerified] = useState(false);
   const [guestOtpCode, setGuestOtpCode] = useState("");
   const [guestOtpSent, setGuestOtpSent] = useState(false);
   const [isPhoneOtpBusy, setIsPhoneOtpBusy] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState("");
+  const [paymentBookingId, setPaymentBookingId] = useState(searchParams.get("booking_id") || "");
+  const [paymentToken, setPaymentToken] = useState(searchParams.get("payment_token") || "");
+  const [paymentAmount, setPaymentAmount] = useState(0);
+  const [paymentReference, setPaymentReference] = useState("");
+
+  useEffect(() => {
+    const token = searchParams.get("payment_token");
+    const bookingId = searchParams.get("booking_id");
+    if (!token && !bookingId) return;
+    let cancelled = false;
+    const verifyPayment = async () => {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          const result = token ? await getBookingPaymentStatus(token) : await getCustomerPaymentStatus(bookingId);
+          if (cancelled) return;
+          setPaymentStatus(result.status);
+          setPaymentBookingId(String(result.booking_id || bookingId || ""));
+          setPaymentToken(token || "");
+          setPaymentAmount(Number(result.amount || 0));
+          setPaymentReference(result.payment_reference || "");
+          if (result.status === "paid") {
+            setSuccess("Full payment received. Your booking is recorded and the branch will confirm your appointment by SMS.");
+            setBookingSuccess(true);
+            return;
+          }
+          if (["failed", "cancelled"].includes(result.status)) {
+            setError("Payment was not completed, so the online booking is not confirmed. Please start a new booking.");
+            return;
+          }
+        } catch {
+          if (!cancelled) setError("We couldn't verify the payment status. Please contact the branch before trying to pay again.");
+          return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      }
+      if (!cancelled) {
+        setPaymentStatus("pending");
+          setSuccess("Complete the PayPal payment below. The booking remains pending until the full amount is verified.");
+        setBookingSuccess(true);
+      }
+    };
+    verifyPayment();
+    return () => { cancelled = true; };
+  }, [searchParams]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -309,15 +358,22 @@ export default function CustomerBookAppointment() {
       const bookingResult = contact
         ? await createGuestAppointment({ ...bookingPayload, ...contact, phone_verification_id: guestPhoneVerificationId })
         : await createAppointment(bookingPayload);
+      setPaymentBookingId(String(bookingResult.id));
+      setPaymentToken(bookingResult.payment_token || "");
+      setPaymentAmount(combinedPrice);
+      setPaymentStatus("pending");
+      setBookingSuccess(true);
+      const nextParams = new URLSearchParams();
+      if (bookingResult.payment_token) nextParams.set("payment_token", bookingResult.payment_token);
+      else nextParams.set("booking_id", String(bookingResult.id));
+      navigate({ search: nextParams.toString() }, { replace: true });
+      setSuccess("Your booking request is saved. Complete the full PayPal payment to finish the online booking.");
       setShowGuestContact(false);
       setGuestPhoneVerificationId("");
       setGuestPhoneVerified(false);
       setGuestOtpSent(false);
       setGuestOtpCode("");
-      setSuccess(bookingResult.confirmation_sms_sent
-        ? "Booking request received. We sent a confirmation SMS with your appointment details and arrival policy. Please arrive 10–15 minutes early."
-        : "Booking request received, but the confirmation SMS could not be sent. Please contact the branch to confirm your number. Arrive 10–15 minutes early; bookings without check-in within 30 minutes may be cancelled.");
-      navigate(contact ? "/" : "/customer/history");
+
     } catch (requestError) {
       const detail = requestError.response?.data?.detail;
       if (typeof detail === "string" && detail.startsWith("DOUBLE_BOOKING:")) {
@@ -327,7 +383,7 @@ export default function CustomerBookAppointment() {
         return;
       }
       const validationMessage = Array.isArray(detail) ? detail.map((item) => item.msg).filter(Boolean).join(" ") : detail;
-      setError(validationMessage || (!requestError.response
+      setError(validationMessage || (!requestError.response && requestError.message !== "Network Error" ? requestError.message : !requestError.response
         ? "The booking server is temporarily unavailable. Please try again shortly."
         : "We couldn't create that appointment. Please review your details and try again."));
     } finally {
@@ -405,7 +461,7 @@ export default function CustomerBookAppointment() {
 
             <button type="submit" disabled={isSaving || isLoading} className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#B94B86] px-5 py-3 text-sm font-extrabold text-white shadow-[0_12px_28px_rgba(185,75,134,0.26)] transition hover:-translate-y-0.5 hover:bg-[#A83F78] focus:outline-none focus:ring-4 focus:ring-[#B94B86]/20 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60">
               <HiOutlineCheckCircle className="h-5 w-5" />
-              {isSaving ? "Sending request..." : "Request appointment"}
+              {isSaving ? "Saving booking..." : "Continue to full payment"}
             </button>
           </form>
 
@@ -420,8 +476,9 @@ export default function CustomerBookAppointment() {
                 <SummaryRow icon={HiOutlineCalendarDays} label="Date" value={form.appointment_date || "Not selected"} />
                 <SummaryRow icon={HiOutlineClock} label="Time" value={APPOINTMENT_SLOTS.find((slot) => slot.value === form.appointment_time)?.label || "Not selected"} />
                 <SummaryRow icon={HiOutlineClock} label="Combined duration" value={selectedServices.length ? `${combinedDuration} minutes` : "-"} />
-                <SummaryRow icon={HiOutlineSparkles} label="Estimated total" value={selectedServices.length ? `PHP ${combinedPrice.toLocaleString()}` : "-"} />
+                <SummaryRow icon={HiOutlineSparkles} label="Full payment due online" value={selectedServices.length ? `PHP ${combinedPrice.toLocaleString()}` : "-"} />
               </div>
+              <div className="mt-4 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-xs leading-5 text-[#667085]"><strong className="text-[#344054]">Secure online payment required.</strong> Complete full payment through PayPal Sandbox before your online booking is confirmed.</div>
               {selectedBranch?.address && <p className="mt-4 text-xs leading-5 text-[#667085]">{selectedBranch.address}</p>}
               <div className="mt-5 rounded-2xl border border-[#F2D8B7] bg-[#FFFAF2] p-4"><p className="text-xs font-extrabold uppercase tracking-wide text-[#9A5B13]">Arrival policy</p><p className="mt-2 text-xs leading-5 text-[#755B3B]">Please arrive 10-15 minutes early. If you arrive after your scheduled time, customers already at the branch may be served first. Bookings without staff check-in may be cancelled 30 minutes after the appointment time.</p></div>
             </div>
@@ -443,7 +500,18 @@ export default function CustomerBookAppointment() {
         onSubmit={handleGuestContactSubmit}
         isSaving={isSaving}
         error={error}
+        total={combinedPrice}
       />}
+      {bookingSuccess && <div className="fixed inset-0 z-[140] grid place-items-center bg-[#1F2A44]/55 p-4 backdrop-blur-sm" role="presentation">
+        <section role="alertdialog" aria-modal="true" aria-labelledby="booking-success-title" aria-describedby="booking-success-description" className="w-full max-w-md rounded-[1.5rem] border border-[#F0E3EA] bg-white p-6 shadow-2xl sm:p-8">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#FCE7F3] text-[#B94B86]"><HiOutlineCheckCircle className="h-8 w-8" /></div>
+          <h2 id="booking-success-title" className="mt-4 text-center text-xl font-extrabold text-[#202534]">{paymentStatus === "paid" ? "Payment received" : "Payment status"}</h2>
+          <p id="booking-success-description" className="mt-2 text-center text-sm leading-6 text-[#667085]">{success}</p>
+          {paymentStatus === "pending" && paymentBookingId && <div className="mt-5"><PayPalBookingButton bookingId={Number(paymentBookingId)} paymentToken={paymentToken} amount={paymentAmount} onPaid={(result) => { setPaymentStatus("paid"); setPaymentReference(result.capture_id || ""); setSuccess("Full payment received. Your booking is recorded and the branch will confirm your appointment by SMS."); }} /></div>}
+          {paymentStatus === "paid" && paymentReference && <p className="mt-3 text-center text-xs font-semibold text-[#475467]">PayPal transaction reference: <span className="break-all font-mono">{paymentReference}</span></p>}
+          <button type="button" autoFocus onClick={() => navigate(isAuthenticated ? "/customer/history" : "/", { replace: true })} className="mt-3 min-h-12 w-full rounded-xl border border-[#E4D4DE] bg-white px-5 py-3 text-sm font-extrabold text-[#667085] hover:bg-[#FFF8FB]">{paymentStatus === "pending" ? "Check booking status later" : "View booking"}</button>
+        </section>
+      </div>}
       {doubleBookingMessage && showDuplicateBookingConfirm && <div className="fixed inset-0 z-[120] grid place-items-center bg-[#1F2A44]/55 p-4 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowDuplicateBookingConfirm(false); setDoubleBookingMessage(""); } }}>
         <section role="alertdialog" aria-modal="true" aria-labelledby="double-booking-title" aria-describedby="double-booking-description" className="w-full max-w-md rounded-[1.5rem] border border-[#F0E3EA] bg-white p-6 text-center shadow-2xl sm:p-8">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#FFF4E5] text-[#B54708]"><HiOutlineClock className="h-7 w-7" /></div>
@@ -451,7 +519,7 @@ export default function CustomerBookAppointment() {
           <p id="double-booking-description" className="mt-2 text-sm leading-6 text-[#667085]">You already have a booking for the same services and time. Do you want to book it again?</p>
           <div className="mt-6 flex flex-col-reverse justify-center gap-3 sm:flex-row">
             <button type="button" onClick={() => { setShowDuplicateBookingConfirm(false); setDoubleBookingMessage(""); }} className="min-h-11 rounded-xl border border-[#E4D4DE] bg-white px-6 py-2.5 text-sm font-extrabold text-[#667085] hover:bg-[#FFF8FB]">No, cancel</button>
-            <button type="button" autoFocus disabled={isSaving} onClick={() => { setShowDuplicateBookingConfirm(false); submitBooking(null, true); }} className="min-h-11 rounded-xl bg-[#B94B86] px-6 py-2.5 text-sm font-extrabold text-white hover:bg-[#A83F78] disabled:opacity-50">{isSaving ? "Booking..." : "Yes, book again"}</button>
+            <button type="button" autoFocus disabled={isSaving} onClick={() => { setShowDuplicateBookingConfirm(false); submitBooking(isAuthenticated ? null : guestContact, true); }} className="min-h-11 rounded-xl bg-[#B94B86] px-6 py-2.5 text-sm font-extrabold text-white hover:bg-[#A83F78] disabled:opacity-50">{isSaving ? "Opening checkout..." : "Continue to payment"}</button>
           </div>
         </section>
       </div>}
@@ -459,7 +527,7 @@ export default function CustomerBookAppointment() {
         <section role="alertdialog" aria-modal="true" aria-labelledby="confirm-booking-title" aria-describedby="confirm-booking-description" className="w-full max-w-lg rounded-[1.5rem] border border-[#F0E3EA] bg-white p-6 shadow-2xl sm:p-8">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#FCE7F3] text-[#B94B86]"><HiOutlineCheckCircle className="h-7 w-7" /></div>
           <h2 id="confirm-booking-title" className="mt-4 text-center text-xl font-extrabold text-[#202534]">Confirm your booking</h2>
-          <p id="confirm-booking-description" className="mt-2 text-center text-sm leading-6 text-[#667085]">Please review your appointment details before we send the booking request.</p>
+          <p id="confirm-booking-description" className="mt-2 text-center text-sm leading-6 text-[#667085]">Review your appointment and full amount due. The booking is confirmed after online payment.</p>
           <div className="mt-5 space-y-2 rounded-2xl border border-[#F0E3EA] bg-[#FFFBFD] p-4 text-sm">
             <p><span className="font-bold text-[#344054]">Branch:</span> <span className="text-[#667085]">{selectedBranch?.name || "Not selected"}</span></p>
             <p><span className="font-bold text-[#344054]">Services:</span> <span className="text-[#667085]">{selectedServices.map((service) => service.name).join(", ") || "Not selected"}</span></p>
@@ -469,7 +537,7 @@ export default function CustomerBookAppointment() {
           {doubleBookingMessage && <p className="mt-3 rounded-xl bg-[#FFF4E5] px-3 py-2 text-xs leading-5 text-[#9A5B13]">{doubleBookingMessage} Your request will be checked again before it is submitted.</p>}
           <div className="mt-6 flex flex-col-reverse justify-center gap-3 sm:flex-row">
             <button type="button" disabled={isSaving} onClick={() => setShowBookingConfirm(false)} className="min-h-11 rounded-xl border border-[#E4D4DE] bg-white px-6 py-2.5 text-sm font-extrabold text-[#667085] hover:bg-[#FFF8FB] disabled:opacity-50">Back to booking</button>
-            <button type="button" disabled={isSaving} onClick={() => { setShowBookingConfirm(false); submitBooking(null, Boolean(doubleBookingMessage)); }} className="min-h-11 rounded-xl bg-[#B94B86] px-6 py-2.5 text-sm font-extrabold text-white hover:bg-[#A83F78] disabled:opacity-50">{isSaving ? "Confirming..." : "Confirm booking"}</button>
+            <button type="button" disabled={isSaving} onClick={() => { setShowBookingConfirm(false); submitBooking(null, Boolean(doubleBookingMessage)); }} className="min-h-11 rounded-xl bg-[#B94B86] px-6 py-2.5 text-sm font-extrabold text-white hover:bg-[#A83F78] disabled:opacity-50">{isSaving ? "Opening checkout..." : "Continue to payment"}</button>
           </div>
         </section>
       </div>}
@@ -477,17 +545,17 @@ export default function CustomerBookAppointment() {
   );
 }
 
-function GuestContactDialog({ value, onChange, onClose, onSubmit, isSaving, error, phoneVerified, otpSent, otpCode, onPhoneChange, onOtpCodeChange, onSendCode, onVerifyCode, otpBusy }) {
+function GuestContactDialog({ value, onChange, onClose, onSubmit, isSaving, error, phoneVerified, otpSent, otpCode, onPhoneChange, onOtpCodeChange, onSendCode, onVerifyCode, otpBusy, total }) {
   return <div className="fixed inset-0 z-[100] grid place-items-center bg-[#1F2A44]/55 p-4 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSaving) onClose(); }}>
     <form onSubmit={onSubmit} role="dialog" aria-modal="true" aria-labelledby="guest-booking-title" className="w-full max-w-lg rounded-[1.5rem] border border-[#F0E3EA] bg-white p-5 shadow-2xl sm:p-7">
       <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-extrabold uppercase tracking-[0.16em] text-[#B94B86]">Guest booking</p><h2 id="guest-booking-title" className="mt-1 text-xl font-extrabold text-[#202534]">Your contact details</h2><p className="mt-2 text-sm leading-6 text-[#667085]">The branch staff will use these details to identify you and confirm your appointment.</p></div><button type="button" onClick={onClose} disabled={isSaving} aria-label="Close contact details" className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#667085] hover:bg-[#FFF0F7] disabled:opacity-50"><HiOutlineXMark className="h-5 w-5" /></button></div>
       {error && <p role="alert" className="mt-4 rounded-xl bg-[#FEF2F2] px-3 py-2 text-sm text-[#B42318]">{error}</p>}
+      <p className="mt-4 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-xs leading-5 text-[#667085]">Online reservations require full payment of <strong className="text-[#344054]">PHP {Number(total || 0).toLocaleString()}</strong>. After verifying your mobile number, complete the payment using PayPal.</p>
       <div className="mt-5 space-y-4">
         <label className="block text-sm font-bold text-[#344054]">Full name<input required autoComplete="name" minLength={2} maxLength={100} value={value.guest_name} onChange={(event) => onChange((current) => ({ ...current, guest_name: event.target.value }))} placeholder="Your full name" className="form-input mt-2" /></label>
         <div><label className="block text-sm font-bold text-[#344054]">Mobile number<input required type="tel" autoComplete="tel" minLength={7} maxLength={20} pattern="[+0-9 ()-]{7,20}" value={value.guest_phone} onChange={(event) => onPhoneChange(event.target.value)} placeholder="09XX XXX XXXX" className="form-input mt-2" /></label><div className="mt-2 flex flex-wrap items-center gap-2">{phoneVerified ? <span className="rounded-full bg-[#DCFCE7] px-3 py-1.5 text-xs font-bold text-[#166534]">Mobile number verified</span> : <button type="button" onClick={onSendCode} disabled={otpBusy || isSaving} className="rounded-xl border border-[#B94B86]/30 px-3 py-2 text-xs font-bold text-[#A83F78] disabled:opacity-50">{otpBusy && !otpSent ? "Sending code..." : otpSent ? "Resend code" : "Text me a verification code"}</button>}</div>{otpSent && !phoneVerified && <div className="mt-3 flex gap-2"><input aria-label="SMS verification code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={otpCode} onChange={(event) => onOtpCodeChange(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="form-input" /><button type="button" onClick={onVerifyCode} disabled={otpBusy || otpCode.length !== 6} className="shrink-0 rounded-xl bg-[#1F2937] px-4 text-xs font-bold text-white disabled:opacity-50">{otpBusy ? "Checking..." : "Verify"}</button></div>}<p className="mt-2 text-xs leading-5 text-[#667085]">We'll text this number a receipt and booking policy. Verify it first so we know it's correct.</p></div>
-        <label className="block text-sm font-bold text-[#344054]">Email address<input required type="email" autoComplete="email" maxLength={255} value={value.guest_email} onChange={(event) => onChange((current) => ({ ...current, guest_email: event.target.value }))} placeholder="you@example.com" className="form-input mt-2" /></label>
       </div>
-      <button type="submit" disabled={isSaving || !phoneVerified} className="mt-6 min-h-12 w-full rounded-xl bg-[#B94B86] px-5 py-3 text-sm font-extrabold text-white transition hover:bg-[#A83F78] disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? "Sending request..." : "Send appointment request"}</button>
+      <button type="submit" disabled={isSaving || !phoneVerified} className="mt-6 min-h-12 w-full rounded-xl bg-[#B94B86] px-5 py-3 text-sm font-extrabold text-white transition hover:bg-[#A83F78] disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? "Opening checkout..." : "Continue to full payment"}</button>
       <p className="mt-3 text-center text-xs text-[#98A2B3]">No account or registration required.</p>
     </form>
   </div>;

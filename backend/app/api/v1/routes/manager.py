@@ -52,7 +52,7 @@ def get_manager_audit_logs(current_user: User = Depends(require_manager_branch),
         .filter(Booking.branch_id == current_user.branch_id)
         .order_by(Transaction.created_at.desc()).limit(50).all())
     for transaction in transactions:
-        events.append({"type": "transaction", "action": f"Payment recorded via {transaction.payment_method}", "actor": transaction.staff.full_name if transaction.staff else "Staff", "created_at": transaction.created_at})
+        events.append({"type": "transaction", "action": f"Payment recorded via {transaction.payment_method}", "actor": transaction.staff.full_name if transaction.staff else "Online payment", "created_at": transaction.created_at})
     events.sort(key=lambda event: event["created_at"] or datetime.min, reverse=True)
     return {"audit_logs": events[:100]}
 

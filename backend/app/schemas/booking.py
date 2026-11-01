@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
@@ -48,11 +48,10 @@ class BookingCreateRequest(BaseModel):
 
 class GuestBookingCreateRequest(BookingCreateRequest):
     guest_name: str = Field(min_length=2, max_length=100)
-    guest_email: EmailStr
     guest_phone: str = Field(min_length=7, max_length=20)
     phone_verification_id: str = Field(min_length=36, max_length=36)
 
-    @field_validator("guest_name", "guest_email", "guest_phone", mode="before")
+    @field_validator("guest_name", "guest_phone", mode="before")
     @classmethod
     def trim_guest_contact(cls, value):
         return value.strip() if isinstance(value, str) else value
@@ -148,6 +147,9 @@ class BookingOut(BaseModel):
     appointment_date: datetime
     checked_in_at: Optional[datetime] = None
     confirmation_sms_sent: Optional[bool] = None
+    payment_status: Optional[str] = None
+    payment_token: Optional[str] = None
+    checkout_url: Optional[str] = None
     status: str
     notes: Optional[str] = None
     created_at: datetime

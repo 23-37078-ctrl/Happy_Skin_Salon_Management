@@ -17,6 +17,7 @@ from app.models.booking import Booking, BookingServiceItem
 from app.models.branch import Branch
 from app.models.service import Service
 from app.models.transaction import Transaction
+from app.models.booking_payment import BookingPayment
 from app.models.day_closure import DayClosure
 from app.schemas.transaction import (
     TransactionCreateRequest,
@@ -162,7 +163,6 @@ def list_unpaid_walk_in_bookings(
     db: Session = Depends(get_db),
 ):
     _cancel_online_no_shows(db, current_user.branch_id)
-    paid_booking_ids = db.query(Transaction.booking_id)
     bookings = (
         db.query(Booking)
         .options(joinedload(Booking.customer), joinedload(Booking.service), joinedload(Booking.service_provider))
@@ -170,7 +170,7 @@ def list_unpaid_walk_in_bookings(
             Booking.branch_id == current_user.branch_id,
             Booking.notes.like("Walk-in booking%"),
             Booking.status.in_(["confirmed", "treatment_done"]),
-            ~Booking.id.in_(paid_booking_ids),
+            ~Booking.id.in_(db.query(Transaction.booking_id)),
         )
         .order_by(Booking.created_at.asc(), Booking.id.asc())
         .all()
@@ -197,6 +197,11 @@ def _cancel_online_no_shows(db: Session, branch_id: int) -> None:
         Booking.checked_in_at.is_(None),
     ).all()
     for booking in overdue:
+        payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).first()
+        if payment and payment.status == "creating":
+            continue
+        if payment and payment.status == "pending":
+            payment.status = "cancelled"
         # SQLite drops timezone info when loading DateTime(timezone=True) values.
         # Treat those stored values as UTC, consistent with booking normalization.
         appointment_date = booking.appointment_date
@@ -211,6 +216,14 @@ def _cancel_online_no_shows(db: Session, branch_id: int) -> None:
         booking.notes = f"{booking.notes or ''}\nCancelled automatically: {reason}.".strip()
     if overdue:
         db.commit()
+
+
+def _require_online_booking_paid(db: Session, booking: Booking) -> None:
+    if (booking.notes or "").startswith("Walk-in booking"):
+        return
+    payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).first()
+    if not payment or payment.status != "paid":
+        raise HTTPException(status_code=402, detail="The customer must complete full online payment before this online booking can be confirmed or checked in.")
 
 
 @router.post("/pos/walk-in/bookings", status_code=status.HTTP_201_CREATED)
@@ -260,7 +273,7 @@ def create_walk_in_booking(
         branch_id=current_user.branch_id,
         service_id=service.id,
         service_provider_id=provider.id,
-        appointment_date=datetime.now(),
+        appointment_date=datetime.now(timezone.utc).replace(tzinfo=None),
         status="confirmed",
         notes=f"Walk-in booking. {(payload.notes or '').strip()}".strip(),
     )
@@ -299,20 +312,24 @@ def list_online_bookings(
     db: Session = Depends(get_db),
 ):
     _cancel_online_no_shows(db, current_user.branch_id)
-    paid_booking_ids = db.query(Transaction.booking_id)
     bookings = (
         db.query(Booking)
+        .join(BookingPayment, BookingPayment.booking_id == Booking.id)
         .options(joinedload(Booking.customer), joinedload(Booking.service), joinedload(Booking.service_provider))
         .filter(
             Booking.branch_id == current_user.branch_id,
             or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
             Booking.status.in_(["pending", "confirmed", "treatment_done"]),
-            ~Booking.id.in_(paid_booking_ids),
+            BookingPayment.status == "paid",
         )
         .order_by(Booking.created_at.asc(), Booking.id.asc())
         .all()
     )
-    return [_serialize_walk_in_booking(booking) for booking in bookings]
+    result = [_serialize_walk_in_booking(booking) for booking in bookings]
+    for item in result:
+        item["payment_status"] = "paid"
+        item["payment_method"] = "paypal"
+    return result
 
 
 @router.get("/cancelled-bookings")
@@ -350,6 +367,7 @@ def check_in_online_booking(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Active online booking not found.")
+    _require_online_booking_paid(db, booking)
     if booking.checked_in_at is None:
         appointment_time = booking.appointment_date
         if appointment_time.tzinfo is not None:
@@ -370,6 +388,13 @@ def cancel_online_booking(booking_id: int, payload: BookingCancellationRequest, 
     booking = db.query(Booking).filter(Booking.id == booking_id, Booking.branch_id == current_user.branch_id).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Appointment not found.")
+    payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).with_for_update().first()
+    if payment and payment.status == "creating":
+        raise HTTPException(status_code=409, detail="The secure checkout is still being prepared. Try cancelling again in a moment.")
+    if payment and payment.status == "paid":
+        raise HTTPException(status_code=409, detail="This booking is already paid. Contact the customer to arrange any refund before cancelling.")
+    if payment and payment.status == "pending":
+        payment.status = "cancelled"
     if booking.status in {"cancelled", "completed", "treatment_done"}:
         raise HTTPException(status_code=400, detail="This appointment cannot be cancelled.")
     booking.status = "cancelled"
@@ -393,6 +418,7 @@ def confirm_online_booking(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Pending online booking not found.")
+    _require_online_booking_paid(db, booking)
     provider = db.query(User).filter(
         User.id == payload.service_provider_id,
         User.role == "staff",
@@ -427,6 +453,7 @@ def mark_online_treatment_done(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Confirmed online booking not found.")
+    _require_online_booking_paid(db, booking)
     booking.status = "treatment_done"
     db.commit()
     return {"id": booking.id, "status": booking.status}

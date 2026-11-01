@@ -124,7 +124,7 @@ export default function SalonDiscoverySection() {
   return (
     <div className="landing-pink min-h-screen bg-[#FFF7FA] pb-16 pt-[72px]" style={{ fontFamily: "'Poppins', sans-serif" }}>
       <section id="home" className="scroll-mt-20 overflow-hidden border-b border-[#F1E7EC] bg-gradient-to-br from-[#FFF7FA] via-[#FCE4EC] to-[#F8BBD0]">
-        <div className="mx-auto grid max-w-[1440px] items-center gap-10 px-5 py-12 sm:px-8 sm:py-16 lg:grid-cols-[1fr_0.9fr] lg:gap-16 lg:px-12 lg:py-20">
+        <div className="mx-auto grid max-w-[1440px] items-center gap-8 px-5 py-8 sm:gap-10 sm:px-8 sm:py-12 lg:grid-cols-[1fr_0.9fr] lg:gap-12 lg:px-12 lg:py-14">
           <div className="relative z-10">
             <span className="inline-flex items-center gap-2 rounded-full border border-[#E8C9D9] bg-white/80 px-3.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#C2185B] sm:text-xs">
               <span className="h-1.5 w-1.5 rounded-full bg-[#BD7772]" /> Happy Skin · Aesthetic & Beauty Lounge
@@ -205,7 +205,7 @@ export default function SalonDiscoverySection() {
           </div>
         </section>
 
-        <section id="services" className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 scroll-mt-24 overflow-hidden bg-[radial-gradient(ellipse_at_top,_#FFFFFF_0%,_#FFF8FB_48%,_#FCE7F1_100%)] py-6 text-[#754463] sm:py-8">
+        <section id="services" className="relative w-full scroll-mt-24 overflow-hidden bg-[radial-gradient(ellipse_at_top,_#FFFFFF_0%,_#FFF8FB_48%,_#FCE7F1_100%)] py-6 text-[#754463] sm:py-8">
           <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
@@ -218,7 +218,7 @@ export default function SalonDiscoverySection() {
             </div>
 
             {visibleServices.length > 0 ? <>
-              <div className="relative mx-auto h-[36rem] max-w-[110rem] sm:h-[38rem] lg:h-[39rem]" aria-roledescription="carousel" aria-label={`${activeCategory === "All Services" ? "All" : activeCategory} salon services`}>
+              <div className="relative mx-auto h-[34rem] max-w-[110rem] sm:h-[36rem] lg:h-[38rem]" aria-roledescription="carousel" aria-label={`${activeCategory === "All Services" ? "All" : activeCategory} salon services`}>
                 {visibleServices.map((service, index) => {
                   let offset = (index - currentServiceIndex + visibleServices.length) % visibleServices.length;
                   if (offset > Math.floor(visibleServices.length / 2)) offset -= visibleServices.length;
@@ -281,8 +281,8 @@ export default function SalonDiscoverySection() {
 
 function ServiceCard({ service, onBook }) {
   return (
-    <article className="group flex h-[33rem] flex-col overflow-hidden rounded-[1.6rem] border border-[#F0E3EA] bg-white shadow-[0_10px_28px_rgba(117,68,99,0.08)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_38px_rgba(117,68,99,0.16)]">
-      <div className="relative h-64 shrink-0 overflow-hidden bg-[#FFF0F7] sm:h-72">
+    <article className="group flex min-h-[30rem] flex-col overflow-hidden rounded-[1.6rem] border border-[#F0E3EA] bg-white shadow-[0_10px_28px_rgba(117,68,99,0.08)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_38px_rgba(117,68,99,0.16)] sm:min-h-[32rem]">
+      <div className="relative h-56 shrink-0 overflow-hidden bg-[#FFF0F7] sm:h-64">
         <img src={service.image || "/images/services/generated/signature-facial.jpg"} alt={service.name} loading="lazy" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = "/images/services/generated/signature-facial.jpg"; }} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
         <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-xs font-bold text-[#754463] shadow-sm"><HiOutlineClock className="h-4 w-4 text-[#C85B95]" /> {service.duration_minutes || service.duration || 0} min</span>
       </div>
@@ -327,7 +327,7 @@ function LandingBranchCard({ branch, image, selected, onSelect, onBook }) {
         <article className={`absolute inset-0 flex flex-col overflow-hidden rounded-[1.5rem] border bg-white shadow-[0_16px_40px_rgba(31,41,55,0.08)] transition-shadow hover:shadow-[0_22px_55px_rgba(214,90,154,0.14)] ${selected ? "border-[#D65A9A] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF]"}`} style={{ backfaceVisibility: "hidden" }}>
           <button type="button" onClick={() => { onSelect(); setFlipped(true); }} aria-label={`Show map for ${branch.name}`} aria-pressed={selected} className="group block shrink-0 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[#D65A9A]/40">
             <div className="relative h-[225px] overflow-hidden bg-[#FFF0F7] sm:h-[255px]">
-              <img src={image} alt={`${branch.name} salon`} loading="lazy" className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+              <img src={image} alt={`${branch.name} salon`} loading="lazy" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = "/images/services/generated/signature-facial.jpg"; }} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
               <div className="absolute inset-0 bg-gradient-to-t from-[#1F2A44]/50 via-transparent to-transparent" />
             </div>
           </button>

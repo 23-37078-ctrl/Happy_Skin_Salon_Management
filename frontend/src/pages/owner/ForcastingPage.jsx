@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  HiOutlineArrowPath,
   HiOutlineCheckBadge,
   HiOutlineClock,
   HiOutlineExclamationTriangle,
   HiOutlinePresentationChartLine,
-  HiOutlineSparkles,
 } from "react-icons/hi2";
 import ForecastChart from "../../assets/components/forecasting/ForecastChart";
 import forecastService from "../../services/forecastService";
@@ -16,15 +14,11 @@ import { EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
 export default function ForcastingPage({ embedded = false }) {
   const [forecasts, setForecasts] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState("");
-  const [hasLoaded, setHasLoaded] = useState(!embedded);
-  const [isLoading, setIsLoading] = useState(!embedded);
-  const [isTraining, setIsTraining] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   const loadForecasts = useCallback(async () => {
     setIsLoading(true);
-    setHasLoaded(true);
     setError("");
     try {
       const branchPayload = await ownerService.branches();
@@ -40,55 +34,18 @@ export default function ForcastingPage({ embedded = false }) {
   }, []);
 
   useEffect(() => {
-    if (embedded) return;
     Promise.resolve().then(loadForecasts);
-  }, [embedded, loadForecasts]);
-
-  const trainModel = async () => {
-    setIsTraining(true);
-    setError("");
-    setMessage("");
-    try {
-      const result = await forecastService.train();
-      setMessage(`${result.model} ${result.version} trained successfully.`);
-      await loadForecasts();
-    } catch (err) {
-      setError(getApiError(err, "Model training could not be completed."));
-    } finally {
-      setIsTraining(false);
-    }
-  };
+  }, [loadForecasts]);
 
   const selectedForecast = useMemo(
     () => forecasts.find((item) => String(item.branch_id) === String(selectedBranchId)) || forecasts[0] || null,
     [forecasts, selectedBranchId],
   );
 
-  const actions = (
-    <>
-      {(!embedded || hasLoaded) && <button type="button" onClick={loadForecasts} disabled={isLoading || isTraining} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#EBCFDE] bg-white px-4 py-2 text-sm font-bold text-[#6B3F5D] transition hover:border-[#D65A9A] hover:bg-[#FFF8FB] disabled:cursor-not-allowed disabled:opacity-60">
-        <HiOutlineArrowPath className={`h-5 w-5 ${isLoading ? "animate-spin" : ""}`} />
-        Refresh
-      </button>}
-      <button type="button" onClick={trainModel} disabled={isTraining || isLoading} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white shadow-[0_10px_24px_rgba(200,91,149,0.24)] transition hover:bg-[#B94B86] disabled:cursor-not-allowed disabled:opacity-60">
-        <HiOutlineSparkles className={`h-5 w-5 ${isTraining ? "animate-pulse" : ""}`} />
-        {isTraining ? "Training model..." : "Train model"}
-      </button>
-    </>
-  );
-
   const content = (
     <>
       {error && <Notice message={error} onRetry={loadForecasts} />}
-      {message && <Notice message={message} tone="success" />}
-      {isLoading ? <ForecastPageSkeleton /> : embedded && !hasLoaded ? (
-        <div className="flex flex-col gap-3 rounded-2xl border border-[#F3E8EF] bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="max-w-2xl text-sm leading-6 text-[#6B7280]">Forecasts are available on demand. Load them when you need the seven-day branch outlook.</p>
-          <button type="button" onClick={loadForecasts} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#B94B86]">
-            <HiOutlinePresentationChartLine className="h-5 w-5" /> Load forecasts
-          </button>
-        </div>
-      ) : forecasts.length ? (
+      {isLoading ? <ForecastPageSkeleton /> : forecasts.length ? (
         <div className="space-y-5">
           <section className="overflow-hidden rounded-[1.5rem] border border-[#F0DDE7] bg-white shadow-[0_16px_44px_rgba(31,41,55,0.06)]">
             <div className="flex flex-col gap-4 border-b border-[#F3E8EF] bg-gradient-to-r from-white via-[#FFF9FC] to-[#FFF2F8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between lg:px-6">
@@ -112,14 +69,13 @@ export default function ForcastingPage({ embedded = false }) {
   );
 
   if (embedded) return <section aria-labelledby="owner-forecasting-title" className="mt-6">
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-4">
       <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C85B95]">Decision intelligence · next seven days</p><h2 id="owner-forecasting-title" className="mt-1 text-lg font-bold text-[#1F2937]">Demand Forecasting</h2></div>
-      <div className="flex flex-wrap gap-2">{actions}</div>
     </div>
     {content}
   </section>;
 
-  return <OwnerWorkspace title="Demand Forecasting" eyebrow="Decision intelligence · next seven days" actions={actions}>{content}</OwnerWorkspace>;
+  return <OwnerWorkspace title="Demand Forecasting" eyebrow="Decision intelligence · next seven days">{content}</OwnerWorkspace>;
 }
 
 function ForecastWorkspace({ forecast }) {

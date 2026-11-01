@@ -212,7 +212,7 @@ class TransactionBookingOut(BaseModel):
 class TransactionOut(BaseModel):
     id: int
     booking: TransactionBookingOut
-    staff: TransactionStaffOut
+    staff: Optional[TransactionStaffOut] = None
     service_provider: Optional[TransactionStaffOut] = None
     amount: float
     payment_method: str

@@ -37,7 +37,7 @@ class InsufficientForecastData(ValueError):
 
 
 def _build_synthetic_branch_forecast(db: Session, branch: Branch, horizon: int) -> dict | None:
-    """Use generated CSV transactions as training history when live history is sparse."""
+    """Build a clearly labeled demonstration forecast from an imported synthetic CSV batch."""
     batch = db.query(SyntheticImportBatch).order_by(SyntheticImportBatch.imported_at.desc()).first()
     if not batch:
         return None
@@ -75,11 +75,7 @@ def _build_synthetic_branch_forecast(db: Session, branch: Branch, horizon: int) 
 
     from app.ml.synthetic_linear_regression import recursive_forecast
 
-    raw_predictions = recursive_forecast(
-        frame[["date", "branch_id", "service_id", "target"]],
-        model,
-        horizon,
-    )
+    raw_predictions = recursive_forecast(frame[["date", "branch_id", "service_id", "target"]], model, horizon)
     recent_average = float(frame["target"].tail(28).mean())
     predictions = []
     for point in raw_predictions:
@@ -94,12 +90,7 @@ def _build_synthetic_branch_forecast(db: Session, branch: Branch, horizon: int) 
             "recommendation": recommendation_for(level),
         })
 
-    start = predictions[0]["date"]
-    end = predictions[-1]["date"]
-    history = [
-        {"date": row.date, "actual_demand": int(row.target)}
-        for row in frame.tail(28).itertuples(index=False)
-    ]
+    start, end = predictions[0]["date"], predictions[-1]["date"]
     return {
         "branch_id": branch.id,
         "branch_name": branch.name,
@@ -110,7 +101,7 @@ def _build_synthetic_branch_forecast(db: Session, branch: Branch, horizon: int) 
         "generated_at": datetime.now(BUSINESS_TIMEZONE),
         "data_quality": "synthetic_sample",
         "data_source": "synthetic_csv",
-        "limitation": "Uses generated sample transactions from the 3-year CSV, not actual salon sales. Treat this forecast as a demonstration until real transaction history is available.",
+        "limitation": "Uses generated sample transactions from the 3-year CSV, not actual salon sales. This is demonstration data.",
         "readiness": {
             "status": "synthetic_sample",
             "history_days": len(frame),
@@ -119,7 +110,10 @@ def _build_synthetic_branch_forecast(db: Session, branch: Branch, horizon: int) 
             "reasons": ["Generated sample transaction data is being used."],
             "mae": metrics["mae"],
         },
-        "historical": history,
+        "historical": [
+            {"date": row.date, "actual_demand": int(row.target)}
+            for row in frame.tail(28).itertuples(index=False)
+        ],
         "predictions": predictions,
     }
 
@@ -158,9 +152,7 @@ def _predict_future(
         featured = add_time_series_features(working)
         row = featured.iloc[-1]
 
-        if registry and registry.algorithm == "seasonal_naive_7" and pd.notna(row.get("lag_7")):
-            predicted = float(row["lag_7"])
-        elif estimator is not None and not row[FEATURE_COLUMNS].isna().any():
+        if estimator is not None and not row[FEATURE_COLUMNS].isna().any():
             predicted = float(estimator.predict(pd.DataFrame([row[FEATURE_COLUMNS]]))[0])
         else:
             recent = working.iloc[:-1]["demand"].tail(28).dropna()
@@ -170,7 +162,7 @@ def _predict_future(
         working.loc[working.index[-1], "demand"] = predicted
         predictions.append((forecast_date, predicted))
 
-    if registry and (registry.algorithm == "seasonal_naive_7" or estimator is not None):
+    if registry and estimator is not None:
         return registry.algorithm, registry.version, predictions
     return "28-day moving average fallback", None, predictions
 

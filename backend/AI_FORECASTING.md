@@ -12,7 +12,7 @@ Supabase PostgreSQL bookings
   -> completed-only daily series in Asia/Manila
   -> data-quality/readiness gate
   -> shifted lag and rolling features
-  -> chronological candidate evaluation
+  -> chronological Linear Regression validation
   -> versioned model artifact and model_registry
   -> seven-day forecast_results
   -> FastAPI
@@ -42,16 +42,11 @@ Training requires all of the following:
 
 If these conditions are not met, `POST /api/v1/forecast/train` returns HTTP 409 with the observed counts and reasons. Forecast reads remain available through a clearly identified 28-day moving-average fallback. No accuracy is claimed for fallback output.
 
-## Candidate selection
+## Model and evaluation
 
-Training compares:
+The operational training pipeline uses a scikit-learn Linear Regression model with one-hot encoded branch IDs and standardized numeric features. It evaluates the model using chronological rolling folds, then fits the selected (and only) model to all eligible history. Predictions are clipped at zero because appointment counts cannot be negative.
 
-1. seven-day seasonal naive baseline;
-2. Ridge regression;
-3. Random Forest;
-4. Histogram Gradient Boosting.
-
-The comparison uses chronological rolling folds and reports MAE, RMSE, and WAPE. MAPE is intentionally omitted because daily demand may be zero. The lowest-MAE candidate is fitted to all eligible history and registered. Random seeds are fixed where applicable.
+Validation reports MAE, RMSE, and WAPE. MAPE is intentionally omitted because daily demand may be zero. These metrics describe held-out historical dates, not a guarantee of future accuracy. The model and its validation metrics are registered with each training version.
 
 ## Persistence
 

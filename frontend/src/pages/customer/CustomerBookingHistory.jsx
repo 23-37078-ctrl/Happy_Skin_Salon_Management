@@ -19,6 +19,7 @@ import {
   getCustomerAppointments,
 } from "../../services/customerService";
 import { CustomerShell, Notice } from "./CustomerShell";
+import PayPalBookingButton from "../../components/payments/PayPalBookingButton";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
 import {
   formatAppointmentDate,
@@ -157,6 +158,7 @@ export default function CustomerBookingHistory() {
                 appointment={appointment}
                 busy={busyId === appointment.id}
                 onCancel={setPendingCancelId}
+                onPaymentComplete={() => loadAppointments()}
               />
             ))}
           </div>
@@ -175,7 +177,7 @@ export default function CustomerBookingHistory() {
   );
 }
 
-function AppointmentCard({ appointment, busy, onCancel }) {
+function AppointmentCard({ appointment, busy, onCancel, onPaymentComplete }) {
   const canCancel = ["pending", "confirmed"].includes(appointment.status);
   const canReview = appointment.status === "completed";
   const statusDetail = statusDetails[appointment.status] || statusDetails.pending;
@@ -209,7 +211,7 @@ function AppointmentCard({ appointment, busy, onCancel }) {
               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-[#39734E]"><span>{appointment.receipt.service_provider || "Salon staff"}</span><span className="capitalize">{appointment.receipt.payment_method?.replace("_", " ")}</span>{appointment.receipt.additional_charges && <span className="w-full">Add-ons: {appointment.receipt.additional_charges}</span>}</div>
             </div>
           ) : (
-            <div className="rounded-xl border border-[#F3E8EF] bg-white p-3"><p className="text-[13px] font-extrabold text-[#374151]">{statusDetail.title}</p><p className="mt-1 text-[11px] leading-4 text-[#6B7280]">{statusDetail.description}</p></div>
+            <div className="rounded-xl border border-[#F3E8EF] bg-white p-3"><p className="text-[13px] font-extrabold text-[#374151]">{appointment.payment_status === "pending" ? "Full payment required" : statusDetail.title}</p><p className="mt-1 text-[11px] leading-4 text-[#6B7280]">{appointment.payment_status === "pending" ? "This online booking is not confirmed until the full payment is verified." : statusDetail.description}</p>{appointment.payment_status === "pending" && <div className="mt-3"><PayPalBookingButton bookingId={appointment.id} amount={appointment.payment_amount} onPaid={onPaymentComplete} /></div>}</div>
           )}
           {(canReview || canCancel) && <div className="flex flex-wrap justify-end gap-2">
             {canReview && <Link to={`/customer/feedback?booking=${encodeURIComponent(String(appointment.id))}`} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#C9558F] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#B94780] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineChatBubbleLeftRight className="h-4 w-4" /> Review service</Link>}

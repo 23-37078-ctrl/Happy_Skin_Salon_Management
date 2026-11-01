@@ -10,6 +10,7 @@ export const paymentLabels = {
   gcash: "GCash",
   card: "Card",
   bank_transfer: "Bank Transfer",
+  paypal: "PayPal",
 };
 
 export function formatCurrency(value) {

@@ -3,6 +3,8 @@
 @import "tailwindcss";
 
 @theme {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
   --text-base: 0.9375rem;
   --text-lg: 1.0625rem;
   --text-xl: 1.1875rem;

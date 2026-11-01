@@ -3,7 +3,6 @@ import { HiOutlineMapPin, HiOutlineSparkles, HiOutlineStar, HiOutlineTrophy, HiO
 import managerService from "../../services/managerService";
 import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, ManagerWorkspace, Notice } from "./ManagerWorkspace";
-import ModernDatePicker from "../../components/common/ModernDatePicker";
 
 const localDate = () => {
   const value = new Date();
@@ -14,10 +13,10 @@ export default function ManagerDashboard() {
   const [data, setData] = useState(null);
   const [forecast, setForecast] = useState({ demand_forecast: [], workforce_recommendations: [] });
   const [forecastLoaded, setForecastLoaded] = useState(false);
-  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastLoading, setForecastLoading] = useState(true);
   const [forecastError, setForecastError] = useState("");
   const [performance, setPerformance] = useState(null);
-  const period = "daily";
+  const [period, setPeriod] = useState("daily");
   const [performanceDate, setPerformanceDate] = useState(localDate);
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,27 +48,28 @@ export default function ManagerDashboard() {
 
   useEffect(() => { Promise.resolve().then(loadDashboard); }, [loadDashboard]);
   useEffect(() => { Promise.resolve().then(loadPerformance); }, [loadPerformance]);
+  useEffect(() => { Promise.resolve().then(loadForecast); }, [loadForecast]);
 
   return (
     <ManagerWorkspace title="Manager Dashboard" eyebrow={data?.branch?.name || "Assigned branch"} brandOnly>
       {error && <Notice message={error} onRetry={loadDashboard} />}
       {performanceError && <Notice message={performanceError} onRetry={loadPerformance} />}
-      <PerformanceWorkspace data={performance} loading={performanceLoading} period={period} reportDate={performanceDate} onReportDate={setPerformanceDate} onStaff={setSelectedStaff} />
+      <PerformanceWorkspace data={performance} loading={performanceLoading} period={period} onPeriodChange={setPeriod} onStaff={setSelectedStaff} />
 
       <section className="mt-6">
         <div className="mb-4"><h2 className="text-lg font-bold text-[#1F2937]">Plan ahead</h2><p className="mt-1 text-xs text-[#6B7280]">Expected appointments and a simple staffing tip for the coming week.</p></div>
         {forecastError && <Notice message={forecastError} onRetry={loadForecast} />}
-        {forecastLoading ? <CardSkeleton rows={1} /> : forecastLoaded ? forecast.demand_forecast?.length ? <div className="grid gap-4 lg:grid-cols-2"><WeeklyForecastCard items={forecast.demand_forecast.slice(0, 7)} /></div> : <EmptyState icon={HiOutlineSparkles} title="No forecast available" description="There isn’t enough appointment history to show an outlook yet." /> : <div className="flex flex-col gap-3 rounded-2xl border border-[#F3E8EF] bg-white p-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-[#6B7280]">See how busy the coming week may be.</p><button type="button" onClick={loadForecast} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white"><HiOutlineSparkles className="h-5 w-5" /> Show forecast</button></div>}
+        {forecastLoading ? <CardSkeleton rows={1} /> : forecastLoaded ? forecast.demand_forecast?.length ? <div className="grid gap-4 lg:grid-cols-2"><WeeklyForecastCard items={forecast.demand_forecast.slice(0, 7)} /></div> : <EmptyState icon={HiOutlineSparkles} title="No forecast available" description="There isn’t enough appointment history to show an outlook yet." /> : null}
       </section>
       {selectedStaff && <StaffDrawer staff={selectedStaff} period={period} onClose={() => setSelectedStaff(null)} />}
     </ManagerWorkspace>
   );
 }
 
-function PerformanceWorkspace({ data, loading, period, reportDate, onReportDate, onStaff }) {
+function PerformanceWorkspace({ data, loading, period, onPeriodChange, onStaff }) {
   const summary = data?.summary || {};
   return <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C9558F]">Assigned branch performance</p><h2 className="mt-1 text-xl font-extrabold text-[#1F2937]">{data?.branch?.name || "Branch performance"}</h2><p className="mt-1 inline-flex items-center gap-1 text-xs text-[#6B7280]"><HiOutlineMapPin className="h-4 w-4 text-[#D65A9A]" /> {data?.branch?.address || "Your assigned branch only"}</p></div><ModernDatePicker value={reportDate} onChange={onReportDate} placeholder="Filter by payment date" ariaLabel="Filter manager dashboard by date" className="w-full lg:w-72" /></div>
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C9558F]">Assigned branch performance</p><h2 className="mt-1 text-xl font-extrabold text-[#1F2937]">{data?.branch?.name || "Branch performance"}</h2><p className="mt-1 inline-flex items-center gap-1 text-xs text-[#6B7280]"><HiOutlineMapPin className="h-4 w-4 text-[#D65A9A]" /> {data?.branch?.address || "Your assigned branch only"}</p></div><div className="grid w-full grid-cols-4 gap-1 rounded-2xl border border-[#F0DCE7] bg-[#FFF8FB] p-1.5 sm:w-auto sm:min-w-[21rem]">{[["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]].map(([value, label]) => <button key={value} type="button" aria-pressed={period === value} onClick={() => onPeriodChange(value)} className={`min-h-10 rounded-xl px-2 text-xs font-extrabold transition sm:px-3 sm:text-sm ${period === value ? "bg-[#B94B86] text-white shadow-sm" : "text-[#667085] hover:bg-white hover:text-[#A83F78]"}`}>{label}</button>)}</div></div>
     {loading ? <div className="mt-5"><CardSkeleton rows={3} /></div> : <>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Metric label="Bookings" value={summary.bookings || 0} /><Metric label="Completed" value={summary.completed || 0} /><Metric label="Salon revenue" value={formatCurrency(summary.sales)} /><Metric label="Staff commission" value={formatCurrency(summary.staff_commission)} /><Metric label="Branch rating" value={summary.average_rating ? `${summary.average_rating}/5` : "—"} /></div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">

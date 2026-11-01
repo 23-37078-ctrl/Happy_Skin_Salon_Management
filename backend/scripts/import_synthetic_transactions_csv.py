@@ -85,6 +85,13 @@ def read_and_validate(path: Path):
                 "total": sale,
                 "payment_method": row["payment_method"].strip(),
             })
+            transactions[-1]["service_id"] = service_id
+            transactions[-1]["subtotal"] = subtotal
+            transactions[-1]["discount"] = discount
+            transactions[-1]["total"] = sale
+            transactions[-1]["quantity"] = 1
+            transactions[-1]["unit_price"] = subtotal
+            transactions[-1]["service_name"] = row["service_name"]
 
     if len(transactions) < 1_000:
         raise ValueError("At least 1,000 transaction rows are required for the training dataset.")
@@ -109,7 +116,7 @@ def import_rows(path: Path, transactions, daily, source_hash: str, report: dict)
     from app.core.database import SessionLocal
     from app.models.synthetic_dataset import (
         SyntheticBranch, SyntheticDailyForecast, SyntheticImportBatch,
-        SyntheticService, SyntheticTransaction,
+        SyntheticService, SyntheticTransaction, SyntheticTransactionItem,
     )
 
     db = SessionLocal()
@@ -134,7 +141,17 @@ def import_rows(path: Path, transactions, daily, source_hash: str, report: dict)
             chunk = transactions[offset:offset + 2_000]
             for record in chunk:
                 record["batch_id"] = batch.id
-            db.bulk_insert_mappings(SyntheticTransaction, chunk)
+            db.bulk_insert_mappings(SyntheticTransaction, [{key: value for key, value in record.items() if key in {"batch_id", "synthetic_id", "appointment_synthetic_id", "branch_id", "transaction_date", "subtotal", "discount", "total", "payment_method"}} for record in chunk])
+            db.bulk_insert_mappings(SyntheticTransactionItem, [{
+                "batch_id": batch.id,
+                "synthetic_id": f"{record['synthetic_id']}-ITEM",
+                "transaction_synthetic_id": record["synthetic_id"],
+                "service_id": record["service_id"],
+                "quantity": 1,
+                "unit_price": record["unit_price"],
+                "discount": record["discount"],
+                "line_total": record["total"],
+            } for record in chunk])
 
         daily_rows = []
         day_count = (END_DATE - START_DATE).days + 1

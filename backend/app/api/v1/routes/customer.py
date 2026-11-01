@@ -1,11 +1,14 @@
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import logging
+import hashlib
 import secrets
 from uuid import uuid4
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_
 from sqlalchemy import update as sql_update
@@ -20,15 +23,34 @@ from app.models.feedback import Feedback
 from app.models.service import Service
 from app.models.user import User
 from app.models.transaction import Transaction
+from app.models.booking_payment import BookingPayment
+from app.models.booking_payment_attempt import BookingPaymentAttempt
 from app.models.promotion import Promotion
 from app.models.booking_phone_verification import BookingPhoneVerification
 from app.models.customer_support import CustomerProfileChangeRequest
 from app.models.customer_notification import CustomerNotificationRead
 from app.schemas.booking import BookingCreateRequest, BookingOut, GuestBookingCreateRequest
 from app.services.sms_service import normalize_phone_number, send_booking_confirmation_sms, send_verification_sms
+from app.services.paypal_service import (
+    PayPalApiError,
+    capture_order as paypal_capture_order,
+    create_order as paypal_create_order,
+    get_order as paypal_get_order,
+    is_paypal_configured,
+    verify_webhook_signature as verify_paypal_webhook_signature,
+)
 
 router = APIRouter(prefix="/customer", tags=["Customer"])
 logger = logging.getLogger(__name__)
+
+
+class PayPalOrderRequest(BaseModel):
+    booking_id: int
+    payment_token: str | None = Field(default=None, min_length=32, max_length=100)
+
+
+class PayPalCaptureRequest(BaseModel):
+    order_id: str = Field(min_length=5, max_length=80)
 
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
 OPENING_TIME = time(9, 0)
@@ -589,6 +611,273 @@ def _booking_query(db: Session):
     )
 
 
+def _start_online_booking_payment(db: Session, booking: Booking, services: list[Service], *, guest: bool = False) -> BookingOut:
+    """Create a pending full-payment record; PayPal orders are created on demand."""
+    if not is_paypal_configured():
+        booking.status = "cancelled"
+        db.commit()
+        raise HTTPException(status_code=503, detail="Online booking payments are not configured yet. Please contact the branch.")
+    token = secrets.token_urlsafe(32) if guest else None
+    reference = f"HS-{booking.id}-{uuid4().hex[:12]}"
+    total = round(sum(float(service.price) for service in services), 2)
+    payment = BookingPayment(
+        booking_id=booking.id,
+        reference_number=reference,
+        amount=total,
+        provider="paypal",
+        status="pending",
+        guest_status_token_hash=hashlib.sha256(token.encode()).hexdigest() if token else None,
+    )
+    db.add(payment)
+    db.commit()
+    result = BookingOut.model_validate(booking)
+    return result.model_copy(update={"payment_status": "pending", "payment_token": token})
+
+
+@router.get("/payments/status")
+def get_booking_payment_status(token: str = Query(min_length=32, max_length=100), db: Session = Depends(get_db)):
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    payment = db.query(BookingPayment).filter(BookingPayment.guest_status_token_hash == token_hash).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment link was not found.")
+    return {"booking_id": payment.booking_id, "status": payment.status, "amount": payment.amount,
+            "payment_reference": payment.payment_id if payment.status == "paid" else None}
+
+
+def _payment_for_customer(db: Session, booking_id: int, current_user: User | None, token: str | None):
+    payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking_id).with_for_update().first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Booking payment was not found.")
+    booking = db.query(Booking).filter(Booking.id == booking_id).with_for_update().first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking was not found.")
+    if current_user:
+        _require_customer(current_user)
+        if booking.customer_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Booking payment was not found.")
+    else:
+        token_hash = hashlib.sha256((token or "").encode()).hexdigest()
+        if not token or not secrets.compare_digest(payment.guest_status_token_hash or "", token_hash):
+            raise HTTPException(status_code=404, detail="Booking payment was not found.")
+    if booking.status == "cancelled" or payment.status == "cancelled":
+        raise HTTPException(status_code=409, detail="This booking has been cancelled.")
+    if payment.status == "paid":
+        raise HTTPException(status_code=409, detail="This booking is already paid.")
+    return payment, booking
+
+
+def _paypal_amount(value) -> Decimal:
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, TypeError):
+        raise HTTPException(status_code=400, detail="PayPal returned an invalid amount.")
+
+
+@router.post("/payments/paypal/orders")
+async def create_customer_paypal_order(payload: PayPalOrderRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return await _create_paypal_order(payload, current_user, db)
+
+
+@router.post("/guest/payments/paypal/orders")
+async def create_guest_paypal_order(payload: PayPalOrderRequest, db: Session = Depends(get_db)):
+    return await _create_paypal_order(payload, None, db)
+
+
+async def _create_paypal_order(payload: PayPalOrderRequest, current_user: User | None, db: Session):
+    if not is_paypal_configured():
+        raise HTTPException(status_code=503, detail="PayPal Sandbox payments are not configured.")
+    payment, booking = _payment_for_customer(db, payload.booking_id, current_user, payload.payment_token)
+    payment.provider = "paypal"
+    attempt = db.query(BookingPaymentAttempt).filter(
+        BookingPaymentAttempt.booking_payment_id == payment.id,
+        BookingPaymentAttempt.status.in_(["creating", "pending"]),
+    ).order_by(BookingPaymentAttempt.id.desc()).with_for_update().first()
+    if attempt and attempt.paypal_order_id:
+        db.commit()
+        return {"order_id": attempt.paypal_order_id}
+    if not attempt:
+        amount = _paypal_amount(payment.amount)
+        attempt = BookingPaymentAttempt(
+            booking_payment_id=payment.id,
+            create_request_id=uuid4().hex,
+            status="creating",
+            amount=amount,
+            currency="PHP",
+        )
+        db.add(attempt)
+        db.flush()
+    else:
+        amount = _paypal_amount(payment.amount)
+    services = [item.service.name for item in booking.service_items if item.service] or [booking.service.name]
+    attempt_id = attempt.id
+    request_id = attempt.create_request_id
+    description = ", ".join(services)
+    reference = f"{payment.reference_number}-{attempt_id}"
+    db.commit()
+    try:
+        result = await run_in_threadpool(paypal_create_order, amount=amount, reference=reference, description=description, request_id=request_id)
+    except PayPalApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    attempt = db.query(BookingPaymentAttempt).filter(BookingPaymentAttempt.id == attempt_id).with_for_update().first()
+    payment = db.query(BookingPayment).filter(BookingPayment.id == payment.id).first()
+    booking = db.query(Booking).filter(Booking.id == booking.id).first()
+    if not attempt or not payment or not booking or booking.status == "cancelled" or payment.status != "pending":
+        if attempt:
+            attempt.status = "cancelled"
+            db.commit()
+        raise HTTPException(status_code=409, detail="Booking is no longer available for payment.")
+    order_id = result.get("id")
+    if not order_id:
+        attempt.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=502, detail="PayPal returned an invalid order response.")
+    attempt.paypal_order_id = order_id
+    attempt.status = "pending"
+    db.commit()
+    return {"order_id": order_id}
+
+
+@router.post("/payments/paypal/capture")
+async def capture_customer_paypal_order(payload: PayPalCaptureRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return await _capture_paypal_order(payload.order_id, current_user, None, db)
+
+
+@router.post("/guest/payments/paypal/capture")
+async def capture_guest_paypal_order(payload: PayPalCaptureRequest, payment_token: str = Query(min_length=32, max_length=100), db: Session = Depends(get_db)):
+    return await _capture_paypal_order(payload.order_id, None, payment_token, db)
+
+
+async def _capture_paypal_order(order_id: str, current_user: User | None, token: str | None, db: Session):
+    attempt = db.query(BookingPaymentAttempt).filter(BookingPaymentAttempt.paypal_order_id == order_id).with_for_update().first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="PayPal order was not found.")
+    payment = db.query(BookingPayment).filter(BookingPayment.id == attempt.booking_payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Booking payment was not found.")
+    payment, booking = _payment_for_customer(db, payment.booking_id, current_user, token)
+    if attempt.status in {"failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="This PayPal payment attempt is no longer active. Create a new payment attempt.")
+    if not attempt.capture_request_id:
+        attempt.capture_request_id = uuid4().hex
+        db.commit()
+    capture_error = None
+    try:
+        capture = await run_in_threadpool(paypal_capture_order, order_id, request_id=attempt.capture_request_id)
+    except PayPalApiError as exc:
+        capture_error = exc
+        capture = None
+    if not capture or capture.get("status") != "COMPLETED":
+        try:
+            capture = await run_in_threadpool(paypal_get_order, order_id)
+        except PayPalApiError as exc:
+            db.rollback()
+            safe_error = str(capture_error) if capture_error else str(exc)
+            raise HTTPException(status_code=502, detail=safe_error) from exc
+    return _record_paypal_capture(db, attempt, payment, booking, capture)
+
+
+def _record_paypal_capture(db: Session, attempt: BookingPaymentAttempt, payment: BookingPayment, booking: Booking, order: dict):
+    if order.get("status") != "COMPLETED":
+        db.rollback()
+        raise HTTPException(status_code=402, detail="PayPal has not completed this payment yet.")
+    units = order.get("purchase_units") or []
+    captures = [capture for unit in units for capture in ((unit.get("payments") or {}).get("captures") or [])]
+    captured = next((item for item in captures if item.get("status") == "COMPLETED"), None)
+    if not captured:
+        if any(item.get("status") in {"DENIED", "DECLINED"} for item in captures):
+            attempt.status = "failed"
+            db.commit()
+        raise HTTPException(status_code=402, detail="PayPal has not completed this payment yet.")
+    amount = (captured.get("amount") or {})
+    if amount.get("currency_code") != "PHP" or _paypal_amount(amount.get("value")) != _paypal_amount(payment.amount):
+        db.rollback()
+        raise HTTPException(status_code=400, detail="PayPal payment amount or currency does not match the booking.")
+    capture_id = captured.get("id")
+    if not capture_id:
+        raise HTTPException(status_code=400, detail="PayPal did not return a capture reference.")
+    if payment.status == "paid":
+        if payment.payment_id == capture_id:
+            db.rollback()
+            return {"status": "paid", "booking_id": booking.id, "capture_id": capture_id}
+        db.rollback()
+        logger.error("Different PayPal capture received for already-paid booking %s", booking.id)
+        return {"status": "paid", "booking_id": booking.id}
+    now = datetime.now(timezone.utc)
+    attempt.paypal_capture_id = capture_id
+    attempt.status = "paid"
+    attempt.paid_at = now
+    payment.status = "paid"
+    payment.payment_id = capture_id
+    payment.payment_method = "paypal"
+    payment.paid_at = now
+    transaction = db.query(Transaction).filter(Transaction.booking_id == booking.id).first()
+    created = transaction is None
+    if created:
+        db.add(Transaction(booking_id=booking.id, staff_id=None, service_provider_id=booking.service_provider_id,
+                           amount=float(payment.amount), payment_method="paypal", additional_charge=0,
+                           commission_rate=0, commission_amount=0, idempotency_key=f"paypal:{capture_id}"[:80]))
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Payment was already recorded; refresh the booking history.")
+    if created:
+        phone = booking.guest_phone or (booking.customer.phone_number if booking.customer else None)
+        name = booking.guest_name or (booking.customer.full_name if booking.customer else "Customer")
+        if phone:
+            _send_booking_receipt_sms(booking, phone, name)
+    return {"status": "paid", "booking_id": booking.id, "capture_id": capture_id}
+
+
+@router.get("/payments/{booking_id}/status")
+def get_customer_payment_status(booking_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_customer(current_user)
+    payment = db.query(BookingPayment).join(Booking).filter(BookingPayment.booking_id == booking_id, Booking.customer_id == current_user.id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Booking payment was not found.")
+    return {"booking_id": booking_id, "status": payment.status, "amount": payment.amount,
+            "payment_reference": payment.payment_id if payment.status == "paid" else None}
+
+
+@router.post("/payments/paypal/webhook")
+async def paypal_booking_webhook(request: Request, db: Session = Depends(get_db)):
+    try:
+        event = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid PayPal webhook payload.") from exc
+    try:
+        verified = await run_in_threadpool(verify_paypal_webhook_signature, event, dict(request.headers))
+    except PayPalApiError as exc:
+        raise HTTPException(status_code=502, detail="PayPal webhook verification is unavailable.") from exc
+    if not verified:
+        raise HTTPException(status_code=400, detail="Invalid PayPal webhook signature.")
+    event_type = event.get("event_type")
+    resource = event.get("resource") or {}
+    related = (resource.get("supplementary_data") or {}).get("related_ids") or {}
+    order_id = related.get("order_id") or resource.get("id")
+    if event_type == "PAYMENT.CAPTURE.DENIED" and order_id:
+        attempt = db.query(BookingPaymentAttempt).filter(BookingPaymentAttempt.paypal_order_id == order_id).with_for_update().first()
+        if attempt and attempt.status == "pending":
+            attempt.status = "failed"
+            db.commit()
+        return {"received": True, "processed": bool(attempt)}
+    if event_type in {"PAYMENT.CAPTURE.COMPLETED", "CHECKOUT.ORDER.COMPLETED"} and order_id:
+        attempt = db.query(BookingPaymentAttempt).filter(BookingPaymentAttempt.paypal_order_id == order_id).with_for_update().first()
+        if attempt:
+            payment = db.query(BookingPayment).filter(BookingPayment.id == attempt.booking_payment_id).with_for_update().first()
+            booking = db.query(Booking).filter(Booking.id == payment.booking_id).with_for_update().first() if payment else None
+            try:
+                order = await run_in_threadpool(paypal_get_order, order_id)
+                if payment and booking:
+                    _record_paypal_capture(db, attempt, payment, booking, order)
+            except HTTPException as exc:
+                if exc.status_code in {400, 402}:
+                    logger.warning("PayPal webhook did not reconcile order %s: %s", order_id, exc.detail)
+                    return {"received": True, "processed": False}
+                raise
+    return {"received": True, "processed": True}
+
+
 def _serialize_service(service: Service) -> dict:
     return {
         "id": service.id,
@@ -854,6 +1143,8 @@ def create_customer_appointment(
     db: Session = Depends(get_db),
 ):
     _require_customer(current_user)
+    if not is_paypal_configured():
+        raise HTTPException(status_code=503, detail="Online booking payments are not configured yet. Please contact the branch.")
     if not current_user.phone_verified or not current_user.phone_number:
         raise HTTPException(status_code=400, detail="Verify a mobile number in your account before booking so we can text your booking receipt and arrival policy.")
     try:
@@ -917,14 +1208,13 @@ def create_customer_appointment(
     db.commit()
     db.refresh(booking)
     booking = _booking_query(db).filter(Booking.id == booking.id).first()
-    result = BookingOut.model_validate(booking)
-    return result.model_copy(update={
-        "confirmation_sms_sent": _send_booking_receipt_sms(booking, customer_phone, current_user.full_name),
-    })
+    return _start_online_booking_payment(db, booking, ordered_services, guest=False)
 
 
 @router.post("/guest/appointments", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
 def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = Depends(get_db)):
+    if not is_paypal_configured():
+        raise HTTPException(status_code=503, detail="Online booking payments are not configured yet. Please contact the branch.")
     try:
         guest_phone = normalize_phone_number(payload.guest_phone)
     except ValueError as exc:
@@ -949,7 +1239,6 @@ def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = D
         payload.appointment_date,
         duration,
         guest_phone=guest_phone,
-        guest_email=str(payload.guest_email).lower(),
         allow_exact_duplicate=payload.allow_duplicate,
         requested_service_ids={item.id for item in ordered_services},
     )
@@ -964,7 +1253,6 @@ def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = D
     booking = Booking(
         customer_id=None,
         guest_name=payload.guest_name,
-        guest_email=str(payload.guest_email).lower(),
         guest_phone=guest_phone,
         branch_id=payload.branch_id,
         service_id=ordered_services[0].id,
@@ -981,10 +1269,7 @@ def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = D
     db.commit()
     db.refresh(booking)
     booking = _booking_query(db).filter(Booking.id == booking.id).first()
-    result = BookingOut.model_validate(booking)
-    return result.model_copy(update={
-        "confirmation_sms_sent": _send_booking_receipt_sms(booking, guest_phone, payload.guest_name),
-    })
+    return _start_online_booking_payment(db, booking, ordered_services, guest=True)
 
 
 @router.get("/appointments")
@@ -1002,6 +1287,11 @@ def list_customer_appointments(
     results = []
     for booking in bookings:
         item = BookingOut.model_validate(booking).model_dump()
+        booking_payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).first()
+        item["payment_status"] = booking_payment.status if booking_payment else "unpaid"
+        item["payment_amount"] = booking_payment.amount if booking_payment else None
+        item["payment_method"] = booking_payment.payment_method if booking_payment else None
+        item["checkout_url"] = booking_payment.checkout_url if booking_payment and booking_payment.status == "pending" else None
         transaction = db.query(Transaction).filter(Transaction.booking_id == booking.id).order_by(Transaction.created_at.desc()).first()
         provider = transaction.service_provider if transaction and transaction.service_provider else booking.service_provider
         branch_staff = db.query(User).filter(User.role == "staff", User.branch_id == booking.branch_id, User.is_active.is_(True), User.job_title.isnot(None)).order_by(User.full_name).all()
@@ -1040,6 +1330,17 @@ def cancel_customer_appointment(
         raise HTTPException(status_code=404, detail="Appointment not found.")
     if booking.status == "completed":
         raise HTTPException(status_code=400, detail="Completed appointments cannot be cancelled.")
+
+    payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).with_for_update().first()
+    if payment and payment.status == "creating":
+        raise HTTPException(status_code=409, detail="The secure checkout is still being prepared. Try cancelling again in a moment.")
+    if payment and payment.status == "paid":
+        raise HTTPException(status_code=409, detail="This booking is already paid. Contact the branch to cancel and arrange any refund.")
+    if payment and payment.status == "pending":
+        payment.status = "cancelled"
+        db.query(BookingPaymentAttempt).filter(BookingPaymentAttempt.booking_payment_id == payment.id,
+                                               BookingPaymentAttempt.status.in_(["creating", "pending"])).update(
+            {BookingPaymentAttempt.status: "cancelled"}, synchronize_session=False)
 
     booking.status = "cancelled"
     db.commit()

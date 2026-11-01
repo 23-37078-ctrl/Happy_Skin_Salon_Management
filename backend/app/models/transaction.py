@@ -13,7 +13,7 @@ class Transaction(Base):
     id              = Column(Integer, primary_key=True, index=True)
     booking_id      = Column(Integer, ForeignKey("bookings.id"), nullable=False)
     idempotency_key = Column(String(80), nullable=True)
-    staff_id        = Column(Integer, ForeignKey("users.id"), nullable=False)
+    staff_id        = Column(Integer, ForeignKey("users.id"), nullable=True)
     service_provider_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     amount          = Column(Float, nullable=False)

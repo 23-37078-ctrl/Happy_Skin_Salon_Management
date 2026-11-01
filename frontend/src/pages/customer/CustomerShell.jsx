@@ -7,7 +7,6 @@ import {
 } from "react-icons/hi2";
 import { useAuth } from "../../hooks/useAuth";
 import SystemPopup from "../../components/common/SystemPopup";
-import CustomerSupportWidget from "../../components/customer/CustomerSupportWidget";
 
 export function CustomerShell({ title, subtitle, stats, showHeading = true, backTo, backBesideLogo = false, guestMode = false, user, children }) {
   const navigate = useNavigate();
@@ -49,7 +48,6 @@ export function CustomerShell({ title, subtitle, stats, showHeading = true, back
         </header>
         {children}
       </div>
-      {!guestMode && <CustomerSupportWidget />}
     </main>
   );
 }

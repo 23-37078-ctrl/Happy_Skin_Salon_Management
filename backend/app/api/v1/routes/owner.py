@@ -15,6 +15,8 @@ from app.models.feedback import Feedback
 from app.models.service import Service
 from app.models.transaction import Transaction
 from app.models.day_closure import DayClosure
+from app.models.synthetic_dataset import SyntheticAppointment, SyntheticBranch, SyntheticImportBatch, SyntheticTransaction, SyntheticTransactionItem
+from app.models.synthetic_dataset import SyntheticDailyForecast
 from app.models.user import User
 from app.services.forecast_service import build_branch_forecast
 from app.services.sms_service import normalize_phone_number
@@ -23,6 +25,39 @@ router = APIRouter(prefix="/owner", tags=["Owner"])
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
 BUSINESS_OPEN_TIME = time(8, 30)
 AUTOMATIC_CUTOFF_TIME = time(5, 0)
+
+
+def _synthetic_staff_performance(db: Session, batch_id: int, branch_id: str, start: datetime, end: datetime) -> list[dict]:
+    rows = db.query(
+        SyntheticAppointment.staff_synthetic_id.label("staff_id"),
+        func.count(SyntheticAppointment.id).label("services"),
+        func.coalesce(func.sum(SyntheticTransactionItem.line_total), 0).label("revenue"),
+    ).join(
+        SyntheticTransaction,
+        (SyntheticTransaction.batch_id == SyntheticAppointment.batch_id)
+        & (SyntheticTransaction.appointment_synthetic_id == SyntheticAppointment.synthetic_id),
+    ).join(
+        SyntheticTransactionItem,
+        (SyntheticTransactionItem.batch_id == SyntheticTransaction.batch_id)
+        & (SyntheticTransactionItem.transaction_synthetic_id == SyntheticTransaction.synthetic_id),
+    ).filter(
+        SyntheticAppointment.batch_id == batch_id,
+        SyntheticAppointment.branch_id == branch_id,
+        SyntheticAppointment.status == "completed",
+        SyntheticAppointment.appointment_date >= start,
+        SyntheticAppointment.appointment_date < end,
+    ).group_by(SyntheticAppointment.staff_synthetic_id).all()
+    return [{
+        "staff_id": f"sample-{row.staff_id}",
+        "full_name": f"Sample Provider {row.staff_id}",
+        "job_title": "Sample Salon Specialist",
+        "services_completed": int(row.services),
+        "revenue": float(row.revenue),
+        "commission": 0,
+        "average_rating": 0,
+        "rating_count": 0,
+        "is_sample": True,
+    } for row in rows]
 
 
 def _owner_business_date() -> date:
@@ -643,7 +678,7 @@ def get_owner_day_report(
             "walk_in_count": 0,
             "total_collected": 0.0,
             "commission_total": 0.0,
-            "payment_methods": {method: 0.0 for method in ("cash", "gcash", "card", "bank_transfer")},
+            "payment_methods": {method: 0.0 for method in ("cash", "gcash", "card", "bank_transfer", "paypal")},
             "services": {},
         }
         for branch in branch_rows
@@ -690,6 +725,11 @@ def get_owner_dashboard_performance(
 ):
     start, end = _period_bounds(period, None, None)
     branches = db.query(Branch).filter(Branch.is_active.is_(True)).order_by(Branch.name).all()
+    sample_batch = db.query(SyntheticImportBatch).order_by(SyntheticImportBatch.imported_at.desc()).first()
+    sample_branches = {
+        " ".join(row.name.casefold().split()): row
+        for row in db.query(SyntheticBranch).filter(SyntheticBranch.batch_id == sample_batch.id).all()
+    } if sample_batch else {}
     results = []
     for branch in branches:
         bookings = db.query(Booking).filter(Booking.branch_id == branch.id, Booking.appointment_date >= start, Booking.appointment_date < end)
@@ -708,8 +748,44 @@ def get_owner_dashboard_performance(
             rating = rating_metrics.get(member.id)
             staff.append({"staff_id": member.id, "full_name": member.full_name, "job_title": member.job_title or "Salon Specialist", "services_completed": int(activity.services if activity else 0), "revenue": float(activity.revenue if activity else 0), "commission": float(activity.commission if activity else 0), "average_rating": round(float(rating.average or 0), 1) if rating else 0, "rating_count": int(rating.count if rating else 0)})
         staff.sort(key=lambda item: (item["revenue"], item["services_completed"], item["average_rating"]), reverse=True)
-        results.append({"branch_id": branch.id, "name": branch.name, "address": branch.address, "bookings": booking_count, "completed": completed, "completion_rate": round(completed / booking_count * 100, 1) if booking_count else 0, "sales": sales, "average_rating": round(branch_rating, 1), "staff": staff})
-    results.sort(key=lambda item: (item["sales"], item["completed"]), reverse=True)
+        sample_branch = sample_branches.get(" ".join(branch.name.casefold().split()))
+        sample_staff = _synthetic_staff_performance(db, sample_batch.id, sample_branch.synthetic_id, start, end) if sample_batch and sample_branch else []
+        sample_appointments = db.query(SyntheticAppointment).filter(
+            SyntheticAppointment.batch_id == sample_batch.id,
+            SyntheticAppointment.branch_id == sample_branch.synthetic_id,
+            SyntheticAppointment.appointment_date >= start,
+            SyntheticAppointment.appointment_date < end,
+        ) if sample_batch and sample_branch else None
+        daily_sample = db.query(
+            func.coalesce(func.sum(SyntheticDailyForecast.bookings), 0).label("bookings"),
+            func.coalesce(func.sum(SyntheticDailyForecast.completed_bookings), 0).label("completed"),
+            func.coalesce(func.sum(SyntheticDailyForecast.daily_revenue), 0).label("revenue"),
+        ).filter(
+            SyntheticDailyForecast.batch_id == sample_batch.id,
+            SyntheticDailyForecast.branch_id == sample_branch.synthetic_id,
+            SyntheticDailyForecast.forecast_date >= start.date(),
+            SyntheticDailyForecast.forecast_date < end.date(),
+        ).first() if sample_batch and sample_branch else None
+        appointment_sample_bookings = sample_appointments.count() if sample_appointments is not None else 0
+        appointment_sample_completed = sample_appointments.filter(SyntheticAppointment.status == "completed").count() if sample_appointments is not None else 0
+        sample_bookings = appointment_sample_bookings or int(daily_sample.bookings or 0) if daily_sample else appointment_sample_bookings
+        sample_completed = appointment_sample_completed or int(daily_sample.completed or 0) if daily_sample else appointment_sample_completed
+        sample_sales = float(daily_sample.revenue or 0) if daily_sample else 0.0
+        if not sample_staff and (sample_completed or sample_sales):
+            provider_count = 3
+            sample_staff = [{
+                "staff_id": f"sample-{branch.id}-{index + 1}",
+                "full_name": f"Sample Provider {index + 1}",
+                "job_title": "Sample Salon Specialist",
+                "services_completed": sample_completed // provider_count + (1 if index < sample_completed % provider_count else 0),
+                "revenue": round(sample_sales / provider_count + (sample_sales - round(sample_sales / provider_count, 2) * provider_count if index == 0 else 0), 2),
+                "commission": 0,
+                "average_rating": 0,
+                "rating_count": 0,
+                "is_sample": True,
+            } for index in range(provider_count)]
+        results.append({"branch_id": branch.id, "name": branch.name, "address": branch.address, "bookings": booking_count, "completed": completed, "completion_rate": round(completed / booking_count * 100, 1) if booking_count else 0, "sales": sales, "average_rating": round(branch_rating, 1), "staff": staff + sample_staff, "sample_staff": sample_staff, "sample_bookings": sample_bookings, "sample_completed": sample_completed, "sample_sales": sample_sales, "sample_data_available": bool(sample_staff or sample_bookings or sample_sales)})
+    results.sort(key=lambda item: (item["sales"] + item["sample_sales"], item["completed"] + item["sample_completed"]), reverse=True)
     return {"period": period, "start_date": start.date().isoformat(), "end_date": (end - timedelta(days=1)).date().isoformat(), "branches": results}
 
 
@@ -764,6 +840,6 @@ def get_owner_audit_logs(
     for booking in _booking_query(db).order_by(Booking.updated_at.desc()).limit(10).all():
         events.append({"type": "booking", "action": f"Booking marked {booking.status}", "actor": booking.customer.full_name if booking.customer else booking.guest_name or "Customer", "created_at": booking.updated_at or booking.created_at})
     for transaction in _transaction_query(db).order_by(Transaction.created_at.desc()).limit(10).all():
-        events.append({"type": "transaction", "action": f"Payment recorded via {transaction.payment_method}", "actor": transaction.staff.full_name if transaction.staff else "Staff", "created_at": transaction.created_at})
+        events.append({"type": "transaction", "action": f"Payment recorded via {transaction.payment_method}", "actor": transaction.staff.full_name if transaction.staff else "Online payment", "created_at": transaction.created_at})
     events.sort(key=lambda event: event["created_at"] or datetime.min, reverse=True)
     return {"audit_logs": events[:30]}

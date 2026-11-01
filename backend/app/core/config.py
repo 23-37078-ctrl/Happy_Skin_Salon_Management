@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+PROJECT_DIR = BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
@@ -14,6 +15,12 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
     DATABASE_POOL_RECYCLE_SECONDS: int = 1800
+
+    # PayPal Checkout. Sandbox remains the default for local and deployed testing.
+    PAYPAL_CLIENT_ID: str = ""
+    PAYPAL_CLIENT_SECRET: str = ""
+    PAYPAL_MODE: str = "sandbox"
+    PAYPAL_WEBHOOK_ID: str = ""
 
     # JWT
     SECRET_KEY: str = "change-this-to-a-long-random-secret"
@@ -57,7 +64,7 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires CORS_ORIGINS with the deployed frontend origins.")
         return self
 
-    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env",
+    model_config = SettingsConfigDict(env_file=PROJECT_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

@@ -12,8 +12,18 @@ const emptyPayment = { payment_method: "cash", amount_tendered: "", commission_a
 const BOOKING_PAGE_SIZE = 12;
 
 function compareBookings(left, right) {
-  const leftCreatedAt = Date.parse(left.created_at || left.appointment_date) || 0;
-  const rightCreatedAt = Date.parse(right.created_at || right.appointment_date) || 0;
+  const leftAppointment = Date.parse(left.appointment_date) || 0;
+  const rightAppointment = Date.parse(right.appointment_date) || 0;
+  const appointmentOrder = leftAppointment - rightAppointment;
+  if (appointmentOrder) return appointmentOrder;
+
+  // If an online appointment and walk-in share the same scheduled time,
+  // keep the guest's reserved online appointment first in the service queue.
+  const bookingTypeOrder = (left.booking_type === "online" ? 0 : 1) - (right.booking_type === "online" ? 0 : 1);
+  if (bookingTypeOrder) return bookingTypeOrder;
+
+  const leftCreatedAt = Date.parse(left.created_at) || 0;
+  const rightCreatedAt = Date.parse(right.created_at) || 0;
   return leftCreatedAt - rightCreatedAt || Number(left.id) - Number(right.id);
 }
 
@@ -200,13 +210,14 @@ export default function OnlineBookings() {
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${booking.booking_type === "walk-in" ? "bg-[#F3E8FF] text-[#7E22CE]" : "bg-[#FFF0F7] text-[#A83F78]"}`}>{booking.booking_type === "walk-in" ? "Walk-in" : "Online"}</span><Status status={booking.status} bookingType={booking.booking_type} /></div>
     </div>
+    {booking.booking_type === "online" && <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-bold ${booking.payment_status === "paid" ? "bg-[#DCFCE7] text-[#166534]" : "bg-[#FFF4E5] text-[#9A5B13]"}`}>{booking.payment_status === "paid" ? `Full payment received online · ${booking.payment_method || "PayPal"}` : "Awaiting full online payment. Do not confirm or check in this booking yet."}</p>}
     {booking.booking_type === "online" && booking.status === "pending" && <div className="mt-4 space-y-3">{(booking.services?.length ? booking.services : [booking.service].filter(Boolean)).map((service) => { const assignmentKey = String(service.booking_service_item_id || service.id); return <label key={assignmentKey} className="block text-xs font-bold text-[#374151]">{service.name || "Service provider"}<select value={assignments[booking.id]?.[assignmentKey] || ""} onChange={(event) => setAssignments((current) => ({ ...current, [booking.id]: { ...(current[booking.id] || {}), [assignmentKey]: event.target.value } }))} className="form-input mt-1"><option value="">Choose provider</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.full_name} ({provider.job_title}) - {provider.active_customer_count || 0} active bookings</option>)}</select></label>; })}</div>}
     {booking.status === "treatment_done" && <p className="mt-4 text-xs font-bold text-[#166534]">Treatment is complete. Record payment below.</p>}
     <div className="mt-4 flex gap-2">
-      {booking.booking_type === "online" && ["pending", "confirmed"].includes(booking.status) && !booking.checked_in_at && <button disabled={busy} onClick={() => runAction(() => staffTransactionService.checkInOnlineBooking(booking.id))} className="min-h-10 rounded-xl border border-[#166534]/30 px-3 text-xs font-bold text-[#166534] hover:bg-[#DCFCE7]">Mark arrived</button>}
-      {booking.booking_type === "online" && booking.status === "pending" && <button disabled={busy || !(booking.services?.length ? booking.services : [booking.service].filter(Boolean)).every((service) => assignments[booking.id]?.[String(service.booking_service_item_id || service.id)])} onClick={() => { const services = booking.services?.length ? booking.services : [booking.service].filter(Boolean); const serviceProviderIds = Object.fromEntries(services.map((service) => [String(service.booking_service_item_id || service.id), Number(assignments[booking.id][String(service.booking_service_item_id || service.id)])])); const primaryProviderId = Number(Object.values(serviceProviderIds)[0]); return runAction(() => staffTransactionService.confirmOnlineBooking(booking.id, primaryProviderId, serviceProviderIds)); }} className="min-h-10 flex-1 rounded-xl bg-[#C85B95] px-3 text-xs font-bold text-white disabled:opacity-40">Confirm booking</button>}
+      {booking.booking_type === "online" && ["pending", "confirmed"].includes(booking.status) && !booking.checked_in_at && booking.payment_status === "paid" && <button disabled={busy} onClick={() => runAction(() => staffTransactionService.checkInOnlineBooking(booking.id))} className="min-h-10 rounded-xl border border-[#166534]/30 px-3 text-xs font-bold text-[#166534] hover:bg-[#DCFCE7]">Mark arrived</button>}
+      {booking.booking_type === "online" && booking.status === "pending" && booking.payment_status === "paid" && <button disabled={busy || !(booking.services?.length ? booking.services : [booking.service].filter(Boolean)).every((service) => assignments[booking.id]?.[String(service.booking_service_item_id || service.id)])} onClick={() => { const services = booking.services?.length ? booking.services : [booking.service].filter(Boolean); const serviceProviderIds = Object.fromEntries(services.map((service) => [String(service.booking_service_item_id || service.id), Number(assignments[booking.id][String(service.booking_service_item_id || service.id)])])); const primaryProviderId = Number(Object.values(serviceProviderIds)[0]); return runAction(() => staffTransactionService.confirmOnlineBooking(booking.id, primaryProviderId, serviceProviderIds)); }} className="min-h-10 flex-1 rounded-xl bg-[#C85B95] px-3 text-xs font-bold text-white disabled:opacity-40">Confirm booking</button>}
       {booking.status === "confirmed" && <button disabled={busy} onClick={() => runAction(() => booking.booking_type === "walk-in" ? staffTransactionService.markTreatmentDone(booking.id) : staffTransactionService.markOnlineTreatmentDone(booking.id))} className="min-h-10 flex-1 rounded-xl bg-[#1F2937] px-3 text-xs font-bold text-white">Treatment done</button>}
-      {booking.status === "treatment_done" && <button disabled={busy} onClick={() => { setSelectedOtherDate(""); setPaymentBooking(booking); setPayment(emptyPayment); setReceipt(null); }} className="min-h-10 flex-1 rounded-xl bg-[#166534] px-3 text-xs font-bold text-white">Collect payment</button>}
+      {booking.status === "treatment_done" && (booking.payment_status === "paid" ? <span className="min-h-10 flex-1 rounded-xl bg-[#DCFCE7] px-3 py-2 text-center text-xs font-bold text-[#166534]">Paid online · {booking.payment_method || "PayPal"}</span> : <button disabled={busy} onClick={() => { setSelectedOtherDate(""); setPaymentBooking(booking); setPayment(emptyPayment); setReceipt(null); }} className="min-h-10 flex-1 rounded-xl bg-[#166534] px-3 text-xs font-bold text-white">Collect payment</button>)}
       {["pending", "confirmed"].includes(booking.status) && <button type="button" disabled={busy} onClick={() => { setCancelBooking(booking); setCancelReason(""); setCancelError(""); }} className="min-h-10 rounded-xl border border-[#DC2626] px-3 text-xs font-bold text-[#B91C1C] hover:bg-[#FEE2E2]">Cancel</button>}
     </div>
   </article>;
@@ -228,7 +239,7 @@ export default function OnlineBookings() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">Branch schedule</p>
-          <h2 className="mt-1 text-lg font-extrabold text-[#1F2937]">Online and walk-in bookings in booking order</h2>
+          <h2 className="mt-1 text-lg font-extrabold text-[#1F2937]">Appointments in schedule order · online first when times match</h2>
         </div>
         <span className="rounded-full bg-[#FFF0F7] px-3 py-1 text-xs font-bold text-[#C85B95]">{todayBookings.length} today</span>
       </div>

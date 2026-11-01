@@ -24,6 +24,12 @@ def normalize_phone_number(phone_number: str) -> str:
     return cleaned
 
 
+def _normalize_phone_number(phone_number: str) -> str:
+    """Return the validated Philippine number in iProg's international format."""
+    national_number = normalize_phone_number(phone_number)
+    return "63" + national_number[1:]
+
+
 def send_verification_sms(phone_number: str, full_name: str, otp: str) -> None:
     """
     Sends OTP via iProgSMS API.
@@ -33,7 +39,7 @@ def send_verification_sms(phone_number: str, full_name: str, otp: str) -> None:
     iProgSMS accepts both formats.
     """
 
-    cleaned = normalize_phone_number(phone_number)
+    cleaned = _normalize_phone_number(phone_number)
 
     if not settings.IPROG_API_TOKEN.strip():
         raise RuntimeError("iProgSMS is not configured. Set IPROG_API_TOKEN on the backend.")
@@ -87,12 +93,13 @@ def send_verification_sms(phone_number: str, full_name: str, otp: str) -> None:
 
 
 def send_booking_confirmation_sms(phone_number: str, full_name: str, booking_id: int, branch_name: str, service_names: str, appointment_date: datetime) -> None:
-    cleaned = normalize_phone_number(phone_number)
+    cleaned = _normalize_phone_number(phone_number)
     if not settings.IPROG_API_TOKEN.strip():
         raise RuntimeError("iProgSMS is not configured.")
     local_time = appointment_date.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Manila")) if appointment_date.tzinfo is None else appointment_date.astimezone(ZoneInfo("Asia/Manila"))
     message = (
-        f"Happy Skin: Hi {full_name}, booking request #{booking_id} received for {service_names} at {branch_name}. The branch will confirm separately. "
+        f"Happy Skin: Hi {full_name}, full payment for booking #{booking_id} is confirmed. Your request for {service_names} at {branch_name} is received. "
+        "The branch will confirm your appointment separately. "
         f"Your requested time is {local_time.strftime('%b %d, %Y %I:%M %p')}. Please arrive 10-15 mins early. Late arrivals may wait while present walk-ins are served. "
         "No staff check-in within 30 mins after your appointment means cancellation."
     )

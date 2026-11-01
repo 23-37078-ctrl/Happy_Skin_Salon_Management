@@ -86,6 +86,36 @@ export async function createGuestAppointment(payload) {
   return data;
 }
 
+export async function getBookingPaymentStatus(token) {
+  const { data } = await api.get("/customer/payments/status", { params: { token } });
+  return data;
+}
+
+export async function getCustomerPaymentStatus(bookingId) {
+  const { data } = await api.get(`/customer/payments/${bookingId}/status`);
+  return data;
+}
+
+export async function createCustomerPayPalOrder(bookingId) {
+  const { data } = await api.post("/customer/payments/paypal/orders", { booking_id: bookingId });
+  return data;
+}
+
+export async function captureCustomerPayPalOrder(orderId) {
+  const { data } = await api.post("/customer/payments/paypal/capture", { order_id: orderId });
+  return data;
+}
+
+export async function createGuestPayPalOrder(bookingId, paymentToken) {
+  const { data } = await api.post("/customer/guest/payments/paypal/orders", { booking_id: bookingId, payment_token: paymentToken });
+  return data;
+}
+
+export async function captureGuestPayPalOrder(orderId, paymentToken) {
+  const { data } = await api.post("/customer/guest/payments/paypal/capture", { order_id: orderId }, { params: { payment_token: paymentToken } });
+  return data;
+}
+
 export async function sendGuestBookingPhoneOtp(payload) {
   const { data } = await api.post("/customer/guest/phone-verification/send", payload);
   return data;

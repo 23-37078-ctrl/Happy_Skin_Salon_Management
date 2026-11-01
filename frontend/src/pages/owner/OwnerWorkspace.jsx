@@ -9,7 +9,6 @@ import {
   HiOutlineClipboardDocumentList,
   HiOutlineChatBubbleLeftRight,
   HiOutlineHome,
-  HiOutlineShieldCheck,
   HiOutlineBars3,
   HiOutlineXMark,
 } from "react-icons/hi2";
@@ -25,7 +24,6 @@ const navItems = [
   { to: "/owner/transactions", label: "Transactions", icon: HiOutlineBanknotes },
   { to: "/owner/commissions", label: "Commissions", icon: HiOutlineBanknotes },
   { to: "/owner/reports", label: "Reports", icon: HiOutlineChartBar },
-  { to: "/owner/workforce", label: "Workforce", icon: HiOutlineShieldCheck },
   { to: "/owner/audit-logs", label: "Audit Logs", icon: HiOutlineClipboardDocumentList },
   { to: "/owner/support", label: "Customer support", icon: HiOutlineChatBubbleLeftRight },
 ];

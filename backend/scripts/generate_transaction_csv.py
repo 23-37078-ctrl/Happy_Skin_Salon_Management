@@ -9,7 +9,7 @@ from pathlib import Path
 SEED = 20261021
 ROW_COUNT = 20_949
 START_DATE = date(2023, 10, 21)
-END_DATE = date(2026, 10, 21)
+END_DATE = date(2026, 10, 30)
 OUTPUT = Path(__file__).resolve().parents[1] / "database" / "transactions_3_years_synthetic.csv"
 
 BRANCHES = [

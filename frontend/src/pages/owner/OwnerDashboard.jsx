@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import {
   HiOutlineTrophy,
   HiOutlineCheckBadge,
   HiOutlineMapPin,
 } from "react-icons/hi2";
 import ownerService from "../../services/ownerService";
+import forecastService from "../../services/forecastService";
 import { formatCurrency, getApiError } from "../staff/staffWorkspaceUtils";
 import { CardSkeleton, EmptyState, Notice, OwnerWorkspace } from "./OwnerWorkspace";
 import ForcastingPage from "./ForcastingPage";
@@ -13,10 +14,13 @@ export default function OwnerDashboard() {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [performanceError, setPerformanceError] = useState("");
   const [period, setPeriod] = useState("weekly");
   const [performance, setPerformance] = useState(null);
   const [performanceLoading, setPerformanceLoading] = useState(true);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
+  const [branchForecasts, setBranchForecasts] = useState({});
+  const [forecastsLoading, setForecastsLoading] = useState(true);
 
   const loadDashboard = useCallback(async () => {
     setIsLoading(true);
@@ -32,12 +36,15 @@ export default function OwnerDashboard() {
 
   const loadPerformance = useCallback(async () => {
     setPerformanceLoading(true);
+    setPerformanceError("");
     try {
       const payload = await ownerService.dashboardPerformance(period);
-      setPerformance(payload);
-      setSelectedBranchId((current) => current && payload.branches.some((branch) => branch.branch_id === current) ? current : payload.branches[0]?.branch_id || null);
+      const branches = Array.isArray(payload?.branches) ? payload.branches : [];
+      setPerformance({ ...payload, branches });
+      setSelectedBranchId((current) => current && branches.some((branch) => branch.branch_id === current) ? current : branches[0]?.branch_id || null);
     } catch (err) {
-      setError(getApiError(err, "We couldn't load multi-branch performance."));
+      setPerformance({ branches: [] });
+      setPerformanceError(getApiError(err, "We couldn't load multi-branch performance."));
     } finally {
       setPerformanceLoading(false);
     }
@@ -51,6 +58,28 @@ export default function OwnerDashboard() {
     Promise.resolve().then(loadPerformance);
   }, [loadPerformance]);
 
+  useEffect(() => {
+    let active = true;
+    const loadBranchForecasts = async () => {
+      setForecastsLoading(true);
+      try {
+        const payload = await ownerService.branches();
+        const activeBranches = (payload.branches || []).filter((branch) => branch.is_active);
+        const results = await Promise.all(activeBranches.map(async (branch) => {
+          try { return [String(branch.id), await forecastService.branchForecast(branch.id)]; }
+          catch { return [String(branch.id), null]; }
+        }));
+        if (active) setBranchForecasts(Object.fromEntries(results));
+      } catch {
+        if (active) setBranchForecasts({});
+      } finally {
+        if (active) setForecastsLoading(false);
+      }
+    };
+    loadBranchForecasts();
+    return () => { active = false; };
+  }, []);
+
   return (
     <OwnerWorkspace
       title="Owner Dashboard"
@@ -59,9 +88,11 @@ export default function OwnerDashboard() {
     >
       {error && <Notice message={error} onRetry={loadDashboard} />}
 
-      <MultiBranchPerformance data={performance} loading={performanceLoading} period={period} onPeriod={setPeriod} selectedBranchId={selectedBranchId} onBranch={setSelectedBranchId} />
+      <MultiBranchPerformance data={performance} loading={performanceLoading} period={period} onPeriod={setPeriod} selectedBranchId={selectedBranchId} onBranch={setSelectedBranchId} branchForecasts={branchForecasts} forecastsLoading={forecastsLoading} />
 
       <ForcastingPage embedded />
+
+      {performanceError && <Notice message={performanceError} onRetry={loadPerformance} />}
 
       <div className="mt-6">
         <section>
@@ -99,13 +130,13 @@ export default function OwnerDashboard() {
   );
 }
 
-function MultiBranchPerformance({ data, loading, period, onPeriod, selectedBranchId, onBranch }) {
+function MultiBranchPerformance({ data, loading, period, onPeriod, selectedBranchId, onBranch, branchForecasts, forecastsLoading }) {
   const selected = data?.branches?.find((branch) => branch.branch_id === selectedBranchId);
   return <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_12px_34px_rgba(31,41,55,0.055)] sm:p-5">
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C9558F]">Super Admin · All locations</p><h2 className="mt-1 text-xl font-extrabold text-[#1F2937]">Three-branch performance</h2><p className="mt-1 text-xs text-[#6B7280]">Compare every active branch, then select one to review its staff.</p></div><div className="flex self-start rounded-xl bg-[#FFF8FB] p-1 ring-1 ring-[#F3E8EF]">{["daily", "weekly", "monthly", "yearly"].map((item) => <button key={item} type="button" onClick={() => onPeriod(item)} className={`rounded-lg px-3 py-2 text-xs font-bold capitalize ${period === item ? "bg-[#C9558F] text-white shadow-sm" : "text-[#6B7280] hover:text-[#C9558F]"}`}>{item}</button>)}</div></div>
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C9558F]">Super Admin Â· All locations</p><h2 className="mt-1 text-xl font-extrabold text-[#1F2937]">Three-branch performance</h2><p className="mt-1 text-xs text-[#6B7280]">Compare every active branch, then select one to review its staff.</p></div><div className="flex self-start rounded-xl bg-[#FFF8FB] p-1 ring-1 ring-[#F3E8EF]">{["daily", "weekly", "monthly", "yearly"].map((item) => <button key={item} type="button" onClick={() => onPeriod(item)} className={`rounded-lg px-3 py-2 text-xs font-bold capitalize ${period === item ? "bg-[#C9558F] text-white shadow-sm" : "text-[#6B7280] hover:text-[#C9558F]"}`}>{item}</button>)}</div></div>
     {loading ? <div className="mt-5"><CardSkeleton rows={3} /></div> : <>
-      <div className="mt-5 grid gap-4 lg:grid-cols-3">{data?.branches?.map((branch, index) => <button key={branch.branch_id} type="button" onClick={() => onBranch(branch.branch_id)} className={`rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg ${selectedBranchId === branch.branch_id ? "border-[#D65A9A] bg-[#FFF8FB] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF] bg-white"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-extrabold text-[#1F2937]">{branch.name}</p><p className="mt-1 flex items-start gap-1 text-[10px] text-[#6B7280]"><HiOutlineMapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#D65A9A]" /> {branch.address}</p></div>{index === 0 && branch.completed > 0 && <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#FEF3C7] text-[#D97706]"><HiOutlineTrophy className="h-5 w-5" /></span>}</div><p className="mt-4 text-xl font-extrabold text-[#166534]">{formatCurrency(branch.sales)}</p><p className="text-[9px] font-bold uppercase text-[#6B7280]">Period sales</p><div className="mt-3 grid grid-cols-3 gap-2 text-center"><OwnerMini value={branch.bookings} label="Bookings" /><OwnerMini value={`${branch.completion_rate}%`} label="Completed" /><OwnerMini value={branch.average_rating || "—"} label="Rating" /></div></button>)}</div>
-      {selected && <div className="mt-5 border-t border-[#F3E8EF] pt-5"><div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-extrabold text-[#1F2937]">{selected.name} staff performance</h3><p className="mt-1 text-xs text-[#6B7280]">Performance for the selected {period} period.</p></div><span className="text-xs font-bold text-[#C9558F]">{selected.staff.length} staff members</span></div>{selected.staff.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{selected.staff.map((staff, index) => <article key={staff.staff_id} className="rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-3"><div className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-full bg-white font-extrabold text-[#C9558F]">{staff.full_name.slice(0, 1)}</span><div className="min-w-0"><p className="truncate text-sm font-bold text-[#1F2937]">{staff.full_name}</p><p className="truncate text-[9px] text-[#6B7280]">{staff.job_title}</p></div>{index === 0 && staff.services_completed > 0 && <HiOutlineTrophy className="ml-auto h-4 w-4 text-[#D97706]" />}</div><div className="mt-3 grid grid-cols-2 gap-2"><OwnerMini value={staff.services_completed} label="Services" /><OwnerMini value={formatCurrency(staff.revenue)} label="Revenue" /><OwnerMini value={formatCurrency(staff.commission)} label="Commission" /><OwnerMini value={staff.average_rating ? `${staff.average_rating}/5` : "—"} label={`${staff.rating_count} ratings`} /></div></article>)}</div> : <p className="rounded-xl bg-[#FFF8FB] p-6 text-center text-sm text-[#6B7280]">No staff activity for this period.</p>}</div>}
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">{(data?.branches || []).map((branch, index) => { const forecast = branchForecasts[String(branch.branch_id)]; const forecastDemand = forecast?.predictions?.reduce((sum, point) => sum + Number(point.predicted_demand || 0), 0); const sampleSales = Number(branch.sample_sales || 0); const totalBookings = Number(branch.bookings || 0) + Number(branch.sample_bookings || 0); const totalCompleted = Number(branch.completed || 0) + Number(branch.sample_completed || 0); const completionRate = totalBookings ? (totalCompleted / totalBookings * 100).toFixed(1) : "0"; return <button key={branch.branch_id} type="button" onClick={() => onBranch(branch.branch_id)} className={`rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg ${selectedBranchId === branch.branch_id ? "border-[#D65A9A] bg-[#FFF8FB] ring-4 ring-[#D65A9A]/10" : "border-[#F3E8EF] bg-white"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-extrabold text-[#1F2937]">{branch.name || "Branch"}</p><p className="mt-1 flex items-start gap-1 text-[10px] text-[#6B7280]"><HiOutlineMapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#D65A9A]" /> {branch.address || "Address unavailable"}</p></div>{index === 0 && totalCompleted > 0 && <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#FEF3C7] text-[#D97706]"><HiOutlineTrophy className="h-5 w-5" /></span>}</div><p className="mt-4 text-xl font-extrabold text-[#166534]">{formatCurrency(Number(branch.sales || 0) + sampleSales)}</p><p className="text-[9px] font-bold uppercase text-[#6B7280]">Period sales{sampleSales > 0 && " Â· includes sample data"}</p><div className="mt-3 grid grid-cols-3 gap-2 text-center"><OwnerMini value={totalBookings} label="Bookings" /><OwnerMini value={`${completionRate}%`} label="Completed" /><OwnerMini value={branch.average_rating || "â€”"} label="Rating" /></div><div className="mt-3 rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-3 py-2"><p className="text-xs font-extrabold text-[#A83F78]">{forecastsLoading ? "Loading forecastâ€¦" : Number.isFinite(forecastDemand) ? `${forecastDemand.toFixed(1)} appointments` : "Forecast unavailable"}</p><p className="mt-1 text-[9px] font-bold uppercase text-[#6B7280]">Next seven days</p></div></button>; })}</div>
+      {selected && <div className="mt-5 border-t border-[#F3E8EF] pt-5"><div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-extrabold text-[#1F2937]">{selected.name || "Branch"} staff performance</h3><p className="mt-1 text-xs text-[#6B7280]">Performance for the selected {period} period{selected.sample_data_available ? ", including clearly labeled synthetic sample data for demonstration and ML development" : ""}.</p></div><span className="text-xs font-bold text-[#C9558F]">{(selected.staff || []).length} staff members</span></div>{(selected.staff || []).length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{selected.staff.map((staff, index) => <article key={staff.staff_id ?? `${staff.full_name}-${index}`} className="rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-3"><div className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-full bg-white font-extrabold text-[#C9558F]">{(staff.full_name || "S").slice(0, 1)}</span><div className="min-w-0"><p className="truncate text-sm font-bold text-[#1F2937]">{staff.full_name || "Staff member"}</p><p className="truncate text-[9px] text-[#6B7280]">{staff.job_title || "Salon Specialist"}{staff.is_sample ? " Â· Sample" : ""}</p></div>{index === 0 && staff.services_completed > 0 && <HiOutlineTrophy className="ml-auto h-4 w-4 text-[#D97706]" />}</div><div className="mt-3 grid grid-cols-2 gap-2"><OwnerMini value={staff.services_completed || 0} label="Services" /><OwnerMini value={formatCurrency(staff.revenue || 0)} label="Revenue" /><OwnerMini value={formatCurrency(staff.commission || 0)} label="Commission" /><OwnerMini value={staff.average_rating ? `${staff.average_rating}/5` : "â€”"} label={`${staff.rating_count || 0} ratings`} /></div></article>)}</div> : <p className="rounded-xl bg-[#FFF8FB] p-6 text-center text-sm text-[#6B7280]">No staff activity for this period.</p>}</div>}
     </>}
   </section>;
 }
