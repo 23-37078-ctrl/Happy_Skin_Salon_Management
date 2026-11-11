@@ -1,6 +1,22 @@
-# Online appointment payments (PayPal Sandbox)
+# Online appointment payments (GCash + PayPal)
 
-Guest and signed-in online bookings require full payment through PayPal Orders v2. FastAPI creates each order from the persisted booking total, captures it server-side, verifies the completed PHP amount, and writes the normal transaction record. The PayPal JS SDK v6 button never receives the secret. Walk-in checkout continues to accept cash and the existing staff-recorded digital methods.
+Guest and signed-in online booking pages use the salon's static GCash QR. Customers enter the exact amount shown by the booking, pay in GCash, then submit the transaction reference, payment time, and screenshot. Submission only creates a **For Verification** request; it does not mark the booking paid. Authorized staff must compare the proof with trusted merchant records and approve it before payment is recorded. The customer booking pages offer both manual GCash and PayPal checkout. PayPal is provider verified; GCash proof requires staff approval. Walk-in checkout continues to accept cash and existing staff-recorded methods.
+
+## Configure the official GCash merchant QR
+
+The official static merchant QR is stored outside tracked source files. Configure the exact merchant display name and the private QR image path on each backend environment. Until the QR file is available, the customer screen displays a configuration message and does not show the proof submission form. Do not substitute a generated sample.
+
+- Set `GCASH_MERCHANT_NAME` and `GCASH_QR_IMAGE_PATH` in the backend environment. For Docker, place the supplied QR image in the private path configured by `GCASH_QR_HOST_PATH` and apply the read-only mount in `docker-compose.gcash.example.yml` alongside the base Compose file. PNG and JPEG images are supported.
+- After the QR exists at that host path, start/recreate with `docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.gcash.example.yml up -d` so the API receives the read-only image mount.
+- Set `GCASH_PROOF_STORAGE_PATH=/app/backend/private_uploads/gcash` and keep the `private_payment_proofs` volume in Compose. This directory is not served by `/uploads`; staff access is mediated by authenticated, branch-scoped API routes.
+- Back up the `private_payment_proofs` volume together with the database. Restrict host access to the QR asset and private proof volume. Enforce HTTPS and a reverse-proxy request body limit above the 5 MB proof limit (multipart overhead included).
+- Apply the additive Alembic migration before enabling GCash. It adds a GCash submission/audit table and verification fields; it leaves `transactions.booking_id` uniqueness and existing payment records unchanged.
+
+Staff review is available at `/staff/gcash-verification`. Approval and rejection are one-time decisions, rejection requires a reason, and the staff member and decision timestamp are recorded. A verified PayPal capture remains authoritative if it settles after a customer has switched methods; any pending GCash submission becomes stale and leaves the review queue.
+
+Deployment checklist: configure the actual merchant name and QR mount, configure persistent private proof storage and backups, set upload/body limits and filesystem permissions, review the intended database and backup, apply `alembic upgrade head`, verify HTTPS/CORS, then perform a controlled GCash submission and merchant-side comparison. PayPal remains Sandbox; a Live transition requires separate authorization and is not part of this change.
+
+The checked-in deployment uses Docker Compose: PostgreSQL and Uvicorn are private on the Compose network; the Nginx web container publishes ports 80/443 and proxies `/api/` to the API. The Nginx configuration currently allows 20 MB request bodies, above the 5 MB screenshot limit. Compose persists database, public uploads, and private proof storage in named volumes. `DEPLOY_CONTABO.md` documents the current Contabo VPS/IP and certificate procedure. This confirms the repository setup; verify the live VPS configuration and backup policy before deploying the migration or payment workflow.
 
 ## Configure local Sandbox credentials
 

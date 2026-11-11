@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -21,101 +22,20 @@ from app.ml.recommendations import demand_level, recommendation_for
 from app.models.branch import Branch
 from app.models.forecast_result import ForecastResult
 from app.models.model_registry import ModelRegistry
-from app.models.synthetic_dataset import SyntheticBranch, SyntheticDailyForecast, SyntheticImportBatch
+from app.models.booking import Booking, BookingServiceItem
+from app.models.service import Service
+from app.models.user import User
 
 
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 ARTIFACT_DIR = BACKEND_DIR / "ml" / "models"
-_SYNTHETIC_BRANCH_MODELS: dict[tuple[int, str], tuple[object, dict]] = {}
 
 
 class InsufficientForecastData(ValueError):
     def __init__(self, readiness: DataReadiness):
         self.readiness = readiness
         super().__init__(" ".join(readiness.reasons))
-
-
-def _build_synthetic_branch_forecast(db: Session, branch: Branch, horizon: int) -> dict | None:
-    """Build a clearly labeled demonstration forecast from an imported synthetic CSV batch."""
-    batch = db.query(SyntheticImportBatch).order_by(SyntheticImportBatch.imported_at.desc()).first()
-    if not batch:
-        return None
-    normalized_branch_name = " ".join(branch.name.casefold().split())
-    synthetic_branch = next((
-        row for row in db.query(SyntheticBranch).filter(SyntheticBranch.batch_id == batch.id).all()
-        if " ".join(row.name.casefold().split()) == normalized_branch_name
-    ), None)
-    if not synthetic_branch:
-        return None
-
-    rows = db.query(
-        SyntheticDailyForecast.forecast_date,
-        func.sum(SyntheticDailyForecast.completed_bookings).label("completed_bookings"),
-    ).filter(
-        SyntheticDailyForecast.batch_id == batch.id,
-        SyntheticDailyForecast.branch_id == synthetic_branch.synthetic_id,
-    ).group_by(SyntheticDailyForecast.forecast_date).order_by(SyntheticDailyForecast.forecast_date).all()
-    if len(rows) < 42:
-        return None
-
-    frame = pd.DataFrame.from_records(rows, columns=["date", "target"])
-    frame["branch_id"] = str(branch.id)
-    frame["service_id"] = 0
-    frame["target"] = frame["target"].astype(float)
-    cache_key = (batch.id, synthetic_branch.synthetic_id)
-    cached = _SYNTHETIC_BRANCH_MODELS.get(cache_key)
-    if cached is None:
-        from app.ml.synthetic_linear_regression import recursive_forecast, train_evaluate
-
-        model, metrics = train_evaluate(frame[["date", "branch_id", "service_id", "target"]])
-        _SYNTHETIC_BRANCH_MODELS[cache_key] = (model, metrics)
-    else:
-        model, metrics = cached
-
-    from app.ml.synthetic_linear_regression import recursive_forecast
-
-    raw_predictions = recursive_forecast(frame[["date", "branch_id", "service_id", "target"]], model, horizon)
-    recent_average = float(frame["target"].tail(28).mean())
-    predictions = []
-    for point in raw_predictions:
-        predicted = max(0, round(point["predicted_daily_revenue"]))
-        level = demand_level(predicted, recent_average)
-        predictions.append({
-            "date": date.fromisoformat(point["date"]),
-            "predicted_demand": predicted,
-            "lower_bound": None,
-            "upper_bound": None,
-            "demand_level": level,
-            "recommendation": recommendation_for(level),
-        })
-
-    start, end = predictions[0]["date"], predictions[-1]["date"]
-    return {
-        "branch_id": branch.id,
-        "branch_name": branch.name,
-        "forecast_period": f"{start.isoformat()} to {end.isoformat()}",
-        "horizon_days": horizon,
-        "model": "Linear Regression · sample transaction history",
-        "model_version": f"synthetic-batch-{batch.id}",
-        "generated_at": datetime.now(BUSINESS_TIMEZONE),
-        "data_quality": "synthetic_sample",
-        "data_source": "synthetic_csv",
-        "limitation": "Uses generated sample transactions from the 3-year CSV, not actual salon sales. This is demonstration data.",
-        "readiness": {
-            "status": "synthetic_sample",
-            "history_days": len(frame),
-            "completed_appointments": int(frame["target"].sum()),
-            "nonzero_days": int((frame["target"] > 0).sum()),
-            "reasons": ["Generated sample transaction data is being used."],
-            "mae": metrics["mae"],
-        },
-        "historical": [
-            {"date": row.date, "actual_demand": int(row.target)}
-            for row in frame.tail(28).itertuples(index=False)
-        ],
-        "predictions": predictions,
-    }
 
 
 def _active_model(db: Session) -> ModelRegistry | None:
@@ -135,6 +55,7 @@ def _predict_future(
     start_date = datetime.now(BUSINESS_TIMEZONE).date() + timedelta(days=1)
     working = branch_frame.copy().sort_values("date")
     predictions: list[tuple[date, float]] = []
+    used_fallback = False
     estimator = None
     if registry and registry.artifact_path:
         artifact = BACKEND_DIR / registry.artifact_path
@@ -153,17 +74,28 @@ def _predict_future(
         row = featured.iloc[-1]
 
         if estimator is not None and not row[FEATURE_COLUMNS].isna().any():
-            predicted = float(estimator.predict(pd.DataFrame([row[FEATURE_COLUMNS]]))[0])
+            model_prediction = float(estimator.predict(pd.DataFrame([row[FEATURE_COLUMNS]]))[0])
+            # A negative (or non-finite) appointment count is not operationally
+            # meaningful. Use the recent observed mean instead of clipping it to
+            # zero, which otherwise feeds zero back into the recursive forecast.
+            if not math.isfinite(model_prediction) or model_prediction <= 0:
+                recent = working.iloc[:-1]["demand"].tail(28).dropna()
+                predicted = float(recent.mean()) if not recent.empty else 0.0
+                used_fallback = True
+            else:
+                predicted = model_prediction
         else:
             recent = working.iloc[:-1]["demand"].tail(28).dropna()
             predicted = float(recent.mean()) if not recent.empty else 0.0
+            used_fallback = True
 
         predicted = round(max(0.0, predicted), 1)
         working.loc[working.index[-1], "demand"] = predicted
         predictions.append((forecast_date, predicted))
 
     if registry and estimator is not None:
-        return registry.algorithm, registry.version, predictions
+        model_name = f"{registry.algorithm} with 28-day fallback" if used_fallback else registry.algorithm
+        return model_name, registry.version, predictions
     return "28-day moving average fallback", None, predictions
 
 
@@ -174,10 +106,6 @@ def build_branch_forecast(db: Session, branch_id: int, horizon: int = 7) -> dict
 
     frame = extract_daily_completed_demand(db, branch_id=branch_id)
     readiness = assess_readiness(frame)
-    if not readiness.sufficient:
-        synthetic_forecast = _build_synthetic_branch_forecast(db, branch, horizon)
-        if synthetic_forecast is not None:
-            return synthetic_forecast
     registry = _active_model(db) if readiness.sufficient else None
     if frame.empty:
         today = datetime.now(BUSINESS_TIMEZONE).date()
@@ -186,16 +114,74 @@ def build_branch_forecast(db: Session, branch_id: int, horizon: int = 7) -> dict
     branch_frame = frame[frame["branch_id"] == branch_id].copy()
     model_name, model_version, values = _predict_future(branch_frame, horizon, registry)
     recent_average = float(branch_frame["demand"].tail(28).mean()) if not branch_frame.empty else 0.0
+    service_rows = (
+        db.query(Service.id, Service.name, Service.duration_minutes, func.count(BookingServiceItem.id))
+        .select_from(BookingServiceItem)
+        .join(Booking, Booking.id == BookingServiceItem.booking_id)
+        .join(Service, Service.id == BookingServiceItem.service_id)
+        .filter(
+            Booking.branch_id == branch_id,
+            Booking.status == "completed",
+            Booking.appointment_date >= datetime.now(BUSINESS_TIMEZONE) - timedelta(days=90),
+        )
+        .group_by(Service.id, Service.name, Service.duration_minutes)
+        .all()
+    )
+    if not service_rows:
+        service_rows = (
+            db.query(Service.id, Service.name, Service.duration_minutes, func.count(Booking.id))
+            .join(Service, Service.id == Booking.service_id)
+            .filter(
+                Booking.branch_id == branch_id,
+                Booking.status == "completed",
+                Booking.appointment_date >= datetime.now(BUSINESS_TIMEZONE) - timedelta(days=90),
+            )
+            .group_by(Service.id, Service.name, Service.duration_minutes)
+            .all()
+        )
+    total_service_bookings = sum(int(row[3]) for row in service_rows)
+    service_mix = [
+        {"service_id": row[0], "service_name": row[1], "duration_minutes": int(row[2] or 60), "share": int(row[3]) / total_service_bookings}
+        for row in service_rows
+    ] if total_service_bookings else []
+    active_staff_count = db.query(User.id).filter(
+        User.branch_id == branch_id, User.role == "staff", User.is_active.is_(True)
+    ).count()
     predictions = []
     for forecast_date, predicted in values:
         level = demand_level(predicted, recent_average)
+        service_capacity = []
+        estimated_service_minutes = 0.0
+        for service in service_mix:
+            expected_bookings = round(predicted * service["share"], 1)
+            estimated_service_minutes += expected_bookings * service["duration_minutes"]
+            service_capacity.append({
+                "service_id": service["service_id"],
+                "service_name": service["service_name"],
+                "expected_bookings": expected_bookings,
+                "suggested_slots": int(math.ceil(expected_bookings * 1.2)),
+                "duration_minutes": service["duration_minutes"],
+            })
+        recommended_staff = int(math.ceil(estimated_service_minutes / 360)) if estimated_service_minutes else 0
+        staffing_gap = max(0, recommended_staff - active_staff_count)
+        if service_capacity:
+            if staffing_gap:
+                plan = f"Plan for about {recommended_staff} staff ({staffing_gap} more than the {active_staff_count} active staff on record); prioritize capacity for the listed services. Confirm schedules and qualifications."
+            else:
+                plan = f"About {recommended_staff} staff-hours coverage units should meet estimated service time; prepare the listed service slots and confirm staff schedules."
+        else:
+            plan = "Service-level history is not available yet; review confirmed bookings and staff schedules manually."
         predictions.append({
             "date": forecast_date,
             "predicted_demand": predicted,
             "lower_bound": None,
             "upper_bound": None,
             "demand_level": level,
-            "recommendation": recommendation_for(level),
+            "recommendation": f"{recommendation_for(level)} {plan}",
+            "active_staff_count": active_staff_count,
+            "recommended_staff_count": recommended_staff,
+            "staffing_gap": staffing_gap,
+            "service_capacity": service_capacity,
         })
 
     start = values[0][0]

@@ -5,10 +5,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression 
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
+0
 from app.ml.evaluation import regression_metrics
 from app.ml.preprocessing import FEATURE_COLUMNS, add_time_series_features
 
@@ -28,7 +28,7 @@ def _linear_regression() -> Pipeline:
             ("branch", OneHotEncoder(handle_unknown="ignore"), ["branch_id"]),
             ("numeric", StandardScaler(), numeric),
         ])),
-        ("model", LinearRegression()),
+        ("model", LinearRegression()), 
     ])
 
 

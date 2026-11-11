@@ -26,6 +26,8 @@ const ownerService = {
     return response.data;
   },
 
+  removeBranch: async (branchId) => (await api.delete(`/owner/branches/${branchId}`)).data,
+
   users: async (params = {}) => {
     const response = await api.get("/owner/users", { params });
     return response.data;
@@ -59,16 +61,23 @@ const ownerService = {
     return response.data;
   },
 
-  reports: async ({ period = "weekly", start_date = null, end_date = null, branch_id = null } = {}) => {
+  reports: async ({ period = "daily", start_date = null, end_date = null, branch_id = null, staff_id = null, service_id = null, booking_type = null, appointment_status = null, payment_method = null, transaction_status = null } = {}) => {
     const params = { period };
     if (start_date) params.start_date = start_date;
     if (end_date) params.end_date = end_date;
     if (branch_id) params.branch_id = branch_id;
+    if (staff_id) params.staff_id = staff_id;
+    if (service_id) params.service_id = service_id;
+    if (booking_type) params.booking_type = booking_type;
+    if (appointment_status) params.appointment_status = appointment_status;
+    if (payment_method) params.payment_method = payment_method;
+    if (transaction_status) params.transaction_status = transaction_status;
     const response = await api.get("/owner/reports", { params });
     return response.data;
   },
 
   reportDates: async () => (await api.get("/owner/reports/dates")).data,
+  reportFilters: async (branch_id = null) => (await api.get("/owner/reports/filters", { params: branch_id ? { branch_id } : {} })).data,
 
   dayReport: async (reportDate) => (await api.get("/owner/reports/day-summary", { params: { report_date: reportDate }, timeout: 15000 })).data,
 

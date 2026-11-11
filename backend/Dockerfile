@@ -13,7 +13,7 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-RUN mkdir -p /app/backend/uploads
+RUN mkdir -p /app/backend/uploads /app/backend/private_uploads/gcash
 
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]

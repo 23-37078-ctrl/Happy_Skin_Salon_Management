@@ -24,7 +24,6 @@ import RecentActivityCard from "../../components/customer/RecentActivityCard";
 import RecommendedServiceCard from "../../components/customer/RecommendedServiceCard";
 import Footer from "../../components/public/Footer";
 import SystemPopup from "../../components/common/SystemPopup";
-import ThemeToggle from "../../components/common/ThemeToggle";
 
 import {
   CardRailSkeleton,
@@ -376,7 +375,6 @@ function CustomerHeader({ name, email, profileImage, onProfile, onLogout, onHist
         <div className="hidden lg:block" />
 
         <div ref={activityRef} className="relative flex shrink-0 items-center justify-self-end gap-0.5">
-          <ThemeToggle />
           <button type="button" onClick={onHistory} aria-label="Booking history" title="Booking history" className="grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition hover:bg-[#FFF0F7] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineClock className="h-6 w-6" /></button>
           <div>
             <button type="button" aria-label={unreadCount ? `${unreadCount} unread notifications` : "Activity and notifications"} aria-expanded={activityOpen} aria-controls="customer-activity-menu" onClick={() => setActivityOpen((current) => !current)} className={`relative grid h-11 w-11 place-items-center rounded-xl text-[#D65A9A] transition focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20 ${activityOpen ? "bg-[#FFF0F7] ring-1 ring-[#E8B7D0]" : "hover:bg-[#FFF0F7]"}`}>

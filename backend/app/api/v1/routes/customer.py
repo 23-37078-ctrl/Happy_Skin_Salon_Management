@@ -2,12 +2,14 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import logging
 import hashlib
+import mimetypes
+import os
 import secrets
+import re
 from uuid import uuid4
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_
@@ -16,7 +18,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.config import BACKEND_DIR, settings
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import get_current_user, get_optional_current_user
 from app.models.booking import Booking, BookingServiceItem
 from app.models.branch import Branch
 from app.models.feedback import Feedback
@@ -25,12 +27,22 @@ from app.models.user import User
 from app.models.transaction import Transaction
 from app.models.booking_payment import BookingPayment
 from app.models.booking_payment_attempt import BookingPaymentAttempt
+from app.models.gcash_payment_submission import GCashPaymentSubmission
 from app.models.promotion import Promotion
 from app.models.booking_phone_verification import BookingPhoneVerification
 from app.models.customer_support import CustomerProfileChangeRequest
 from app.models.customer_notification import CustomerNotificationRead
 from app.schemas.booking import BookingCreateRequest, BookingOut, GuestBookingCreateRequest
 from app.services.sms_service import normalize_phone_number, send_booking_confirmation_sms, send_verification_sms
+from app.services.booking_lifecycle_service import cancel_overdue_bookings
+from app.services.booking_scheduling import (
+    BUSINESS_TIMEZONE as SCHEDULING_TIMEZONE,
+    OPENING_TIME as SCHEDULING_OPENING_TIME,
+    CLOSING_TIME as SCHEDULING_CLOSING_TIME,
+    LAST_START_TIME,
+    SLOT_INTERVAL_MINUTES,
+    validate_booking_schedule,
+)
 from app.services.paypal_service import (
     PayPalApiError,
     capture_order as paypal_capture_order,
@@ -52,10 +64,9 @@ class PayPalOrderRequest(BaseModel):
 class PayPalCaptureRequest(BaseModel):
     order_id: str = Field(min_length=5, max_length=80)
 
-BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
-OPENING_TIME = time(9, 0)
-CLOSING_TIME = time(19, 0)
-BOOKING_LEAD_TIME = timedelta(hours=1)
+BUSINESS_TIMEZONE = SCHEDULING_TIMEZONE
+OPENING_TIME = SCHEDULING_OPENING_TIME
+CLOSING_TIME = SCHEDULING_CLOSING_TIME
 ACTIVE_BOOKING_STATUSES = {"pending", "confirmed"}
 FACIAL_MACHINE_CAPACITY = 2
 HAIR_TOOL_CAPACITY = 5
@@ -290,6 +301,7 @@ def send_guest_booking_phone_otp(payload: GuestBookingPhoneOTPSendRequest, db: S
         phone_number = normalize_phone_number(payload.phone_number)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    cancel_overdue_bookings(db)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     db.query(BookingPhoneVerification).filter(BookingPhoneVerification.expires_at <= now).delete(synchronize_session=False)
     recent = db.query(BookingPhoneVerification).filter(
@@ -391,34 +403,6 @@ def _branch_nurse_capacity(db: Session, branch_id: int) -> int:
     ).count()
 
 
-def _slot_booking_count(
-    db: Session,
-    branch_id: int,
-    appointment_date: datetime,
-    duration_minutes: int,
-    exclude_booking_id: int | None = None,
-    bookings: list[Booking] | None = None,
-) -> int:
-    requested_start = appointment_date.astimezone(timezone.utc)
-    requested_end = requested_start + timedelta(minutes=duration_minutes)
-    if bookings is None:
-        bookings = _branch_day_bookings(db, branch_id, appointment_date)
-    overlaps = 0
-    for booking in bookings:
-        if booking.id == exclude_booking_id:
-            continue
-        existing_start = booking.appointment_date
-        if existing_start.tzinfo is None:
-            existing_start = existing_start.replace(tzinfo=timezone.utc)
-        else:
-            existing_start = existing_start.astimezone(timezone.utc)
-        existing_duration = sum(service.duration_minutes or 0 for service in _booking_services(booking))
-        existing_end = existing_start + timedelta(minutes=existing_duration)
-        if existing_start < requested_end and existing_end > requested_start:
-            overlaps += 1
-    return overlaps
-
-
 def _slot_has_resource_capacity(
     db: Session,
     branch_id: int,
@@ -467,23 +451,6 @@ def _slot_has_resource_capacity(
                 return False
         cursor = end
     return True
-
-
-def _validate_booking_time(appointment_date: datetime, service: Service) -> None:
-    local_time = appointment_date.astimezone(BUSINESS_TIMEZONE)
-    now = datetime.now(BUSINESS_TIMEZONE)
-    if local_time < now + BOOKING_LEAD_TIME:
-        raise HTTPException(
-            status_code=400,
-            detail="Appointments must be booked at least 1 hour in advance.",
-        )
-    if local_time.minute not in {0, 30} or local_time.second or local_time.microsecond:
-        raise HTTPException(status_code=400, detail="Please choose an available 30-minute time slot.")
-    closing = datetime.combine(local_time.date(), CLOSING_TIME, BUSINESS_TIMEZONE)
-    if local_time.time() < OPENING_TIME or local_time >= closing:
-        raise HTTPException(status_code=400, detail="Appointments are available from 9:00 AM to 7:00 PM.")
-    if local_time + timedelta(minutes=service.duration_minutes or 0) > closing:
-        raise HTTPException(status_code=400, detail="This service would finish after the salon closes.")
 
 
 def _reject_overlapping_customer_booking(
@@ -613,10 +580,6 @@ def _booking_query(db: Session):
 
 def _start_online_booking_payment(db: Session, booking: Booking, services: list[Service], *, guest: bool = False) -> BookingOut:
     """Create a pending full-payment record; PayPal orders are created on demand."""
-    if not is_paypal_configured():
-        booking.status = "cancelled"
-        db.commit()
-        raise HTTPException(status_code=503, detail="Online booking payments are not configured yet. Please contact the branch.")
     token = secrets.token_urlsafe(32) if guest else None
     reference = f"HS-{booking.id}-{uuid4().hex[:12]}"
     total = round(sum(float(service.price) for service in services), 2)
@@ -624,7 +587,7 @@ def _start_online_booking_payment(db: Session, booking: Booking, services: list[
         booking_id=booking.id,
         reference_number=reference,
         amount=total,
-        provider="paypal",
+        provider="gcash",
         status="pending",
         guest_status_token_hash=hashlib.sha256(token.encode()).hexdigest() if token else None,
     )
@@ -642,6 +605,95 @@ def get_booking_payment_status(token: str = Query(min_length=32, max_length=100)
         raise HTTPException(status_code=404, detail="Payment link was not found.")
     return {"booking_id": payment.booking_id, "status": payment.status, "amount": payment.amount,
             "payment_reference": payment.payment_id if payment.status == "paid" else None}
+
+
+def _gcash_qr_image_path() -> Path:
+    configured_path = Path(settings.GCASH_QR_IMAGE_PATH) if settings.GCASH_QR_IMAGE_PATH else None
+    if configured_path and configured_path.is_file():
+        return configured_path
+    private_uploads = BACKEND_DIR / "private_uploads"
+    for filename in ("gcash-merchant-qr.png", "gcash-merchant-qr.jpg", "gcash-merchant-qr.jpeg"):
+        candidate = private_uploads / filename
+        if candidate.is_file():
+            return candidate
+    return private_uploads / "gcash-merchant-qr.png"
+
+
+def _gcash_instructions(payment: BookingPayment) -> dict:
+    qr_path = _gcash_qr_image_path()
+    qr_exists = qr_path.is_file()
+    return {"booking_id": payment.booking_id, "booking_reference": payment.reference_number,
+            "amount": float(payment.amount), "merchant_name": settings.GCASH_MERCHANT_NAME.strip() or None,
+            "qr_available": bool(qr_exists and settings.GCASH_MERCHANT_NAME.strip()),
+            "qr_url": f"/api/v1/customer/payments/{payment.booking_id}/gcash/qr" if qr_exists else None,
+            "status": payment.status}
+
+
+@router.get("/payments/{booking_id}/gcash/instructions")
+def gcash_payment_instructions(booking_id: int, payment_token: str | None = Query(default=None), current_user: User | None = Depends(get_optional_current_user), db: Session = Depends(get_db)):
+    payment, _ = _payment_for_customer(db, booking_id, current_user, payment_token)
+    return _gcash_instructions(payment)
+
+
+@router.get("/payments/{booking_id}/gcash/qr")
+def gcash_merchant_qr(booking_id: int, payment_token: str | None = Query(default=None), current_user: User | None = Depends(get_optional_current_user), db: Session = Depends(get_db)):
+    payment, _ = _payment_for_customer(db, booking_id, current_user, payment_token)
+    path = _gcash_qr_image_path()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The merchant QR image has not been configured.")
+    from fastapi.responses import FileResponse
+    return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream", filename=path.name)
+
+
+@router.post("/payments/{booking_id}/gcash/proof")
+async def submit_gcash_proof(booking_id: int, reference_number: str = Form(min_length=6, max_length=80),
+    proof: UploadFile = File(...), reported_paid_at: datetime | None = Form(default=None), payment_token: str | None = Query(default=None),
+    current_user: User | None = Depends(get_optional_current_user), db: Session = Depends(get_db)):
+    payment, booking = _payment_for_customer(db, booking_id, current_user, payment_token)
+    if payment.status not in {"pending", "rejected"}:
+        raise HTTPException(status_code=409, detail="This booking payment is not accepting GCash proof.")
+    normalized = re.sub(r"[\s-]", "", reference_number).upper()
+    if not re.fullmatch(r"[A-Z0-9]{6,80}", normalized):
+        raise HTTPException(status_code=422, detail="Enter a valid GCash transaction reference.")
+    if reported_paid_at is not None and reported_paid_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="Include the payment date and time with timezone.")
+    data = await proof.read(settings.GCASH_PROOF_MAX_BYTES + 1)
+    if len(data) > settings.GCASH_PROOF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The screenshot must be 5 MB or smaller.")
+    signatures = {"png": (b"\x89PNG\r\n\x1a\n", "image/png"), "jpeg": (b"\xff\xd8\xff", "image/jpeg"),
+                  "webp": (b"RIFF", "image/webp")}
+    kind = next((name for name, (magic, _) in signatures.items() if data.startswith(magic)), None)
+    if kind == "webp" and data[8:12] != b"WEBP": kind = None
+    if not kind:
+        raise HTTPException(status_code=415, detail="Upload a PNG, JPG, or WEBP payment screenshot.")
+    storage = (Path(settings.GCASH_PROOF_STORAGE_PATH) if settings.GCASH_PROOF_STORAGE_PATH else BACKEND_DIR / "private_uploads" / "gcash").resolve()
+    public_uploads = (BACKEND_DIR / "uploads").resolve()
+    if storage == public_uploads or public_uploads in storage.parents:
+        raise HTTPException(status_code=500, detail="Private payment storage is misconfigured.")
+    storage.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name != "nt":
+        os.chmod(storage, 0o700)
+    filename = f"{uuid4().hex}.{kind}"
+    file_descriptor = os.open(storage / filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(file_descriptor, "wb") as private_file:
+        private_file.write(data)
+    submission = GCashPaymentSubmission(booking_payment_id=payment.id, reference_number=normalized,
+        reported_paid_at=reported_paid_at.astimezone(timezone.utc) if reported_paid_at else datetime.now(timezone.utc), proof_path=filename,
+        proof_content_type=signatures[kind][1], amount=Decimal(str(payment.amount)), status="for_verification")
+    payment.status = "for_verification"
+    payment.provider = "gcash"
+    for paypal_attempt in db.query(BookingPaymentAttempt).filter(
+        BookingPaymentAttempt.booking_payment_id == payment.id,
+        BookingPaymentAttempt.status.in_(["creating", "pending"]),
+    ).with_for_update().all():
+        # Switching methods prevents a browser callback from initiating a late capture.
+        paypal_attempt.status = "cancelled"
+    try:
+        db.add(submission); db.commit()
+    except Exception:
+        db.rollback(); (storage / filename).unlink(missing_ok=True)
+        raise HTTPException(status_code=409, detail="This GCash reference has already been submitted.")
+    return {"booking_id": booking_id, "status": "for_verification", "message": "Payment proof submitted for staff verification."}
 
 
 def _payment_for_customer(db: Session, booking_id: int, current_user: User | None, token: str | None):
@@ -663,6 +715,8 @@ def _payment_for_customer(db: Session, booking_id: int, current_user: User | Non
         raise HTTPException(status_code=409, detail="This booking has been cancelled.")
     if payment.status == "paid":
         raise HTTPException(status_code=409, detail="This booking is already paid.")
+    if db.query(Transaction.id).filter(Transaction.booking_id == booking_id).first():
+        raise HTTPException(status_code=409, detail="A transaction has already been recorded for this booking.")
     return payment, booking
 
 
@@ -687,6 +741,9 @@ async def _create_paypal_order(payload: PayPalOrderRequest, current_user: User |
     if not is_paypal_configured():
         raise HTTPException(status_code=503, detail="PayPal Sandbox payments are not configured.")
     payment, booking = _payment_for_customer(db, payload.booking_id, current_user, payload.payment_token)
+    if payment.status not in {"pending", "rejected"}:
+        raise HTTPException(status_code=409, detail="This booking payment cannot be switched to PayPal in its current state.")
+    payment.status = "pending"
     payment.provider = "paypal"
     attempt = db.query(BookingPaymentAttempt).filter(
         BookingPaymentAttempt.booking_payment_id == payment.id,
@@ -755,6 +812,8 @@ async def _capture_paypal_order(order_id: str, current_user: User | None, token:
     if not payment:
         raise HTTPException(status_code=404, detail="Booking payment was not found.")
     payment, booking = _payment_for_customer(db, payment.booking_id, current_user, token)
+    if payment.provider != "paypal" or payment.status != "pending":
+        raise HTTPException(status_code=409, detail="This PayPal attempt is no longer the active payment method.")
     if attempt.status in {"failed", "cancelled"}:
         raise HTTPException(status_code=409, detail="This PayPal payment attempt is no longer active. Create a new payment attempt.")
     if not attempt.capture_request_id:
@@ -803,6 +862,19 @@ def _record_paypal_capture(db: Session, attempt: BookingPaymentAttempt, payment:
         logger.error("Different PayPal capture received for already-paid booking %s", booking.id)
         return {"status": "paid", "booking_id": booking.id}
     now = datetime.now(timezone.utc)
+    if payment.status == "for_verification":
+        # A PayPal order can settle after the customer switches to GCash. The
+        # verified capture is authoritative; stale GCash proof must leave the queue.
+        for submission in db.query(GCashPaymentSubmission).filter(
+            GCashPaymentSubmission.booking_payment_id == payment.id,
+            GCashPaymentSubmission.status == "for_verification",
+        ).all():
+            submission.status = "stale"
+            submission.remarks = "A verified PayPal capture settled this booking before manual review."
+    payment.provider = "paypal"
+    payment.verified_by_id = None
+    payment.verified_at = None
+    payment.decision_remarks = None
     attempt.paypal_capture_id = capture_id
     attempt.status = "paid"
     attempt.paid_at = now
@@ -970,6 +1042,30 @@ def get_customer_dashboard(
         }
         for transaction in receipt_transactions
     ]
+    payment_notifications = db.query(BookingPayment).filter(
+        BookingPayment.booking_id.in_(booking_ids),
+        BookingPayment.status.in_(["for_verification", "rejected"]),
+    ).all() if booking_ids else []
+    for payment in payment_notifications:
+        notification_id = f"payment-{payment.id}-{payment.status}"
+        if payment.status == "for_verification":
+            message = f"GCash proof for booking {payment.reference_number} is waiting for staff verification. It is not approved yet."
+        else:
+            reason = f" Reason: {payment.decision_remarks}" if payment.decision_remarks else ""
+            message = f"GCash proof for booking {payment.reference_number} was rejected. Check your booking history before submitting new proof.{reason}"
+        notifications.append({
+            "id": notification_id,
+            "type": "system",
+            "message": message,
+            "timestamp": payment.updated_at or payment.created_at,
+            "is_read": notification_id in read_notification_ids,
+            "booking_id": payment.booking_id,
+        })
+    notifications.sort(key=lambda item: (
+        (item["timestamp"] or datetime.min.replace(tzinfo=timezone.utc)).replace(tzinfo=timezone.utc)
+        if (item["timestamp"] or datetime.min).tzinfo is None
+        else item["timestamp"]
+    ).timestamp(), reverse=True)
 
     return {
         "user": _serialize_user(current_user),
@@ -1086,30 +1182,48 @@ def _booking_availability(
     selected_services = [service_map[service_id] for service_id in requested_ids if service_id in service_map]
     if len(selected_services) != len(requested_ids):
         raise HTTPException(status_code=404, detail="One or more selected services are not offered at this branch.")
-    combined_duration = sum(service.duration_minutes or 0 for service in selected_services)
-
-    capacity = _slot_capacity(db, branch_id)
-    day_bookings = _branch_day_bookings(db, branch_id, datetime.combine(booking_date, OPENING_TIME, BUSINESS_TIMEZONE))
-    nurse_capacity = _branch_nurse_capacity(db, branch_id)
-    now = datetime.now(BUSINESS_TIMEZONE)
-    closing = datetime.combine(booking_date, CLOSING_TIME, BUSINESS_TIMEZONE)
     cursor = datetime.combine(booking_date, OPENING_TIME, BUSINESS_TIMEZONE)
+    day_bookings = _branch_day_bookings(db, branch_id, cursor)
+    nurse_capacity = _branch_nurse_capacity(db, branch_id)
+    staff_names = {staff.id: staff.full_name for staff in db.query(User).filter(
+        User.role == "staff", User.branch_id == branch_id, User.is_active.is_(True), User.job_title.isnot(None)
+    ).all()}
     slots = []
-    while cursor < closing:
-        utc_slot = cursor.astimezone(timezone.utc)
-        booked = _slot_booking_count(db, branch_id, utc_slot, combined_duration, bookings=day_bookings)
-        resources_available = _slot_has_resource_capacity(db, branch_id, utc_slot, selected_services, day_bookings, nurse_capacity=nurse_capacity)
-        meets_lead_time = cursor >= now + BOOKING_LEAD_TIME
-        finishes_before_close = cursor + timedelta(minutes=combined_duration) <= closing
+    while cursor.time() <= LAST_START_TIME:
+        booked = 0
+        available = True
+        assignments = []
+        reason = None
+        is_full = False
+        try:
+            assignments = validate_booking_schedule(db, branch_id, cursor, selected_services, online=True)
+            if not _slot_has_resource_capacity(db, branch_id, cursor, selected_services, day_bookings, nurse_capacity=nurse_capacity):
+                available = False
+                reason = "Required equipment or qualified staff are unavailable."
+        except HTTPException as error:
+            available = False
+            booked = 1
+            is_full = error.status_code == 409
+            reason = error.detail
+        service_cursor = cursor
+        assigned_services = []
+        for selected_service, provider_id in zip(selected_services, assignments):
+            duration = max(1, int(selected_service.duration_minutes or 0))
+            assigned_services.append({"service_name": selected_service.name, "duration_minutes": duration,
+                                      "provider_id": provider_id, "provider_name": staff_names.get(provider_id)})
+            service_cursor += timedelta(minutes=duration)
         slots.append({
             "time": cursor.strftime("%H:%M"),
-            "available": meets_lead_time and finishes_before_close and booked < capacity and resources_available,
-            "is_full": booked >= capacity or not resources_available,
+            "available": available,
+            "is_full": is_full or reason == "Required equipment or qualified staff are unavailable.",
+            "reason": reason,
             "booked": booked,
-            "capacity": capacity,
+            "capacity": _slot_capacity(db, branch_id),
+            "service_provider_ids": assignments,
+            "assigned_services": assigned_services,
         })
-        cursor += timedelta(minutes=30)
-    return {"date": booking_date.isoformat(), "slots": slots, "lead_time_minutes": 60}
+        cursor += timedelta(minutes=SLOT_INTERVAL_MINUTES)
+    return {"date": booking_date.isoformat(), "slots": slots, "lead_time_minutes": 30, "slot_interval_minutes": SLOT_INTERVAL_MINUTES}
 
 
 @router.get("/availability")
@@ -1143,14 +1257,13 @@ def create_customer_appointment(
     db: Session = Depends(get_db),
 ):
     _require_customer(current_user)
-    if not is_paypal_configured():
-        raise HTTPException(status_code=503, detail="Online booking payments are not configured yet. Please contact the branch.")
     if not current_user.phone_verified or not current_user.phone_number:
         raise HTTPException(status_code=400, detail="Verify a mobile number in your account before booking so we can text your booking receipt and arrival policy.")
     try:
         customer_phone = normalize_phone_number(current_user.phone_number)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Add a valid Philippine mobile number to your account before booking.") from exc
+    cancel_overdue_bookings(db)
 
     # Serialize booking submissions for this branch so simultaneous requests
     # cannot both claim the last available staff slot.
@@ -1167,8 +1280,10 @@ def create_customer_appointment(
 
     appointment_date = payload.appointment_date
     combined_duration = sum(item.duration_minutes or 0 for item in ordered_services)
-    service_for_schedule = Service(duration_minutes=combined_duration)
-    _validate_booking_time(appointment_date, service_for_schedule)
+    provider_ids = validate_booking_schedule(db, payload.branch_id, appointment_date, ordered_services, online=True)
+    day_bookings = _branch_day_bookings(db, payload.branch_id, appointment_date)
+    if not _slot_has_resource_capacity(db, payload.branch_id, appointment_date, ordered_services, day_bookings, nurse_capacity=_branch_nurse_capacity(db, payload.branch_id)):
+        raise HTTPException(status_code=409, detail="The required equipment or a qualified nurse is unavailable at that time. Please choose another slot.")
     _reject_overlapping_customer_booking(
         db,
         appointment_date,
@@ -1178,22 +1293,9 @@ def create_customer_appointment(
         allow_exact_duplicate=payload.allow_duplicate,
         requested_service_ids={item.id for item in ordered_services},
     )
-    day_bookings = _branch_day_bookings(db, payload.branch_id, appointment_date)
-    nurse_capacity = _branch_nurse_capacity(db, payload.branch_id)
-    capacity = _slot_capacity(db, payload.branch_id)
-    if _slot_booking_count(
-        db,
-        payload.branch_id,
-        appointment_date,
-        combined_duration,
-        bookings=day_bookings,
-    ) >= capacity:
-        raise HTTPException(status_code=409, detail="That time is already fully booked. Please choose another slot.")
-    if not _slot_has_resource_capacity(db, payload.branch_id, appointment_date, ordered_services, day_bookings, nurse_capacity=nurse_capacity):
-        raise HTTPException(status_code=409, detail="The required equipment or a qualified nurse is unavailable at that time. Please choose another slot.")
-
     booking = Booking(
         customer_id=current_user.id,
+        guest_phone=customer_phone,
         branch_id=payload.branch_id,
         service_id=payload.service_id,
         appointment_date=payload.appointment_date,
@@ -1203,8 +1305,8 @@ def create_customer_appointment(
     )
     db.add(booking)
     db.flush()
-    for selected_service in ordered_services:
-        db.add(BookingServiceItem(booking_id=booking.id, service_id=selected_service.id))
+    for selected_service, provider_id in zip(ordered_services, provider_ids):
+        db.add(BookingServiceItem(booking_id=booking.id, service_id=selected_service.id, service_provider_id=provider_id))
     db.commit()
     db.refresh(booking)
     booking = _booking_query(db).filter(Booking.id == booking.id).first()
@@ -1213,12 +1315,11 @@ def create_customer_appointment(
 
 @router.post("/guest/appointments", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
 def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = Depends(get_db)):
-    if not is_paypal_configured():
-        raise HTTPException(status_code=503, detail="Online booking payments are not configured yet. Please contact the branch.")
     try:
         guest_phone = normalize_phone_number(payload.guest_phone)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    cancel_overdue_bookings(db)
     phone_challenge = _validated_guest_phone_challenge(db, payload.phone_verification_id, guest_phone)
     branch = _lock_booking_branch(db, payload.branch_id)
     requested_service_ids = list(dict.fromkeys(payload.service_ids or [payload.service_id]))
@@ -1233,7 +1334,10 @@ def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = D
         raise HTTPException(status_code=404, detail="One or more selected services are not offered at this branch.")
 
     duration = sum(service.duration_minutes or 0 for service in ordered_services)
-    _validate_booking_time(payload.appointment_date, Service(duration_minutes=duration))
+    provider_ids = validate_booking_schedule(db, payload.branch_id, payload.appointment_date, ordered_services, online=True)
+    day_bookings = _branch_day_bookings(db, payload.branch_id, payload.appointment_date)
+    if not _slot_has_resource_capacity(db, payload.branch_id, payload.appointment_date, ordered_services, day_bookings, nurse_capacity=_branch_nurse_capacity(db, payload.branch_id)):
+        raise HTTPException(status_code=409, detail="The required equipment or a qualified nurse is unavailable at that time. Please choose another slot.")
     _reject_overlapping_customer_booking(
         db,
         payload.appointment_date,
@@ -1242,14 +1346,6 @@ def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = D
         allow_exact_duplicate=payload.allow_duplicate,
         requested_service_ids={item.id for item in ordered_services},
     )
-    day_bookings = _branch_day_bookings(db, payload.branch_id, payload.appointment_date)
-    nurse_capacity = _branch_nurse_capacity(db, payload.branch_id)
-    capacity = _slot_capacity(db, payload.branch_id)
-    if capacity < 1 or _slot_booking_count(db, payload.branch_id, payload.appointment_date, duration, bookings=day_bookings) >= capacity:
-        raise HTTPException(status_code=409, detail="That time is already fully booked. Please choose another slot.")
-    if not _slot_has_resource_capacity(db, payload.branch_id, payload.appointment_date, ordered_services, day_bookings, nurse_capacity=nurse_capacity):
-        raise HTTPException(status_code=409, detail="The required equipment or a qualified nurse is unavailable at that time. Please choose another slot.")
-
     booking = Booking(
         customer_id=None,
         guest_name=payload.guest_name,
@@ -1263,8 +1359,8 @@ def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = D
     )
     db.add(booking)
     db.flush()
-    for selected_service in ordered_services:
-        db.add(BookingServiceItem(booking_id=booking.id, service_id=selected_service.id))
+    for selected_service, provider_id in zip(ordered_services, provider_ids):
+        db.add(BookingServiceItem(booking_id=booking.id, service_id=selected_service.id, service_provider_id=provider_id))
     phone_challenge.consumed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     db.refresh(booking)
@@ -1291,6 +1387,7 @@ def list_customer_appointments(
         item["payment_status"] = booking_payment.status if booking_payment else "unpaid"
         item["payment_amount"] = booking_payment.amount if booking_payment else None
         item["payment_method"] = booking_payment.payment_method if booking_payment else None
+        item["payment_reference"] = booking_payment.payment_id if booking_payment and booking_payment.status == "paid" else None
         item["checkout_url"] = booking_payment.checkout_url if booking_payment and booking_payment.status == "pending" else None
         transaction = db.query(Transaction).filter(Transaction.booking_id == booking.id).order_by(Transaction.created_at.desc()).first()
         provider = transaction.service_provider if transaction and transaction.service_provider else booking.service_provider
@@ -1335,7 +1432,7 @@ def cancel_customer_appointment(
     if payment and payment.status == "creating":
         raise HTTPException(status_code=409, detail="The secure checkout is still being prepared. Try cancelling again in a moment.")
     if payment and payment.status == "paid":
-        raise HTTPException(status_code=409, detail="This booking is already paid. Contact the branch to cancel and arrange any refund.")
+        raise HTTPException(status_code=409, detail="This booking has already been paid and is non-refundable. Please attend your scheduled appointment. Contact the branch if you need help with your booking.")
     if payment and payment.status == "pending":
         payment.status = "cancelled"
         db.query(BookingPaymentAttempt).filter(BookingPaymentAttempt.booking_payment_id == payment.id,
@@ -1427,17 +1524,30 @@ def mark_customer_notification_read(
     db: Session = Depends(get_db),
 ):
     _require_customer(current_user)
-    if not notification_id.startswith("receipt-"):
-        raise HTTPException(status_code=404, detail="Notification not found.")
-    try:
-        receipt_id = int(notification_id.removeprefix("receipt-"))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Notification not found.") from exc
-    receipt = db.query(Transaction).join(Booking, Transaction.booking_id == Booking.id).filter(
-        Transaction.id == receipt_id,
-        Booking.customer_id == current_user.id,
-    ).first()
-    if not receipt:
+    if notification_id.startswith("receipt-"):
+        try:
+            receipt_id = int(notification_id.removeprefix("receipt-"))
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Notification not found.") from exc
+        exists = db.query(Transaction.id).join(Booking, Transaction.booking_id == Booking.id).filter(
+            Transaction.id == receipt_id,
+            Booking.customer_id == current_user.id,
+        ).first()
+    elif notification_id.startswith("payment-"):
+        try:
+            _, payment_id_text, payment_status = notification_id.split("-", 2)
+            payment_id = int(payment_id_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Notification not found.") from exc
+        exists = db.query(BookingPayment.id).join(Booking, BookingPayment.booking_id == Booking.id).filter(
+            BookingPayment.id == payment_id,
+            BookingPayment.status == payment_status,
+            BookingPayment.status.in_(["for_verification", "rejected"]),
+            Booking.customer_id == current_user.id,
+        ).first()
+    else:
+        exists = None
+    if not exists:
         raise HTTPException(status_code=404, detail="Notification not found.")
     read_marker = db.query(CustomerNotificationRead).filter_by(
         customer_id=current_user.id,

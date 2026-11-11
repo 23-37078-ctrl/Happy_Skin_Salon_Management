@@ -1,3 +1,4 @@
 backend/.env
+backend/private_uploads/
 frontend/.env
 .env

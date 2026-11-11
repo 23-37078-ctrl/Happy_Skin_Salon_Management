@@ -16,6 +16,7 @@ export default function ForcastingPage({ embedded = false }) {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isTraining, setIsTraining] = useState(false);
 
   const loadForecasts = useCallback(async () => {
     setIsLoading(true);
@@ -32,6 +33,19 @@ export default function ForcastingPage({ embedded = false }) {
       setIsLoading(false);
     }
   }, []);
+
+  const trainModel = async () => {
+    setIsTraining(true);
+    setError("");
+    try {
+      const result = await forecastService.train();
+      await loadForecasts();
+    } catch (err) {
+      setError(getApiError(err, "Model training could not be completed. Check whether enough real completed appointments are available."));
+    } finally {
+      setIsTraining(false);
+    }
+  };
 
   useEffect(() => {
     Promise.resolve().then(loadForecasts);
@@ -50,16 +64,14 @@ export default function ForcastingPage({ embedded = false }) {
           <section className="overflow-hidden rounded-[1.5rem] border border-[#F0DDE7] bg-white shadow-[0_16px_44px_rgba(31,41,55,0.06)]">
             <div className="flex flex-col gap-4 border-b border-[#F3E8EF] bg-gradient-to-r from-white via-[#FFF9FC] to-[#FFF2F8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between lg:px-6">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C85B95]">Forecast workspace</p>
                 <h2 className="mt-1 text-xl font-bold text-[#1F2937]">Branch demand outlook</h2>
-                <p className="mt-1 text-sm text-[#6B7280]">Forecasts use branch history when available and the imported 3-year sample dataset when real history is limited.</p>
               </div>
-              <label className="block w-full text-xs font-bold uppercase tracking-wide text-[#6B7280] sm:min-w-56 sm:w-auto">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end"><label className="block w-full text-xs font-bold uppercase tracking-wide text-[#6B7280] sm:min-w-56 sm:w-auto">
                 Branch
                 <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-[#EBCFDE] bg-white px-3 py-2 text-sm font-bold normal-case text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/15">
                   {forecasts.map((forecast) => <option key={forecast.branch_id} value={forecast.branch_id}>{forecast.branch_name}</option>)}
                 </select>
-              </label>
+              </label><button type="button" onClick={trainModel} disabled={isTraining || isLoading} className="min-h-11 rounded-xl bg-[#C85B95] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#A83F78] disabled:cursor-not-allowed disabled:opacity-60">{isTraining ? "Training model…" : "Train on actual records"}</button></div>
             </div>
             {selectedForecast && <ForecastWorkspace forecast={selectedForecast} />}
           </section>
@@ -68,14 +80,9 @@ export default function ForcastingPage({ embedded = false }) {
     </>
   );
 
-  if (embedded) return <section aria-labelledby="owner-forecasting-title" className="mt-6">
-    <div className="mb-4">
-      <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#C85B95]">Decision intelligence · next seven days</p><h2 id="owner-forecasting-title" className="mt-1 text-lg font-bold text-[#1F2937]">Demand Forecasting</h2></div>
-    </div>
-    {content}
-  </section>;
+  if (embedded) return <section aria-labelledby="owner-forecasting-title" className="mt-6">{content}</section>;
 
-  return <OwnerWorkspace title="Demand Forecasting" eyebrow="Decision intelligence · next seven days">{content}</OwnerWorkspace>;
+  return <OwnerWorkspace title="Demand Forecasting">{content}</OwnerWorkspace>;
 }
 
 function ForecastWorkspace({ forecast }) {
@@ -97,10 +104,9 @@ function ForecastWorkspace({ forecast }) {
           <span className="flex h-11 w-11 flex-none items-center justify-center rounded-2xl bg-[#FFF0F7] text-[#C85B95] ring-1 ring-[#F3D4E4]"><HiOutlinePresentationChartLine className="h-6 w-6" /></span>
           <div>
             <h3 className="text-lg font-bold text-[#1F2937]">{forecast.branch_name}</h3>
-            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#6B7280]"><span>{forecast.model}</span><span className="text-[#D8B5C7]">•</span><span>Updated {generatedAt}</span></p>
+            <p className="mt-1 text-sm text-[#6B7280]">Updated {generatedAt}</p>
           </div>
         </div>
-        <QualityBadge quality={forecast.data_quality} />
       </div>
 
       {forecast.limitation && (
@@ -113,7 +119,7 @@ function ForecastWorkspace({ forecast }) {
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(17rem,0.65fr)]">
         <div className="min-w-0 rounded-2xl border border-[#F3E8EF] bg-[#FFFCFD] p-4 sm:p-5">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <div><p className="text-sm font-bold text-[#1F2937]">Actual vs predicted demand</p><p className="mt-1 text-xs text-[#6B7280]">{usesSampleData ? "Daily completed sample transactions" : "Daily completed appointments"}</p></div>
+            <div><p className="text-sm font-bold text-[#1F2937]">Demand outlook</p><p className="mt-1 text-xs text-[#6B7280]">{usesSampleData ? "Based on sample transaction history" : "Based on completed appointments"}</p></div>
             <p className="text-right"><span className="block text-2xl font-bold text-[#1F2937]">{forecastTotal.toFixed(1)}</span><span className="text-xs font-semibold text-[#6B7280]">7-day {usesSampleData ? "sample transactions" : "forecast"}</span></p>
           </div>
           <div className="mt-4"><ForecastChart historical={forecast.historical} predictions={predictions} actualLabel={usesSampleData ? "Completed sample transactions" : "Actual completed appointments"} predictedLabel={usesSampleData ? "Predicted sample transactions" : "Predicted demand"} /></div>
@@ -170,12 +176,6 @@ function DailyOutlook({ predictions, usesSampleData }) {
       </div>
     </div>
   );
-}
-
-function QualityBadge({ quality }) {
-  if (quality === "synthetic_sample") return <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[#F5F0FF] px-3 py-1.5 text-xs font-bold text-[#6941C6] ring-1 ring-[#D9C9FF]"><span className="h-2 w-2 rounded-full bg-[#8B5CF6]" />3-year sample data</span>;
-  const sufficient = quality === "sufficient";
-  return <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ${sufficient ? "bg-[#ECFDF3] text-[#166534] ring-[#BBF7D0]" : "bg-[#FFF8E7] text-[#9A5B13] ring-[#F4D7A1]"}`}><span className={`h-2 w-2 rounded-full ${sufficient ? "bg-[#22C55E]" : "bg-[#F59E0B]"}`} />{sufficient ? "Validated model" : "Fallback · limited data"}</span>;
 }
 
 function DemandBadge({ level }) {

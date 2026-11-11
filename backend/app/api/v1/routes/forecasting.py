@@ -2,15 +2,46 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.dependencies.auth import get_current_user
 from app.dependencies.permissions import require_role
 from app.models.model_registry import ModelRegistry
+from app.models.branch import Branch
 from app.models.user import User
 from app.schemas.forecast import BranchForecastResponse, ModelAccuracyResponse, TrainingResponse
+from app.services.business_analytics_service import build_business_history
 from app.services.forecast_service import InsufficientForecastData, build_branch_forecast, train_forecast_model
 
 
 router = APIRouter(prefix="/forecast", tags=["Forecasting"])
+
+
+@router.get("/business-history")
+def get_business_history(
+    days: int = Query(default=1095, ge=1, le=1095),
+    branch_id: int | None = Query(default=None, ge=1),
+    current_user: User = Depends(require_role("owner", "manager", "staff")),
+    db: Session = Depends(get_db),
+):
+    """Return actual, branch-scoped booking and transaction history plus a short outlook."""
+    if current_user.role == "owner":
+        branches = db.query(Branch).order_by(Branch.name).all()
+        if branch_id is not None and not any(branch.id == branch_id for branch in branches):
+            raise HTTPException(status_code=404, detail="Branch not found.")
+        branch_ids = [branch_id] if branch_id is not None else [branch.id for branch in branches]
+        visible_branches = [branch for branch in branches if branch_id is None or branch.id == branch_id]
+    else:
+        if current_user.branch_id is None:
+            raise HTTPException(status_code=403, detail="Your account is not assigned to a branch.")
+        if branch_id is not None and branch_id != current_user.branch_id:
+            raise HTTPException(status_code=403, detail="You can only view your assigned branch.")
+        branch_ids = [current_user.branch_id]
+        visible_branches = db.query(Branch).filter(Branch.id == current_user.branch_id).all()
+    result = build_business_history(db, branch_ids=branch_ids, days=days)
+    result["branch_id"] = branch_ids[0] if len(branch_ids) == 1 else None
+    result["branch_name"] = visible_branches[0].name if len(visible_branches) == 1 else "All branches"
+    result["branches"] = [{"id": branch.id, "name": branch.name} for branch in visible_branches]
+    return result
+
+
 def _authorize_branch(user: User, branch_id: int) -> None:
     if user.role == "owner":
         return
@@ -23,7 +54,7 @@ def _authorize_branch(user: User, branch_id: int) -> None:
 def get_branch_forecast(
     branch_id: int,
     horizon: int = Query(default=7, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("owner", "manager")),
     db: Session = Depends(get_db),
 ):
     _authorize_branch(current_user, branch_id)
@@ -36,7 +67,7 @@ def get_branch_forecast(
 @router.get("/branches/{branch_id}/recommendations")
 def get_branch_recommendations(
     branch_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("owner", "manager")),
     db: Session = Depends(get_db),
 ):
     _authorize_branch(current_user, branch_id)

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.v1.routes import customer as customer_routes
+from app.api.v1.routes import customer as customer_routes, transactions as transaction_routes
 from app.core.database import Base
 from app.models.booking import Booking
 from app.models.booking_payment import BookingPayment
@@ -108,6 +108,25 @@ def test_declined_capture_marks_only_attempt_failed(payment_context):
     assert db.get(BookingPaymentAttempt, attempt_id).status == "failed"
     assert db.get(BookingPayment, payment_id).status == "pending"
     assert db.query(Transaction).filter_by(booking_id=booking_id).count() == 0
+
+
+@pytest.mark.parametrize("method", ["paypal", "gcash"])
+def test_staff_online_booking_list_reports_the_actual_payment_method(payment_context, method):
+    db, booking_id, payment_id, _attempt_id = payment_context
+    payment = db.get(BookingPayment, payment_id)
+    payment.status = "paid"
+    payment.provider = method
+    payment.payment_method = method
+    db.commit()
+
+    staff = User(full_name="Branch Staff", email=f"staff-{method}@example.com", role="staff", branch_id=1)
+    db.add(staff)
+    db.commit()
+
+    rows = transaction_routes.list_online_bookings(staff, db)
+    item = next(row for row in rows if row["id"] == booking_id)
+    assert item["payment_status"] == "paid"
+    assert item["payment_method"] == method
 
 
 def test_late_completed_capture_is_recorded_without_reopening_cancelled_booking(payment_context):

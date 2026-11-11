@@ -27,15 +27,17 @@ import ModernDatePicker from "../../components/common/ModernDatePicker";
 import { getSalonServiceCategory, SALON_SERVICE_CATEGORIES } from "../../constants/salonServices";
 import { useAuth } from "../../hooks/useAuth";
 import PayPalBookingButton from "../../components/payments/PayPalBookingButton";
+import GCashPaymentPanel from "../../components/payments/GCashPaymentPanel";
+import PaymentMethodPicker from "../../components/payments/PaymentMethodPicker";
 
 const today = () => {
-  const date = new Date();
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
 };
 
-const APPOINTMENT_SLOTS = Array.from({ length: 20 }, (_, index) => {
-  const totalMinutes = 9 * 60 + index * 30;
+const APPOINTMENT_SLOTS = Array.from({ length: 28 }, (_, index) => {
+  const totalMinutes = 11 * 60 + index * 20;
   const hour = Math.floor(totalMinutes / 60);
   const minute = totalMinutes % 60;
   const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
@@ -45,9 +47,9 @@ const APPOINTMENT_SLOTS = Array.from({ length: 20 }, (_, index) => {
 });
 
 const TIME_PERIODS = [
-  { value: "morning", label: "Morning", range: "9:00 AM to 11:30 AM" },
-  { value: "afternoon", label: "Afternoon", range: "12:00 PM to 4:30 PM" },
-  { value: "evening", label: "Evening", range: "5:00 PM to 7:00 PM" },
+  { value: "morning", label: "Morning", range: "11:00 AM to 11:40 AM" },
+  { value: "afternoon", label: "Afternoon", range: "12:00 PM to 4:40 PM" },
+  { value: "evening", label: "Evening", range: "5:00 PM to 8:00 PM" },
 ];
 
 export default function CustomerBookAppointment() {
@@ -87,6 +89,7 @@ export default function CustomerBookAppointment() {
   const [paymentToken, setPaymentToken] = useState(searchParams.get("payment_token") || "");
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentReference, setPaymentReference] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("gcash");
 
   useEffect(() => {
     const token = searchParams.get("payment_token");
@@ -103,6 +106,16 @@ export default function CustomerBookAppointment() {
           setPaymentToken(token || "");
           setPaymentAmount(Number(result.amount || 0));
           setPaymentReference(result.payment_reference || "");
+          if (result.status === "for_verification") {
+            setSuccess("Your GCash proof is for verification. Staff will compare it with the merchant records before payment is approved.");
+            setBookingSuccess(true);
+            return;
+          }
+          if (result.status === "rejected") {
+            setSuccess("Your GCash proof was rejected. Open booking history to review the status and submit new proof if you have a different transaction reference.");
+            setBookingSuccess(true);
+            return;
+          }
           if (result.status === "paid") {
             setSuccess("Full payment received. Your booking is recorded and the branch will confirm your appointment by SMS.");
             setBookingSuccess(true);
@@ -120,7 +133,7 @@ export default function CustomerBookAppointment() {
       }
       if (!cancelled) {
         setPaymentStatus("pending");
-          setSuccess("Complete the PayPal payment below. The booking remains pending until the full amount is verified.");
+        setSuccess("Choose GCash manual verification or PayPal provider-verified checkout.");
         setBookingSuccess(true);
       }
     };
@@ -197,7 +210,10 @@ export default function CustomerBookAppointment() {
       }
     }
     loadAvailability();
-    return () => controller.abort();
+    const refreshTimer = window.setInterval(loadAvailability, 60_000);
+    const refreshOnFocus = () => { if (document.visibilityState === "visible") loadAvailability(); };
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    return () => { controller.abort(); window.clearInterval(refreshTimer); document.removeEventListener("visibilitychange", refreshOnFocus); };
   }, [form.appointment_date, form.branch_id, form.service_id, form.service_ids, isAuthenticated]);
 
   const selectedBranch = useMemo(
@@ -285,8 +301,8 @@ export default function CustomerBookAppointment() {
       return;
     }
     const selectedDateTime = new Date(`${form.appointment_date}T${form.appointment_time}:00+08:00`);
-    if (Number.isNaN(selectedDateTime.getTime()) || selectedDateTime.getTime() < Date.now() + 60 * 60 * 1000) {
-      setError("Appointments must be booked at least 1 hour in advance.");
+    if (Number.isNaN(selectedDateTime.getTime()) || selectedDateTime.getTime() < Date.now() + 30 * 60 * 1000) {
+      setError("Appointments must be booked at least 30 minutes in advance.");
       return;
     }
     if (!availabilityMatchesSelection || !slotAvailability.slots[form.appointment_time]?.available) {
@@ -367,7 +383,7 @@ export default function CustomerBookAppointment() {
       if (bookingResult.payment_token) nextParams.set("payment_token", bookingResult.payment_token);
       else nextParams.set("booking_id", String(bookingResult.id));
       navigate({ search: nextParams.toString() }, { replace: true });
-      setSuccess("Your booking request is saved. Complete the full PayPal payment to finish the online booking.");
+      setSuccess("Your booking request is saved. Choose a payment method below; your booking remains pending until payment is verified.");
       setShowGuestContact(false);
       setGuestPhoneVerificationId("");
       setGuestPhoneVerified(false);
@@ -440,7 +456,7 @@ export default function CustomerBookAppointment() {
               </div>
             </FormSection>
 
-            <FormSection number="2" title="Date and time" description="Choose your exact schedule. Online bookings require at least 1 hour advance notice.">
+            <FormSection number="2" title="Date and time" description="Choose a 20-minute start time. Online bookings require at least 30 minutes’ notice and must finish by 9:00 PM.">
               <div className="max-w-md">
                 <Field label="Preferred date" icon={HiOutlineCalendarDays}>
                   <ModernDatePicker value={form.appointment_date} min={today()} onChange={(value) => setForm((previous) => ({ ...previous, appointment_date: value, appointment_time: "" }))} placeholder="Choose a preferred date" ariaLabel="Choose preferred appointment date" />
@@ -478,9 +494,9 @@ export default function CustomerBookAppointment() {
                 <SummaryRow icon={HiOutlineClock} label="Combined duration" value={selectedServices.length ? `${combinedDuration} minutes` : "-"} />
                 <SummaryRow icon={HiOutlineSparkles} label="Full payment due online" value={selectedServices.length ? `PHP ${combinedPrice.toLocaleString()}` : "-"} />
               </div>
-              <div className="mt-4 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-xs leading-5 text-[#667085]"><strong className="text-[#344054]">Secure online payment required.</strong> Complete full payment through PayPal Sandbox before your online booking is confirmed.</div>
+              <div className="mt-4 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-xs leading-5 text-[#667085]"><strong className="text-[#344054]">Secure online payment required.</strong> Pay online with GCash or PayPal. GCash proof must be verified by staff before the booking is marked paid.</div>
               {selectedBranch?.address && <p className="mt-4 text-xs leading-5 text-[#667085]">{selectedBranch.address}</p>}
-              <div className="mt-5 rounded-2xl border border-[#F2D8B7] bg-[#FFFAF2] p-4"><p className="text-xs font-extrabold uppercase tracking-wide text-[#9A5B13]">Arrival policy</p><p className="mt-2 text-xs leading-5 text-[#755B3B]">Please arrive 10-15 minutes early. If you arrive after your scheduled time, customers already at the branch may be served first. Bookings without staff check-in may be cancelled 30 minutes after the appointment time.</p></div>
+              <div className="mt-5 rounded-2xl border border-[#F2D8B7] bg-[#FFFAF2] p-4"><p className="text-xs font-extrabold uppercase tracking-wide text-[#9A5B13]">Booking & payment policy</p><p className="mt-2 text-xs leading-5 text-[#755B3B]">Paid bookings are non-refundable. Please attend your scheduled appointment. Arrive 10-15 minutes early; if you arrive after your appointment time, customers already at the branch may be served first. If you do not check in within 30 minutes after your appointment time, your booking may be cancelled.</p></div>
             </div>
           </aside>
         </div>
@@ -502,13 +518,18 @@ export default function CustomerBookAppointment() {
         error={error}
         total={combinedPrice}
       />}
-      {bookingSuccess && <div className="fixed inset-0 z-[140] grid place-items-center bg-[#1F2A44]/55 p-4 backdrop-blur-sm" role="presentation">
-        <section role="alertdialog" aria-modal="true" aria-labelledby="booking-success-title" aria-describedby="booking-success-description" className="w-full max-w-md rounded-[1.5rem] border border-[#F0E3EA] bg-white p-6 shadow-2xl sm:p-8">
+      {bookingSuccess && <div className="fixed inset-0 z-[140] flex min-h-full items-start justify-center overflow-y-auto overscroll-contain bg-[#1F2A44]/55 p-3 backdrop-blur-sm sm:items-center sm:p-4" role="presentation">
+        <section role="alertdialog" aria-modal="true" aria-labelledby="booking-success-title" aria-describedby="booking-success-description" className="my-auto w-full max-w-md rounded-[1.5rem] border border-[#F0E3EA] bg-white p-5 shadow-2xl sm:p-8">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#FCE7F3] text-[#B94B86]"><HiOutlineCheckCircle className="h-8 w-8" /></div>
           <h2 id="booking-success-title" className="mt-4 text-center text-xl font-extrabold text-[#202534]">{paymentStatus === "paid" ? "Payment received" : "Payment status"}</h2>
           <p id="booking-success-description" className="mt-2 text-center text-sm leading-6 text-[#667085]">{success}</p>
-          {paymentStatus === "pending" && paymentBookingId && <div className="mt-5"><PayPalBookingButton bookingId={Number(paymentBookingId)} paymentToken={paymentToken} amount={paymentAmount} onPaid={(result) => { setPaymentStatus("paid"); setPaymentReference(result.capture_id || ""); setSuccess("Full payment received. Your booking is recorded and the branch will confirm your appointment by SMS."); }} /></div>}
-          {paymentStatus === "paid" && paymentReference && <p className="mt-3 text-center text-xs font-semibold text-[#475467]">PayPal transaction reference: <span className="break-all font-mono">{paymentReference}</span></p>}
+          {paymentStatus === "pending" && paymentBookingId && <div className="mt-5">
+            <PaymentMethodPicker selected={paymentMethod} onSelect={setPaymentMethod} />
+            {paymentMethod === "gcash" ? <GCashPaymentPanel bookingId={Number(paymentBookingId)} paymentToken={paymentToken} amount={paymentAmount} onSubmitted={() => { setPaymentStatus("for_verification"); setSuccess("GCash proof submitted. It is awaiting staff verification; your booking is not marked paid yet."); }} /> : <div className="mt-3"><p className="mb-2 text-center text-xs text-[#667085]">PayPal checkout is provider verified.</p><PayPalBookingButton bookingId={Number(paymentBookingId)} paymentToken={paymentToken} amount={paymentAmount} onPaid={(result) => { setPaymentStatus("paid"); setPaymentReference(result.capture_id || ""); setSuccess("Full payment received. Your booking is recorded."); }} /></div>}
+          </div>}
+          {paymentStatus === "for_verification" && <p className="mt-4 rounded-xl bg-[#FFFAF2] p-3 text-center text-sm font-bold text-[#9A5B13]">For Verification · This does not mean payment has been approved.</p>}
+          {paymentStatus === "rejected" && <p className="mt-4 rounded-xl bg-red-50 p-3 text-center text-sm font-bold text-red-700">Payment proof rejected · See booking history to submit a new GCash proof or choose PayPal.</p>}
+          {paymentStatus === "paid" && paymentReference && <p className="mt-3 text-center text-xs font-semibold text-[#475467]">Payment transaction reference: <span className="break-all font-mono">{paymentReference}</span></p>}
           <button type="button" autoFocus onClick={() => navigate(isAuthenticated ? "/customer/history" : "/", { replace: true })} className="mt-3 min-h-12 w-full rounded-xl border border-[#E4D4DE] bg-white px-5 py-3 text-sm font-extrabold text-[#667085] hover:bg-[#FFF8FB]">{paymentStatus === "pending" ? "Check booking status later" : "View booking"}</button>
         </section>
       </div>}
@@ -550,7 +571,7 @@ function GuestContactDialog({ value, onChange, onClose, onSubmit, isSaving, erro
     <form onSubmit={onSubmit} role="dialog" aria-modal="true" aria-labelledby="guest-booking-title" className="w-full max-w-lg rounded-[1.5rem] border border-[#F0E3EA] bg-white p-5 shadow-2xl sm:p-7">
       <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-extrabold uppercase tracking-[0.16em] text-[#B94B86]">Guest booking</p><h2 id="guest-booking-title" className="mt-1 text-xl font-extrabold text-[#202534]">Your contact details</h2><p className="mt-2 text-sm leading-6 text-[#667085]">The branch staff will use these details to identify you and confirm your appointment.</p></div><button type="button" onClick={onClose} disabled={isSaving} aria-label="Close contact details" className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#667085] hover:bg-[#FFF0F7] disabled:opacity-50"><HiOutlineXMark className="h-5 w-5" /></button></div>
       {error && <p role="alert" className="mt-4 rounded-xl bg-[#FEF2F2] px-3 py-2 text-sm text-[#B42318]">{error}</p>}
-      <p className="mt-4 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-xs leading-5 text-[#667085]">Online reservations require full payment of <strong className="text-[#344054]">PHP {Number(total || 0).toLocaleString()}</strong>. After verifying your mobile number, complete the payment using PayPal.</p>
+      <p className="mt-4 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-xs leading-5 text-[#667085]">Online reservations require full payment of <strong className="text-[#344054]">PHP {Number(total || 0).toLocaleString()}</strong>. After verifying your mobile number, choose GCash manual payment or PayPal checkout. GCash proof must be verified by staff before the booking is marked paid.</p>
       <div className="mt-5 space-y-4">
         <label className="block text-sm font-bold text-[#344054]">Full name<input required autoComplete="name" minLength={2} maxLength={100} value={value.guest_name} onChange={(event) => onChange((current) => ({ ...current, guest_name: event.target.value }))} placeholder="Your full name" className="form-input mt-2" /></label>
         <div><label className="block text-sm font-bold text-[#344054]">Mobile number<input required type="tel" autoComplete="tel" minLength={7} maxLength={20} pattern="[+0-9 ()-]{7,20}" value={value.guest_phone} onChange={(event) => onPhoneChange(event.target.value)} placeholder="09XX XXX XXXX" className="form-input mt-2" /></label><div className="mt-2 flex flex-wrap items-center gap-2">{phoneVerified ? <span className="rounded-full bg-[#DCFCE7] px-3 py-1.5 text-xs font-bold text-[#166534]">Mobile number verified</span> : <button type="button" onClick={onSendCode} disabled={otpBusy || isSaving} className="rounded-xl border border-[#B94B86]/30 px-3 py-2 text-xs font-bold text-[#A83F78] disabled:opacity-50">{otpBusy && !otpSent ? "Sending code..." : otpSent ? "Resend code" : "Text me a verification code"}</button>}</div>{otpSent && !phoneVerified && <div className="mt-3 flex gap-2"><input aria-label="SMS verification code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={otpCode} onChange={(event) => onOtpCodeChange(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="form-input" /><button type="button" onClick={onVerifyCode} disabled={otpBusy || otpCode.length !== 6} className="shrink-0 rounded-xl bg-[#1F2937] px-4 text-xs font-bold text-white disabled:opacity-50">{otpBusy ? "Checking..." : "Verify"}</button></div>}<p className="mt-2 text-xs leading-5 text-[#667085]">We'll text this number a receipt and booking policy. Verify it first so we know it's correct.</p></div>
@@ -597,7 +618,7 @@ function TimeSlotPicker({ date, value, slots, loading, onChange }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {periodSlots.map((slot) => {
             const selected = value === slot.value;
-            return <button key={slot.value} type="button" disabled={!slot.available} aria-pressed={selected} onClick={() => onChange(slot.value)} className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-bold transition focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15 ${selected ? "border-[#B94B86] bg-[#B94B86] text-white shadow-sm" : slot.available ? "border-[#E8C9D9] bg-[#FFFAFC] text-[#754463] hover:border-[#B94B86] hover:bg-[#FCE7F3]" : "cursor-not-allowed border-[#EEE7EB] bg-[#F7F5F6] text-[#B4ADB2] line-through"}`}>
+            return <button key={slot.value} type="button" disabled={!slot.available} aria-pressed={selected} title={slot.available ? (slot.assigned_services || []).map((item) => `${item.service_name}: ${item.duration_minutes} min with ${item.provider_name || "staff"}`).join("; ") : slot.reason || "Unavailable"} onClick={() => onChange(slot.value)} className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-bold transition focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15 ${selected ? "border-[#B94B86] bg-[#B94B86] text-white shadow-sm" : slot.available ? "border-[#E8C9D9] bg-[#FFFAFC] text-[#754463] hover:border-[#B94B86] hover:bg-[#FCE7F3]" : "cursor-not-allowed border-[#EEE7EB] bg-[#F7F5F6] text-[#B4ADB2] line-through"}`}>
               {slot.label}{!slot.available && <span className="ml-1 text-[10px] font-medium no-underline">{slot.is_full ? "Full" : "Unavailable"}</span>}
             </button>;
           })}

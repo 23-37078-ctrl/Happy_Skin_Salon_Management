@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { HiOutlineCheckCircle, HiOutlineCreditCard, HiOutlineLockClosed, HiOutlinePhone, HiOutlinePrinter, HiOutlineUserCircle, HiOutlineChevronDown, HiOutlineXMark } from "react-icons/hi2";
+import { HiOutlineCheckCircle, HiOutlineCreditCard, HiOutlineLockClosed, HiOutlinePhone, HiOutlinePrinter, HiOutlineUserCircle, HiOutlineChevronDown, HiOutlineXMark, HiOutlineMagnifyingGlass } from "react-icons/hi2";
 import staffTransactionService from "../../services/staffTransactionService";
 import { ErrorNotice, StaffWorkspace } from "./StaffWorkspace";
 import { formatCurrency, formatDateTime, getApiError, paymentLabels } from "./staffWorkspaceUtils";
@@ -13,7 +13,7 @@ const today = () => {
 };
 
 export default function DayEndReport() {
-  const [reportDate, setReportDate] = useState(today);
+  const [reportDate, setReportDate] = useState("2026-11-03");
   const [availableDates, setAvailableDates] = useState([]);
   const [datesLoading, setDatesLoading] = useState(true);
   const [summaries, setSummaries] = useState({});
@@ -21,14 +21,16 @@ export default function DayEndReport() {
   const [reportErrors, setReportErrors] = useState({});
   const [error, setError] = useState("");
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
-  const [showTransactions, setShowTransactions] = useState(false);
+  const [showTransactions, setShowTransactions] = useState(true);
   const [closing, setClosing] = useState(false);
   const [success, setSuccess] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
 
   useEffect(() => {
     let active = true;
     staffTransactionService.dayEndDates()
-      .then((result) => { if (active) setAvailableDates(result.dates || []); })
+      .then((result) => { if (active) setAvailableDates([...new Set(["2026-11-03", ...(result.dates || [])])].sort((a, b) => b.localeCompare(a))); })
       .catch(() => { if (active) setAvailableDates([today()]); })
       .finally(() => { if (active) setDatesLoading(false); });
     return () => { active = false; };
@@ -53,6 +55,8 @@ export default function DayEndReport() {
     }
   }, [summaries]);
 
+  useEffect(() => { loadDateReport("2026-11-03"); }, [loadDateReport]);
+
   const closeDay = async () => {
     setClosing(true); setError("");
     try { await staffTransactionService.closeDay(reportDate); setShowCloseConfirmation(false); setSuccess("Business day closed successfully. This was confirmed as the branch's final transaction summary for today."); await loadDateReport(reportDate, true); }
@@ -68,23 +72,24 @@ export default function DayEndReport() {
 
   const summary = summaries[reportDate];
   const loading = Boolean(loadingDates[reportDate]);
+  const searchedDates = availableDates.filter((day) => !appliedSearch || day.includes(appliedSearch));
 
   return <StaffWorkspace title="Reports" eyebrow="Daily branch reconciliation">
     {error && <ErrorNotice message={error} onRetry={() => { setError(""); loadDateReport(reportDate, true); }} />}
     {success && <SystemPopup tone="success" message={success} onClose={() => setSuccess("")} />}
-    <p className="mb-5 rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] p-4 text-sm leading-6 text-[#1E40AF]">A business day runs from 8:30 AM until the 5:00 AM cutoff the following calendar day. Transactions after midnight and before 5:00 AM remain part of the previous business day. If staff forget to close the day, it closes automatically at 5:00 AM and payments reopen at 8:30 AM.</p>
     <section className="mb-5 flex flex-col gap-3 rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-sm sm:flex-row sm:items-end sm:justify-between print:hidden">
       <div className="min-w-0 flex-1"><p className="text-sm font-bold text-[#1F2937]">Business dates</p><p className="mt-1 text-xs text-[#6B7280]">Select a date to expand its report below.</p></div>
+      <form onSubmit={(event) => { event.preventDefault(); setAppliedSearch(searchText.trim()); }} className="flex w-full gap-2 sm:max-w-md"><label className="sr-only" htmlFor="day-report-search">Search business dates</label><input id="day-report-search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search YYYY-MM-DD" className="form-input min-w-0 flex-1" /><button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#C85B95] px-4 font-bold text-white"><HiOutlineMagnifyingGlass className="h-5 w-5" />Search</button></form>
       <button type="button" disabled={!summary || loading || summary.is_closed || reportDate !== today()} onClick={() => setShowCloseConfirmation(true)} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#B91C1C] px-5 font-bold text-white disabled:opacity-40">{summary?.is_closed ? <><HiOutlineCheckCircle className="h-5 w-5" /> Day Closed</> : <><HiOutlineLockClosed className="h-5 w-5" /> Close Day</>}</button>
     </section>
     <section className="space-y-3">
-      {datesLoading ? <p className="rounded-2xl bg-white p-6 text-center text-sm text-[#6B7280]">Loading business dates…</p> : availableDates.map((day) => {
+      {datesLoading ? <p className="rounded-2xl bg-white p-6 text-center text-sm text-[#6B7280]">Loading business dates…</p> : searchedDates.map((day) => {
         return <button key={day} type="button" onClick={() => toggleBusinessDate(day)} className="flex min-h-16 w-full items-center justify-between gap-4 rounded-[1.25rem] border border-[#F3E8EF] bg-white px-5 py-4 text-left shadow-sm transition hover:border-[#D65A9A]/40 hover:bg-[#FFF8FB]">
           <span><strong className="block text-sm text-[#1F2937]">{new Date(`${day}T00:00:00`).toLocaleDateString("en-PH", { dateStyle: "full" })}</strong><span className="mt-1 block text-xs text-[#6B7280]">Click to view this date’s report</span></span>
           <HiOutlineChevronDown className="h-5 w-5 shrink-0 -rotate-90 text-[#C85B95]" />
         </button>;
       })}
-      {!datesLoading && !availableDates.length && <p className="rounded-2xl bg-white p-8 text-center text-sm text-[#6B7280]">No business dates are available yet.</p>}
+      {!datesLoading && !searchedDates.length && <p className="rounded-2xl bg-white p-8 text-center text-sm text-[#6B7280]">{availableDates.length ? "No business dates match your search." : "No business dates are available yet."}</p>}
     </section>
     {showTransactions && <DayReportPopup reportDate={reportDate} summary={summary} loading={loading} error={reportErrors[reportDate]} onRetry={() => loadDateReport(reportDate, true)} onClose={() => setShowTransactions(false)} />}
     {showCloseConfirmation && <div className="fixed inset-0 z-[250] flex items-center justify-center bg-[#172033]/45 p-4 backdrop-blur-sm"><section role="alertdialog" aria-modal="true" className="w-full max-w-md rounded-[1.75rem] bg-white p-6 text-center shadow-2xl"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#FEE2E2] text-[#B91C1C]"><HiOutlineLockClosed className="h-7 w-7" /></span><h2 className="mt-4 text-xl font-extrabold text-[#1F2937]">Confirm last transaction</h2><p className="mt-2 text-sm leading-6 text-[#6B7280]">Confirm that all transactions for this business day are complete. After closing, staff cannot record another payment until the next 8:30 AM opening. If nobody closes it manually, the system will close it automatically at 5:00 AM.</p><div className="mt-6 grid grid-cols-2 gap-3"><button type="button" disabled={closing} onClick={() => setShowCloseConfirmation(false)} className="min-h-11 rounded-xl border border-[#E8B7D0] font-bold text-[#C85B95]">Cancel</button><button type="button" disabled={closing} onClick={closeDay} className="min-h-11 rounded-xl bg-[#B91C1C] font-bold text-white disabled:opacity-50">{closing ? "Closing…" : "Yes, close day"}</button></div></section></div>}

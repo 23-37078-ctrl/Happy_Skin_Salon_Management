@@ -72,7 +72,7 @@ def get_transactions_for_branch(
     total = query.count()
 
     transactions = (
-        query.order_by(Transaction.created_at.desc())
+        query.order_by(Transaction.created_at.desc(), Transaction.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

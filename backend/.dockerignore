@@ -4,5 +4,6 @@ __pycache__
 .pytest_cache
 tests
 uploads
+private_uploads
 *.log
 .env

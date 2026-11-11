@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
 from app.crud.booking import get_booking_by_id, get_bookings_for_branch, update_booking_status
-from app.api.v1.routes.customer import _branch_day_bookings, _slot_booking_count, _slot_capacity, _slot_has_resource_capacity, _validate_booking_time
 from app.crud.transaction import create_transaction, get_transactions_for_branch
 from app.dependencies.permissions import require_manager_branch
 from app.models.booking import Booking
@@ -21,6 +20,7 @@ from app.models.day_closure import DayClosure
 from app.models.user import User
 from app.models.promotion import Promotion
 from app.schemas.booking import BookingListResponse, BookingOut, BookingRescheduleRequest, BookingStatusUpdateRequest
+from app.services.booking_scheduling import validate_booking_schedule, lock_branch_schedule
 from app.schemas.transaction import TransactionListResponse, TransactionOut
 from app.schemas.user import PasswordUpdateRequest, ProfileUpdateRequest, UserOut
 from app.services.forecast_service import build_branch_forecast
@@ -86,23 +86,11 @@ def _period_bounds(period: str, start_date: date | None, end_date: date | None) 
     if start_date and end_date:
         if end_date < start_date:
             raise HTTPException(status_code=400, detail="End date must be after start date.")
-        return datetime.combine(start_date, time.min), datetime.combine(end_date + timedelta(days=1), time.min)
+        local_start = datetime.combine(start_date, time.min, BUSINESS_TIMEZONE)
+        local_end = datetime.combine(end_date + timedelta(days=1), time.min, BUSINESS_TIMEZONE)
+        return local_start.astimezone(timezone.utc).replace(tzinfo=None), local_end.astimezone(timezone.utc).replace(tzinfo=None)
 
-    today = date.today()
-    if period == "daily":
-        start = today
-    elif period == "weekly":
-        start = today - timedelta(days=6)
-    elif period == "monthly":
-        start = today.replace(day=1)
-    else:
-        raise HTTPException(status_code=400, detail="Period must be daily, weekly, or monthly.")
-
-    return datetime.combine(start, time.min), datetime.combine(today + timedelta(days=1), time.min)
-
-
-def _dashboard_period_bounds(period: str, report_date: date | None = None) -> tuple[datetime, datetime]:
-    today = report_date or date.today()
+    today = datetime.now(BUSINESS_TIMEZONE).date()
     if period == "daily":
         start = today
     elif period == "weekly":
@@ -113,7 +101,27 @@ def _dashboard_period_bounds(period: str, report_date: date | None = None) -> tu
         start = today.replace(month=1, day=1)
     else:
         raise HTTPException(status_code=400, detail="Period must be daily, weekly, monthly, or yearly.")
-    return datetime.combine(start, time.min), datetime.combine(today + timedelta(days=1), time.min)
+
+    local_start = datetime.combine(start, time.min, BUSINESS_TIMEZONE)
+    local_end = datetime.combine(today + timedelta(days=1), time.min, BUSINESS_TIMEZONE)
+    return local_start.astimezone(timezone.utc).replace(tzinfo=None), local_end.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _dashboard_period_bounds(period: str, report_date: date | None = None) -> tuple[datetime, datetime]:
+    today = report_date or datetime.now(BUSINESS_TIMEZONE).date()
+    if period == "daily":
+        start = today
+    elif period == "weekly":
+        start = today - timedelta(days=6)
+    elif period == "monthly":
+        start = today.replace(day=1)
+    elif period == "yearly":
+        start = today.replace(month=1, day=1)
+    else:
+        raise HTTPException(status_code=400, detail="Period must be daily, weekly, monthly, or yearly.")
+    local_start = datetime.combine(start, time.min, BUSINESS_TIMEZONE)
+    local_end = datetime.combine(today + timedelta(days=1), time.min, BUSINESS_TIMEZONE)
+    return local_start.astimezone(timezone.utc).replace(tzinfo=None), local_end.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 @router.get("/dashboard")
@@ -287,14 +295,17 @@ def get_manager_dashboard_performance(
     cancelled = period_bookings.filter(Booking.status == "cancelled").count()
     sales = float(db.query(func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
     staff_commission = float(db.query(func.coalesce(func.sum(Transaction.commission_amount), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
-    average_rating = float(db.query(func.avg(Feedback.branch_rating)).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Feedback.branch_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).scalar() or 0)
+    average_rating = float(db.query(func.avg(Feedback.branch_rating)).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Feedback.branch_rating.isnot(None)).scalar() or 0)
 
     service_rows = db.query(Service.name, func.count(Booking.id).label("bookings")).join(Booking, Booking.service_id == Service.id).filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end).group_by(Service.name).order_by(func.count(Booking.id).desc()).limit(5).all()
 
     transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
     transaction_metrics = {row.provider_id: row for row in transaction_rows}
 
-    rating_rows = db.query(Feedback.service_provider_id.label("provider_id"), func.avg(Feedback.staff_rating).label("average"), func.count(Feedback.id).label("count")).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Feedback.service_provider_id.isnot(None), Feedback.staff_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).group_by(Feedback.service_provider_id).all()
+    # Ratings are a staff score across all recorded feedback, independent of
+    # the selected bookings/revenue period. This keeps it meaningful in
+    # shorter weekly and monthly views too.
+    rating_rows = db.query(Feedback.service_provider_id.label("provider_id"), func.avg(Feedback.staff_rating).label("average"), func.count(Feedback.id).label("count")).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Feedback.service_provider_id.isnot(None), Feedback.staff_rating.isnot(None)).group_by(Feedback.service_provider_id).all()
     rating_metrics = {row.provider_id: row for row in rating_rows}
 
     customer_rows = db.query(Transaction.service_provider_id.label("provider_id"), Booking.customer_id.label("customer_id"), func.count(Transaction.id).label("visits")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Booking.customer_id.isnot(None), Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id, Booking.customer_id).all()
@@ -380,7 +391,8 @@ def reschedule_manager_booking(
     current_user: User = Depends(require_manager_branch),
     db: Session = Depends(get_db),
 ):
-    branch = db.query(Branch).filter(Branch.id == current_user.branch_id, Branch.is_active.is_(True)).with_for_update().first()
+    if not lock_branch_schedule(db, current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Branch is not available.")
     booking = get_booking_by_id(db, booking_id, branch_id=current_user.branch_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found for your branch.")
@@ -388,15 +400,15 @@ def reschedule_manager_booking(
         raise HTTPException(status_code=400, detail="Completed or cancelled bookings cannot be rescheduled.")
 
     services = [item.service for item in booking.service_items] or [booking.service]
-    duration = sum(item.duration_minutes or 0 for item in services)
-    _validate_booking_time(payload.appointment_date, Service(duration_minutes=duration))
-    day_bookings = _branch_day_bookings(db, branch.id, payload.appointment_date) if branch else []
-    if not branch or _slot_booking_count(db, branch.id, payload.appointment_date, duration, exclude_booking_id=booking.id, bookings=day_bookings) >= _slot_capacity(db, branch.id):
-        raise HTTPException(status_code=409, detail="That time is already fully booked. Please choose another slot.")
-    if not _slot_has_resource_capacity(db, branch.id, payload.appointment_date, services, day_bookings, exclude_booking_id=booking.id):
-        raise HTTPException(status_code=409, detail="The required equipment or a qualified nurse is unavailable at that time. Please choose another slot.")
+    provider_ids = validate_booking_schedule(
+        db, booking.branch_id, payload.appointment_date, services, online=True,
+        requested_provider_ids={item.service_id: item.service_provider_id for item in booking.service_items if item.service_provider_id},
+        exclude_booking_id=booking.id,
+    )
 
     booking.appointment_date = payload.appointment_date
+    for item, provider_id in zip(booking.service_items, provider_ids):
+        item.service_provider_id = provider_id
     booking.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(booking)
@@ -426,9 +438,14 @@ def list_manager_transactions(
 
 @router.get("/reports")
 def get_manager_reports(
-    period: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
+    period: str = Query("daily", pattern="^(daily|weekly|monthly|yearly|custom)$"),
     start_date: date | None = None,
     end_date: date | None = None,
+    staff_id: int | None = None,
+    service_id: int | None = None,
+    booking_type: str | None = Query(None, pattern="^(online|walk_in|guest|registered)$"),
+    appointment_status: str | None = Query(None, pattern="^(pending|confirmed|completed|cancelled)$"),
+    payment_method: str | None = Query(None, pattern="^(cash|gcash|paypal|card|bank_transfer)$"),
     current_user: User = Depends(require_manager_branch),
     db: Session = Depends(get_db),
 ):
@@ -440,18 +457,44 @@ def get_manager_reports(
         Booking.appointment_date >= start,
         Booking.appointment_date < end,
     )
+    if staff_id:
+        bookings_query = bookings_query.filter(Booking.service_provider_id == staff_id)
+    if service_id:
+        bookings_query = bookings_query.filter(Booking.service_id == service_id)
+    if appointment_status:
+        bookings_query = bookings_query.filter(Booking.status == appointment_status)
+    if booking_type in {"online", "walk_in"}:
+        bookings_query = bookings_query.filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else ~Booking.notes.like("Walk-in%"))
+    elif booking_type == "guest":
+        bookings_query = bookings_query.filter(Booking.customer_id.is_(None))
+    elif booking_type == "registered":
+        bookings_query = bookings_query.filter(Booking.customer_id.isnot(None))
     transaction_query = (
         db.query(Transaction)
         .join(Booking, Transaction.booking_id == Booking.id)
         .filter(Booking.branch_id == branch_id, Transaction.created_at >= start, Transaction.created_at < end)
     )
+    if staff_id:
+        transaction_query = transaction_query.filter(Transaction.service_provider_id == staff_id)
+    if service_id:
+        transaction_query = transaction_query.filter(Booking.service_id == service_id)
+    if payment_method:
+        transaction_query = transaction_query.filter(Transaction.payment_method == payment_method)
 
-    transaction_totals = db.query(Transaction.booking_id.label("booking_id"), func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)).label("sales")).group_by(Transaction.booking_id).subquery()
+    filtered_transaction_totals = transaction_query.with_entities(
+        Transaction.booking_id.label("booking_id"),
+        func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)).label("sales"),
+    ).group_by(Transaction.booking_id).subquery()
     service_rows = (
-        db.query(Service.name, func.count(func.distinct(Booking.id)).label("bookings"), func.coalesce(func.sum(transaction_totals.c.sales), 0).label("sales"))
+        db.query(Service.name, func.count(func.distinct(Booking.id)).label("bookings"), func.coalesce(func.sum(filtered_transaction_totals.c.sales), 0).label("sales"))
         .join(Booking, Booking.service_id == Service.id)
-        .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
+        .outerjoin(filtered_transaction_totals, filtered_transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end)
+        .filter(Booking.service_provider_id == staff_id if staff_id else True)
+        .filter(Booking.service_id == service_id if service_id else True)
+        .filter(Booking.status == appointment_status if appointment_status else True)
+        .filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else (~Booking.notes.like("Walk-in%") if booking_type == "online" else True))
+        .filter(Booking.customer_id.is_(None) if booking_type == "guest" else (Booking.customer_id.isnot(None) if booking_type == "registered" else True))
         .group_by(Service.name)
         .order_by(func.count(func.distinct(Booking.id)).desc())
         .all()
@@ -474,6 +517,7 @@ def get_manager_reports(
             {"name": row.name, "bookings": row.bookings, "sales": float(row.sales or 0)}
             for row in service_rows
         ],
+        "filters": {"staff_id": staff_id, "service_id": service_id, "booking_type": booking_type, "appointment_status": appointment_status, "payment_method": payment_method},
     }
 
 
@@ -507,6 +551,13 @@ def list_manager_report_dates(
     ).all()
     business_dates.update(day for (day,) in closures if day)
     return {"dates": [day.isoformat() for day in sorted(business_dates, reverse=True)]}
+
+
+@router.get("/reports/filters")
+def get_manager_report_filters(current_user: User = Depends(require_manager_branch), db: Session = Depends(get_db)):
+    staff = db.query(User).filter(User.branch_id == current_user.branch_id, User.role == "staff", User.is_active.is_(True)).order_by(User.full_name).all()
+    services = db.query(Service).join(Service.branches).filter(Branch.id == current_user.branch_id, Service.is_active.is_(True)).order_by(Service.name).all()
+    return {"staff": [{"id": item.id, "name": item.full_name} for item in staff], "services": [{"id": item.id, "name": item.name} for item in services]}
 
 
 @router.get("/reports/day-summary")
@@ -619,6 +670,10 @@ def get_manager_forecasting(
                 "demand_level": point["demand_level"],
                 "recommendation": point["recommendation"],
                 "reason": f"Predicted demand is {point['predicted_demand']} completed appointments.",
+                "active_staff_count": point["active_staff_count"],
+                "recommended_staff_count": point["recommended_staff_count"],
+                "staffing_gap": point["staffing_gap"],
+                "service_capacity": point["service_capacity"],
             }
             for point in forecast["predictions"]
         ],

@@ -80,6 +80,14 @@ class BookingStatusUpdateRequest(BaseModel):
 class BookingCancellationRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=255)
 
+    @field_validator("reason")
+    @classmethod
+    def clean_cancellation_fields(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        clean_value = value.strip()
+        return clean_value or None
+
 
 class BookingRescheduleRequest(BaseModel):
     appointment_date: datetime

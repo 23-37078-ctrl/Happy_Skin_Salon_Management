@@ -1,9 +1,12 @@
 from datetime import date, datetime, time, timedelta, timezone
+import logging
 import math
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
+from pathlib import Path
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -12,12 +15,14 @@ from app.core.database import get_db
 from app.crud.booking import get_booking_by_id
 from app.crud.transaction import create_transaction, get_transactions_for_branch
 from app.dependencies.permissions import require_staff_branch
+from app.dependencies.permissions import require_role
 from app.models.user import User
 from app.models.booking import Booking, BookingServiceItem
 from app.models.branch import Branch
 from app.models.service import Service
 from app.models.transaction import Transaction
 from app.models.booking_payment import BookingPayment
+from app.models.gcash_payment_submission import GCashPaymentSubmission
 from app.models.day_closure import DayClosure
 from app.schemas.transaction import (
     TransactionCreateRequest,
@@ -28,8 +33,117 @@ from app.schemas.transaction import (
     WalkInCheckoutRequest,
 )
 from app.schemas.booking import BookingCancellationRequest
+from app.services.sms_service import send_appointment_confirmed_sms, send_booking_confirmation_sms
+from app.services.booking_lifecycle_service import cancel_overdue_bookings
+from app.services.booking_scheduling import validate_booking_schedule, lock_branch_schedule
 
 router = APIRouter(prefix="/staff/transactions", tags=["Staff - Transactions"])
+logger = logging.getLogger(__name__)
+BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
+
+
+def _require_appointment_day(booking: Booking) -> None:
+    appointment = booking.appointment_date
+    if appointment.tzinfo is None:
+        appointment = appointment.replace(tzinfo=timezone.utc)
+    appointment_day = appointment.astimezone(BUSINESS_TIMEZONE).date()
+    if appointment_day != datetime.now(BUSINESS_TIMEZONE).date():
+        raise HTTPException(status_code=409, detail="This booking is read-only until its scheduled appointment date.")
+
+
+def _send_booking_sms(booking: Booking, sender, label: str) -> None:
+    phone = booking.guest_phone or (booking.customer.phone_number if booking.customer else None)
+    if not phone:
+        logger.info("Skipping %s SMS for booking %s: no customer phone is on file.", label, booking.id)
+        return
+    services = [item.service.name for item in booking.service_items if item.service] or ([booking.service.name] if booking.service else ["salon service"])
+    name = booking.guest_name or (booking.customer.full_name if booking.customer else "Customer")
+    try:
+        sender(phone, name, booking.id, booking.branch.name, ", ".join(services), booking.appointment_date)
+    except Exception as exc:
+        logger.warning("%s SMS failed for booking %s (%s).", label, booking.id, type(exc).__name__)
+
+
+@router.get("/gcash/verification-queue")
+def gcash_verification_queue(current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
+    query = db.query(GCashPaymentSubmission, BookingPayment, Booking).join(
+        BookingPayment, BookingPayment.id == GCashPaymentSubmission.booking_payment_id
+    ).join(Booking, Booking.id == BookingPayment.booking_id).filter(GCashPaymentSubmission.status == "for_verification")
+    query = query.filter(Booking.branch_id == current_user.branch_id)
+    return [{"submission_id": s.id, "booking_id": b.id, "booking_reference": p.reference_number,
+        "customer": b.customer.full_name if b.customer else b.guest_name or "Guest customer",
+        "amount": float(s.amount), "reference_number": s.reference_number, "reported_paid_at": s.reported_paid_at,
+        "submitted_at": s.submitted_at, "status": s.status, "proof_url": f"/api/v1/staff/transactions/gcash/{s.id}/proof"}
+        for s, p, b in query.order_by(GCashPaymentSubmission.submitted_at.asc()).all()]
+
+
+@router.get("/gcash/{submission_id}/proof")
+def gcash_verification_proof(submission_id: int, current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
+    row = db.query(GCashPaymentSubmission, Booking).join(BookingPayment, BookingPayment.id == GCashPaymentSubmission.booking_payment_id).join(
+        Booking, Booking.id == BookingPayment.booking_id).filter(GCashPaymentSubmission.id == submission_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Payment proof was not found.")
+    submission, booking = row
+    if current_user.branch_id != booking.branch_id:
+        raise HTTPException(status_code=404, detail="Payment proof was not found.")
+    from app.core.config import BACKEND_DIR, settings
+    storage = (Path(settings.GCASH_PROOF_STORAGE_PATH) if settings.GCASH_PROOF_STORAGE_PATH else BACKEND_DIR / "private_uploads" / "gcash").resolve()
+    public_uploads = (BACKEND_DIR / "uploads").resolve()
+    if storage == public_uploads or public_uploads in storage.parents or Path(submission.proof_path).name != submission.proof_path:
+        raise HTTPException(status_code=404, detail="Payment proof file is unavailable.")
+    path = storage / submission.proof_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Payment proof file is unavailable.")
+    return FileResponse(path, media_type=submission.proof_content_type, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
+
+
+@router.post("/gcash/{submission_id}/decision")
+def decide_gcash_proof(submission_id: int, payload: dict, current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
+    decision = payload.get("decision")
+    remarks = str(payload.get("remarks") or "").strip()
+    if decision not in {"approved", "rejected"} or not remarks:
+        raise HTTPException(status_code=422, detail="Choose approve or reject and record the verification result or rejection reason.")
+    submission = db.query(GCashPaymentSubmission).filter(GCashPaymentSubmission.id == submission_id).with_for_update().first()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Payment submission was not found.")
+    payment = db.query(BookingPayment).filter(BookingPayment.id == submission.booking_payment_id).with_for_update().first()
+    booking = db.query(Booking).filter(Booking.id == payment.booking_id).with_for_update().first()
+    if current_user.branch_id != booking.branch_id:
+        raise HTTPException(status_code=404, detail="Payment submission was not found.")
+    if submission.status != "for_verification" or payment.status != "for_verification":
+        raise HTTPException(status_code=409, detail="This payment submission has already been decided or is stale.")
+    now = datetime.now(timezone.utc)
+    submission.status = decision
+    submission.decision = decision
+    submission.decided_by_id = current_user.id
+    submission.decided_at = now
+    submission.remarks = remarks[:1000] or None
+    payment.verified_by_id = current_user.id
+    payment.verified_at = now
+    payment.decision_remarks = submission.remarks
+    if decision == "approved":
+        payment.provider = "gcash"
+        payment.status = "paid"
+        payment.payment_method = "gcash"
+        payment.payment_id = submission.reference_number
+        payment.paid_at = now
+        transaction = db.query(Transaction).filter(Transaction.booking_id == booking.id).with_for_update().first()
+        if transaction:
+            transaction.payment_method = "gcash"
+        else:
+            db.add(Transaction(booking_id=booking.id, staff_id=None, service_provider_id=booking.service_provider_id,
+                amount=float(payment.amount), payment_method="gcash", additional_charge=0, commission_rate=0,
+                commission_amount=0, idempotency_key=f"gcash:{submission.reference_number}"[:80]))
+    else:
+        payment.status = "rejected"
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Payment decision conflicted with another update.")
+    if decision == "approved":
+        _send_booking_sms(booking, send_booking_confirmation_sms, "payment confirmation")
+    return {"submission_id": submission.id, "booking_id": booking.id, "status": payment.status, "decision": decision}
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
 BUSINESS_OPEN_TIME = time(8, 30)
 AUTOMATIC_CUTOFF_TIME = time(5, 0)
@@ -179,43 +293,7 @@ def list_unpaid_walk_in_bookings(
 
 
 def _cancel_online_no_shows(db: Session, branch_id: int) -> None:
-    """Cancel unchecked bookings after 30 minutes late or when their local date has passed."""
-    now_utc = datetime.now(timezone.utc)
-    cutoff = (now_utc - timedelta(minutes=30)).replace(tzinfo=None)
-    today_start = datetime.combine(datetime.now(BUSINESS_TIMEZONE).date(), time.min, BUSINESS_TIMEZONE)
-    today_start_utc = today_start.astimezone(timezone.utc).replace(tzinfo=None)
-    overdue = db.query(Booking).filter(
-        Booking.branch_id == branch_id,
-        Booking.status.in_(["pending", "confirmed"]),
-        or_(
-            and_(
-                or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
-                Booking.appointment_date <= cutoff,
-            ),
-            Booking.appointment_date < today_start_utc,
-        ),
-        Booking.checked_in_at.is_(None),
-    ).all()
-    for booking in overdue:
-        payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).first()
-        if payment and payment.status == "creating":
-            continue
-        if payment and payment.status == "pending":
-            payment.status = "cancelled"
-        # SQLite drops timezone info when loading DateTime(timezone=True) values.
-        # Treat those stored values as UTC, consistent with booking normalization.
-        appointment_date = booking.appointment_date
-        if appointment_date.tzinfo is not None:
-            appointment_date = appointment_date.astimezone(timezone.utc).replace(tzinfo=None)
-        booking.status = "cancelled"
-        reason = (
-            "appointment date has passed"
-            if appointment_date < today_start_utc
-            else "customer did not arrive within 30 minutes of the appointment time"
-        )
-        booking.notes = f"{booking.notes or ''}\nCancelled automatically: {reason}.".strip()
-    if overdue:
-        db.commit()
+    cancel_overdue_bookings(db, branch_id)
 
 
 def _require_online_booking_paid(db: Session, booking: Booking) -> None:
@@ -252,7 +330,16 @@ def create_walk_in_booking(
     service = ordered_services[0]
     provider = provider_map[service.id]
 
+    if not lock_branch_schedule(db, current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Branch is not available.")
+    appointment_date = payload.appointment_date or datetime.now(ZoneInfo("Asia/Manila"))
+    assigned_provider_ids = validate_booking_schedule(
+        db, current_user.branch_id, appointment_date, ordered_services, online=False,
+        requested_provider_ids={service_id: provider.id for service_id, provider in provider_map.items()},
+    )
+
     clean_phone = payload.phone_number.strip()
+    cancel_overdue_bookings(db, branch_id=current_user.branch_id)
     customer = db.query(User).filter(User.role == "customer", User.phone_number == clean_phone).first()
     if customer is None:
         customer = User(
@@ -272,15 +359,15 @@ def create_walk_in_booking(
         customer_id=customer.id,
         branch_id=current_user.branch_id,
         service_id=service.id,
-        service_provider_id=provider.id,
-        appointment_date=datetime.now(timezone.utc).replace(tzinfo=None),
+        service_provider_id=assigned_provider_ids[0],
+        appointment_date=appointment_date.astimezone(timezone.utc).replace(tzinfo=None),
         status="confirmed",
         notes=f"Walk-in booking. {(payload.notes or '').strip()}".strip(),
     )
     db.add(booking)
     db.flush()
-    for selected_service in ordered_services:
-        db.add(BookingServiceItem(booking_id=booking.id, service_id=selected_service.id, service_provider_id=provider_map[selected_service.id].id))
+    for selected_service, assigned_provider_id in zip(ordered_services, assigned_provider_ids):
+        db.add(BookingServiceItem(booking_id=booking.id, service_id=selected_service.id, service_provider_id=assigned_provider_id))
     db.commit()
     booking = db.query(Booking).options(joinedload(Booking.customer), joinedload(Booking.service), joinedload(Booking.service_provider)).filter(Booking.id == booking.id).one()
     return _serialize_walk_in_booking(booking)
@@ -312,8 +399,8 @@ def list_online_bookings(
     db: Session = Depends(get_db),
 ):
     _cancel_online_no_shows(db, current_user.branch_id)
-    bookings = (
-        db.query(Booking)
+    paid_bookings = (
+        db.query(Booking, BookingPayment)
         .join(BookingPayment, BookingPayment.booking_id == Booking.id)
         .options(joinedload(Booking.customer), joinedload(Booking.service), joinedload(Booking.service_provider))
         .filter(
@@ -325,10 +412,12 @@ def list_online_bookings(
         .order_by(Booking.created_at.asc(), Booking.id.asc())
         .all()
     )
-    result = [_serialize_walk_in_booking(booking) for booking in bookings]
-    for item in result:
-        item["payment_status"] = "paid"
-        item["payment_method"] = "paypal"
+    result = []
+    for booking, payment in paid_bookings:
+        item = _serialize_walk_in_booking(booking)
+        item["payment_status"] = payment.status
+        item["payment_method"] = payment.payment_method or payment.provider
+        result.append(item)
     return result
 
 
@@ -353,6 +442,7 @@ def list_cancelled_bookings(
     )
     return [_serialize_walk_in_booking(booking) for booking in bookings]
 
+
 @router.patch("/online-bookings/{booking_id}/check-in")
 def check_in_online_booking(
     booking_id: int,
@@ -367,6 +457,7 @@ def check_in_online_booking(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Active online booking not found.")
+    _require_appointment_day(booking)
     _require_online_booking_paid(db, booking)
     if booking.checked_in_at is None:
         appointment_time = booking.appointment_date
@@ -385,20 +476,20 @@ def check_in_online_booking(
 
 @router.patch("/online-bookings/{booking_id}/cancel")
 def cancel_online_booking(booking_id: int, payload: BookingCancellationRequest, current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
-    booking = db.query(Booking).filter(Booking.id == booking_id, Booking.branch_id == current_user.branch_id).first()
+    booking = db.query(Booking).filter(Booking.id == booking_id, Booking.branch_id == current_user.branch_id).with_for_update().first()
     if not booking:
         raise HTTPException(status_code=404, detail="Appointment not found.")
+    _require_appointment_day(booking)
+    if booking.status in {"cancelled", "completed", "treatment_done"}:
+        raise HTTPException(status_code=400, detail="This appointment cannot be cancelled.")
     payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).with_for_update().first()
     if payment and payment.status == "creating":
         raise HTTPException(status_code=409, detail="The secure checkout is still being prepared. Try cancelling again in a moment.")
-    if payment and payment.status == "paid":
-        raise HTTPException(status_code=409, detail="This booking is already paid. Contact the customer to arrange any refund before cancelling.")
     if payment and payment.status == "pending":
         payment.status = "cancelled"
-    if booking.status in {"cancelled", "completed", "treatment_done"}:
-        raise HTTPException(status_code=400, detail="This appointment cannot be cancelled.")
     booking.status = "cancelled"
-    booking.notes = f"{booking.notes or ''}\nCancellation reason: {payload.reason.strip()}\nCancelled by: {current_user.full_name}".strip()
+    payment_note = " Paid booking is non-refundable; payment remains recorded." if payment and payment.status == "paid" else ""
+    booking.notes = f"{booking.notes or ''}\nCancellation reason: {payload.reason.strip()}.{payment_note}\nCancelled by: {current_user.full_name}".strip()
     db.commit()
     return {"id": booking.id, "status": booking.status}
 
@@ -418,6 +509,7 @@ def confirm_online_booking(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Pending online booking not found.")
+    _require_appointment_day(booking)
     _require_online_booking_paid(db, booking)
     provider = db.query(User).filter(
         User.id == payload.service_provider_id,
@@ -428,15 +520,17 @@ def confirm_online_booking(
     ).first()
     if not provider:
         raise HTTPException(status_code=400, detail="Select an active service provider from your branch.")
-    for item in booking.service_items:
-        assigned_id = payload.service_provider_ids.get(item.id, payload.service_provider_id)
-        assigned = db.query(User).filter(User.id == assigned_id, User.role == "staff", User.branch_id == current_user.branch_id, User.is_active.is_(True), User.job_title.isnot(None)).first()
-        if not assigned:
-            raise HTTPException(status_code=400, detail=f"Select an active provider for {item.service.name}.")
-        item.service_provider_id = assigned.id
-    booking.service_provider_id = provider.id
+    if not lock_branch_schedule(db, current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Branch is not available.")
+    services = [item.service for item in booking.service_items] or [booking.service]
+    requested_ids = {item.service_id: payload.service_provider_ids.get(item.id, payload.service_provider_id) for item in booking.service_items}
+    assigned_ids = validate_booking_schedule(db, booking.branch_id, booking.appointment_date, services, online=False, requested_provider_ids=requested_ids, exclude_booking_id=booking.id)
+    for item, assigned_id in zip(booking.service_items, assigned_ids):
+        item.service_provider_id = assigned_id
+    booking.service_provider_id = assigned_ids[0] if assigned_ids else provider.id
     booking.status = "confirmed"
     db.commit()
+    _send_booking_sms(booking, send_appointment_confirmed_sms, "appointment confirmation")
     return {"id": booking.id, "status": booking.status}
 
 
@@ -453,6 +547,7 @@ def mark_online_treatment_done(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Confirmed online booking not found.")
+    _require_appointment_day(booking)
     _require_online_booking_paid(db, booking)
     booking.status = "treatment_done"
     db.commit()
@@ -480,6 +575,11 @@ def checkout_walk_in(
     provider = db.query(User).filter(User.id == payload.service_provider_id, User.role == "staff", User.branch_id == current_user.branch_id, User.is_active.is_(True), User.job_title.isnot(None)).first()
     if not provider:
         raise HTTPException(status_code=404, detail="Selected service provider is not assigned to your branch.")
+    if not lock_branch_schedule(db, current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Branch is not available.")
+    appointment_date = datetime.now(ZoneInfo("Asia/Manila"))
+    validate_booking_schedule(db, current_user.branch_id, appointment_date, [service], online=False,
+                              requested_provider_ids={service.id: provider.id})
 
     base_price = float(service.price)
     charge_items = [{"reason": item.reason, "amount": float(item.amount)} for item in payload.additional_charges]
@@ -498,6 +598,8 @@ def checkout_walk_in(
         raise HTTPException(status_code=400, detail="Cash received is less than the total amount due.")
 
     clean_phone = payload.phone_number.strip() if payload.phone_number else None
+    if clean_phone:
+        cancel_overdue_bookings(db, branch_id=current_user.branch_id)
     customer = db.query(User).filter(User.role == "customer", User.phone_number == clean_phone).first() if clean_phone else None
     if customer is None:
         customer = User(
@@ -518,7 +620,7 @@ def checkout_walk_in(
         branch_id=current_user.branch_id,
         service_id=service.id,
         service_provider_id=provider.id,
-        appointment_date=datetime.now(),
+        appointment_date=appointment_date.astimezone(timezone.utc).replace(tzinfo=None),
         status="completed",
         notes=(f"Walk-in POS. {payload.notes.strip()}" if payload.notes and payload.notes.strip() else "Walk-in POS"),
     )
@@ -551,6 +653,7 @@ def encode_transaction(
     booking = get_booking_by_id(db, payload.booking_id, branch_id=current_user.branch_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found for your branch.")
+    _require_appointment_day(booking)
 
     if booking.status == "cancelled":
         raise HTTPException(
@@ -774,35 +877,65 @@ def get_day_end_summary(
 def get_staff_period_report(
     period: str = "daily",
     report_date: date | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    staff_id: int | None = None,
+    service_id: int | None = None,
+    booking_type: str | None = None,
+    appointment_status: str | None = None,
+    payment_method: str | None = None,
     current_user: User = Depends(require_staff_branch),
     db: Session = Depends(get_db),
 ):
-    if period not in {"daily", "weekly", "monthly", "yearly"}:
-        raise HTTPException(status_code=400, detail="Period must be daily, weekly, monthly, or yearly.")
-    anchor = report_date or _current_business_date()
-    if period == "daily":
-        start_date = anchor
-        end_date = anchor + timedelta(days=1)
-    elif period == "weekly":
-        start_date = anchor - timedelta(days=anchor.weekday())
-        end_date = start_date + timedelta(days=7)
-    elif period == "monthly":
-        start_date = anchor.replace(day=1)
-        end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+    if period not in {"daily", "weekly", "monthly", "yearly", "custom"}:
+        raise HTTPException(status_code=400, detail="Period must be daily, weekly, monthly, yearly, or custom.")
+    if period == "custom":
+        if not start_date or not end_date:
+            raise HTTPException(status_code=422, detail="Choose both a start and end date for the custom report.")
+        if start_date > end_date:
+            raise HTTPException(status_code=422, detail="The report start date must be on or before the end date.")
+        start_date, end_date = start_date, end_date + timedelta(days=1)
     else:
-        start_date = anchor.replace(month=1, day=1)
-        end_date = start_date.replace(year=start_date.year + 1)
-
-    start, _ = _business_day_bounds(start_date)
-    _, end = _business_day_bounds(end_date - timedelta(days=1))
-    transactions = (
+        anchor = report_date or _current_business_date()
+        if period == "daily":
+            start_date = anchor
+            end_date = anchor + timedelta(days=1)
+        elif period == "weekly":
+            start_date = anchor - timedelta(days=anchor.weekday())
+            end_date = start_date + timedelta(days=7)
+        elif period == "monthly":
+            start_date = anchor.replace(day=1)
+            end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+        else:
+            start_date = anchor.replace(month=1, day=1)
+            end_date = start_date.replace(year=start_date.year + 1)
+    if period == "custom":
+        start, _ = _business_day_bounds(start_date)
+        _, end = _business_day_bounds(end_date - timedelta(days=1))
+    else:
+        start, _ = _business_day_bounds(start_date)
+        _, end = _business_day_bounds(end_date - timedelta(days=1))
+    transaction_query = (
         db.query(Transaction)
         .options(joinedload(Transaction.booking).joinedload(Booking.customer), joinedload(Transaction.booking).joinedload(Booking.service), joinedload(Transaction.service_provider))
         .join(Booking, Transaction.booking_id == Booking.id)
         .filter(Booking.branch_id == current_user.branch_id, Transaction.created_at >= start, Transaction.created_at < end)
-        .order_by(Transaction.created_at.asc())
-        .all()
     )
+    if staff_id:
+        transaction_query = transaction_query.filter(Transaction.service_provider_id == staff_id)
+    if service_id:
+        transaction_query = transaction_query.filter(Booking.service_id == service_id)
+    if booking_type in {"online", "walk_in"}:
+        transaction_query = transaction_query.filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else ~Booking.notes.like("Walk-in%"))
+    elif booking_type == "guest":
+        transaction_query = transaction_query.filter(Booking.customer_id.is_(None))
+    elif booking_type == "registered":
+        transaction_query = transaction_query.filter(Booking.customer_id.isnot(None))
+    if appointment_status:
+        transaction_query = transaction_query.filter(Booking.status == appointment_status)
+    if payment_method:
+        transaction_query = transaction_query.filter(Transaction.payment_method == payment_method)
+    transactions = transaction_query.order_by(Transaction.created_at.asc()).all()
     branch = db.query(Branch).filter(Branch.id == current_user.branch_id).first()
     methods = {method: 0.0 for method in ("cash", "gcash", "card", "bank_transfer")}
     providers: dict[int, dict] = {}
@@ -845,3 +978,10 @@ def get_staff_period_report(
             for row in providers.values()
         ],
     }
+
+
+@router.get("/reports/filters")
+def get_staff_report_filters(current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
+    staff = db.query(User).filter(User.branch_id == current_user.branch_id, User.role == "staff", User.is_active.is_(True)).order_by(User.full_name).all()
+    services = db.query(Service).join(Service.branches).filter(Branch.id == current_user.branch_id, Service.is_active.is_(True)).order_by(Service.name).all()
+    return {"staff": [{"id": item.id, "name": item.full_name} for item in staff], "services": [{"id": item.id, "name": item.name} for item in services]}

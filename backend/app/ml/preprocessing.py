@@ -46,6 +46,7 @@ def extract_daily_completed_demand(
     closed observation. Customer identifiers are never loaded into the frame.
     """
     through_date = through_date or (datetime.now(BUSINESS_TIMEZONE).date() - timedelta(days=1))
+    since_date = through_date - timedelta(days=1094)
 
     branch_query = db.query(Branch.id).filter(Branch.is_active.is_(True))
     if branch_id is not None:
@@ -69,6 +70,7 @@ def extract_daily_completed_demand(
         {"branch_id": row.branch_id, "date": _business_date(row.appointment_date), "demand": 1}
         for row in rows
         if _business_date(row.appointment_date) <= through_date
+        and _business_date(row.appointment_date) >= since_date
     ]
     if not observations:
         return pd.DataFrame(columns=["date", "branch_id", "demand"])

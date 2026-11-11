@@ -17,6 +17,7 @@ class Transaction(Base):
     service_provider_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     amount          = Column(Float, nullable=False)
+    refunded_amount = Column(Float, default=0, nullable=False)
     payment_method  = Column(String(30), default="cash", nullable=False)
     additional_charge = Column(Float, default=0, nullable=False)
     charge_reason   = Column(String(150), nullable=True)

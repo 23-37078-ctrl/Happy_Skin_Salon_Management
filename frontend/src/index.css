@@ -36,24 +36,6 @@
   --shadow-card: 0 12px 34px rgb(31 41 55 / 6%);
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --color-brand: #E887B7;
-  --color-brand-strong: #F2A6CB;
-  --color-brand-text: #F2A6CB;
-  --color-action-bg: #E887B7;
-  --color-action-text: #291521;
-  --color-brand-soft: #392538;
-  --color-page: #111018;
-  --color-surface: #1F1D28;
-  --color-surface-muted: #29222E;
-  --color-border: #433844;
-  --color-text: #F7F2F5;
-  --color-text-muted: #BCB3C0;
-  --color-focus: rgb(232 135 183 / 48%);
-  --shadow-card: 0 12px 34px rgb(0 0 0 / 22%);
-}
-
 html,
 body,
 #root {
@@ -148,90 +130,7 @@ button:disabled,
   background: #d65a9a;
 }
 
-/* System-wide dark palette for the existing utility-based interface. */
-:root[data-theme="dark"] body,
-:root[data-theme="dark"] [class~="bg-[#FFF8FB]"],
-:root[data-theme="dark"] [class~="bg-[#FAF6F8]"] {
-  background-color: var(--color-page) !important;
-}
-
-:root[data-theme="dark"] [class~="bg-white"],
-:root[data-theme="dark"] [class~="bg-white/95"],
-:root[data-theme="dark"] [class~="bg-white/90"],
-:root[data-theme="dark"] [class~="bg-white/86"],
-:root[data-theme="dark"] [class~="bg-white/70"] {
-  background-color: var(--color-surface) !important;
-}
-
-:root[data-theme="dark"] [class~="bg-[#FFFBFD]"],
-:root[data-theme="dark"] [class~="bg-[#FFFAFC]"],
-:root[data-theme="dark"] [class~="bg-[#FFF0F7]"],
-:root[data-theme="dark"] [class~="bg-[#FFF3F8]"] {
-  background-color: var(--color-surface-muted) !important;
-}
-
-:root[data-theme="dark"] [class~="text-[#1F2937]"],
-:root[data-theme="dark"] [class~="text-[#1F2A44]"],
-:root[data-theme="dark"] [class~="text-[#202534]"],
-:root[data-theme="dark"] [class~="text-[#344054]"],
-:root[data-theme="dark"] [class~="text-[#374151]"],
-:root[data-theme="dark"] [class~="text-[#111827]"],
-:root[data-theme="dark"] [class~="text-[#151A2A]"],
-:root[data-theme="dark"] [class~="text-[#161B2B]"] {
-  color: var(--color-text) !important;
-}
-
-:root[data-theme="dark"] [class~="text-[#475467]"],
-:root[data-theme="dark"] [class~="text-[#667085]"],
-:root[data-theme="dark"] [class~="text-[#6B7280]"],
-:root[data-theme="dark"] [class~="text-[#7B8190]"],
-:root[data-theme="dark"] [class~="text-[#766A67]"],
-:root[data-theme="dark"] [class~="text-[#98A2B3]"],
-:root[data-theme="dark"] [class~="text-[#9CA3AF]"] {
-  color: var(--color-text-muted) !important;
-}
-
-:root[data-theme="dark"] [class~="border-[#F3E8EF]"],
-:root[data-theme="dark"] [class~="border-[#F0E3EA]"],
-:root[data-theme="dark"] [class~="border-[#F0E6EC]"],
-:root[data-theme="dark"] [class~="border-[#F0E7EC]"],
-:root[data-theme="dark"] [class~="border-[#ECDDE5]"],
-:root[data-theme="dark"] [class~="border-[#E5E5E8]"],
-:root[data-theme="dark"] [class~="border-[#EADDE4]"],
-:root[data-theme="dark"] [class~="border-[#E9D9E2]"] {
-  border-color: var(--color-border) !important;
-}
-
-:root[data-theme="dark"] input,
-:root[data-theme="dark"] select,
-:root[data-theme="dark"] textarea {
-  border-color: var(--color-border) !important;
-  background-color: var(--color-surface-muted) !important;
-  color: var(--color-text) !important;
-}
-
-:root[data-theme="dark"] input::placeholder,
-:root[data-theme="dark"] textarea::placeholder {
-  color: #9f95a4 !important;
-}
-
-:root[data-theme="dark"] .theme-toggle {
-  border-color: transparent !important;
-  background: transparent !important;
-  color: #f3a9d0 !important;
-}
-
-:root[data-theme="dark"] .auth-layout {
-  background: linear-gradient(135deg, #151119 0%, #241923 48%, #3d2031 100%) !important;
-}
-
-:root[data-theme="dark"] .auth-card {
-  border-color: rgb(112 75 97 / 70%) !important;
-  background: rgb(31 29 40 / 88%) !important;
-  box-shadow: 0 20px 60px -15px rgb(0 0 0 / 55%) !important;
-}
-
-/* Keep public-facing pages light even when a signed-in portal uses dark mode. */
+/* Public-facing pages use the same light palette as the staff portals. */
 .light-experience {
   color-scheme: light;
   --color-brand: #C85B95;
@@ -247,16 +146,6 @@ button:disabled,
   --color-text: #1F2937;
   --color-text-muted: #6B7280;
   --color-focus: rgb(214 90 154 / 38%);
-}
-
-:root[data-theme="dark"] .light-experience.auth-layout {
-  background: linear-gradient(135deg, #FFF7FA 0%, #FCE4EC 45%, #F8BBD0 100%) !important;
-}
-
-:root[data-theme="dark"] .light-experience .auth-card {
-  border-color: rgb(255 255 255 / 60%) !important;
-  background: rgb(255 255 255 / 70%) !important;
-  box-shadow: 0 20px 60px -15px rgb(194 24 91 / 25%) !important;
 }
 
 @layer utilities {
@@ -326,7 +215,11 @@ button:disabled,
   .day-end-print,
   .day-end-print *,
   .staff-period-report,
-  .staff-period-report * {
+  .staff-period-report *,
+  .branch-period-report,
+  .branch-period-report *,
+  .owner-period-report,
+  .owner-period-report * {
     visibility: visible !important;
   }
 
@@ -359,12 +252,51 @@ button:disabled,
     box-shadow: none !important;
   }
 
+  .branch-period-report,
+  .owner-period-report {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
   .payment-receipt-print button,
   .day-end-print button,
-  .staff-period-report button {
+  .staff-period-report button,
+  .branch-period-report button,
+  .owner-period-report button {
     display: none !important;
   }
+  @page { size: A4 portrait; margin: 12mm; }
 }
+.report-filter-panel {
+  border-radius: 1.65rem;
+  padding: 1.25rem;
+  box-shadow: 0 2px 6px rgb(31 41 55 / 8%);
+}
+
+.report-filter-panel .form-input {
+  min-height: 3.45rem;
+  border-radius: 0.9rem;
+  background-color: #fff8fb;
+  font-weight: 650;
+}
+
+.report-filter-panel {
+  border-radius: 1.65rem;
+  padding: 1.25rem;
+  box-shadow: 0 2px 6px rgb(31 41 55 / 8%);
+}
+
+.report-filter-panel .form-input {
+  min-height: 3.45rem;
+  border-radius: 0.9rem;
+  background-color: #fff8fb;
+  font-weight: 650;
+}
+
 /* Explicitly scoped payment dialogs; ordinary forms keep their document flow. */
 .staff-payment-dialog {
   position: fixed;
@@ -377,11 +309,6 @@ button:disabled,
   overflow-y: auto;
   transform: translate(-50%, -50%);
   box-shadow: 0 0 0 100vmax rgb(31 41 55 / 55%), 0 24px 70px rgb(31 41 55 / 30%);
-}
-
-:root[data-theme="dark"] .staff-payment-dialog {
-  border-color: var(--color-border);
-  background: var(--color-surface);
 }
 
 @media (prefers-reduced-motion: reduce) {

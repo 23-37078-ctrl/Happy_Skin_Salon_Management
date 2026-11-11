@@ -77,8 +77,9 @@ export const staffTransactionService = {
     const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/check-in`);
     return response.data;
   },
-  cancelOnlineBooking: async (bookingId, reason) => {
-    const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/cancel`, { reason });
+  cancelOnlineBooking: async (bookingId, payload) => {
+    const request = typeof payload === "string" ? { reason: payload } : payload;
+    const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/cancel`, request);
     return response.data;
   },
 
@@ -92,10 +93,11 @@ export const staffTransactionService = {
     return response.data;
   },
 
-  periodReport: async ({ period = "daily", report_date } = {}) => {
-    const response = await api.get("/staff/transactions/reports/summary", { params: { period, report_date } });
+  periodReport: async ({ period = "daily", report_date, start_date, end_date, staff_id, service_id, booking_type, appointment_status, payment_method } = {}) => {
+    const response = await api.get("/staff/transactions/reports/summary", { params: { period, report_date, start_date, end_date, staff_id, service_id, booking_type, appointment_status, payment_method } });
     return response.data;
   },
+  reportFilters: async () => (await api.get("/staff/transactions/reports/filters")).data,
 
   closeDay: async (reportDate) => {
     const response = await api.post("/staff/transactions/day-end/close", null, { params: { report_date: reportDate } });

@@ -9,6 +9,7 @@ import {
   HiOutlineFunnel,
   HiOutlineMagnifyingGlass,
   HiOutlineMapPin,
+  HiOutlinePrinter,
   HiOutlineReceiptPercent,
   HiOutlineUserGroup,
   HiOutlineXMark,
@@ -20,6 +21,8 @@ import {
 } from "../../services/customerService";
 import { CustomerShell, Notice } from "./CustomerShell";
 import PayPalBookingButton from "../../components/payments/PayPalBookingButton";
+import GCashPaymentPanel from "../../components/payments/GCashPaymentPanel";
+import PaymentMethodPicker from "../../components/payments/PaymentMethodPicker";
 import ModernDatePicker from "../../components/common/ModernDatePicker";
 import {
   formatAppointmentDate,
@@ -178,6 +181,9 @@ export default function CustomerBookingHistory() {
 }
 
 function AppointmentCard({ appointment, busy, onCancel, onPaymentComplete }) {
+  const [paymentMethod, setPaymentMethod] = useState("gcash");
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const canCancel = ["pending", "confirmed"].includes(appointment.status);
   const canReview = appointment.status === "completed";
   const statusDetail = statusDetails[appointment.status] || statusDetails.pending;
@@ -207,11 +213,12 @@ function AppointmentCard({ appointment, busy, onCancel, onPaymentComplete }) {
         <aside className="flex flex-col justify-between gap-3 bg-[#FFFCFD] p-4">
           {appointment.receipt ? (
             <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-3 text-[13px] text-[#166534]">
-              <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5 font-extrabold"><HiOutlineReceiptPercent className="h-4 w-4" /> Receipt</span><span className="text-sm font-black">{Number(appointment.receipt.amount || 0).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span></div>
+              <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5 font-extrabold"><HiOutlineReceiptPercent className="h-4 w-4" /> Payment received</span><span className="text-sm font-black">{Number(appointment.receipt.amount || 0).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span></div>
               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-[#39734E]"><span>{appointment.receipt.service_provider || "Salon staff"}</span><span className="capitalize">{appointment.receipt.payment_method?.replace("_", " ")}</span>{appointment.receipt.additional_charges && <span className="w-full">Add-ons: {appointment.receipt.additional_charges}</span>}</div>
+              <button type="button" onClick={() => setReceiptOpen(true)} className="mt-2 min-h-9 w-full rounded-lg border border-[#86EFAC] bg-white px-3 text-xs font-extrabold text-[#166534] hover:bg-[#DCFCE7]">View / print receipt</button>
             </div>
           ) : (
-            <div className="rounded-xl border border-[#F3E8EF] bg-white p-3"><p className="text-[13px] font-extrabold text-[#374151]">{appointment.payment_status === "pending" ? "Full payment required" : statusDetail.title}</p><p className="mt-1 text-[11px] leading-4 text-[#6B7280]">{appointment.payment_status === "pending" ? "This online booking is not confirmed until the full payment is verified." : statusDetail.description}</p>{appointment.payment_status === "pending" && <div className="mt-3"><PayPalBookingButton bookingId={appointment.id} amount={appointment.payment_amount} onPaid={onPaymentComplete} /></div>}</div>
+            <div className="rounded-xl border border-[#F3E8EF] bg-white p-3"><p className="text-[13px] font-extrabold text-[#374151]">{appointment.payment_status === "pending" ? "Full payment required" : appointment.payment_status === "rejected" ? "Payment proof rejected" : statusDetail.title}</p><p className="mt-1 text-[11px] leading-4 text-[#6B7280]">{["pending", "rejected"].includes(appointment.payment_status) ? "The booking remains pending until payment is verified." : statusDetail.description}</p>{["pending", "rejected"].includes(appointment.payment_status) && <button type="button" onClick={() => setPaymentOpen(true)} className="mt-3 min-h-10 w-full rounded-xl bg-[#C9558F] px-4 py-2 text-sm font-extrabold text-white transition hover:bg-[#B94780]">{appointment.payment_status === "rejected" ? "Resubmit payment" : "Pay now"} · PHP {Number(appointment.payment_amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })}</button>}</div>
           )}
           {(canReview || canCancel) && <div className="flex flex-wrap justify-end gap-2">
             {canReview && <Link to={`/customer/feedback?booking=${encodeURIComponent(String(appointment.id))}`} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#C9558F] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#B94780] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineChatBubbleLeftRight className="h-4 w-4" /> Review service</Link>}
@@ -219,10 +226,49 @@ function AppointmentCard({ appointment, busy, onCancel, onPaymentComplete }) {
           </div>}
         </aside>
       </div>
+      {paymentOpen && <PaymentDialog
+        appointment={appointment}
+        paymentMethod={paymentMethod}
+        onSelectPaymentMethod={setPaymentMethod}
+        onClose={() => setPaymentOpen(false)}
+        onPaymentComplete={() => { setPaymentOpen(false); onPaymentComplete(); }}
+      />}
+      {receiptOpen && <CustomerReceiptDialog appointment={appointment} onClose={() => setReceiptOpen(false)} />}
     </article>
   );
 }
 
+function CustomerReceiptDialog({ appointment, onClose }) {
+  const receipt = appointment.receipt;
+  const services = appointment.service_items?.length
+    ? appointment.service_items.map((item) => item.service?.name).filter(Boolean).join(", ")
+    : appointment.service?.name || "Salon service";
+  const paymentDate = receipt?.created_at ? new Date(receipt.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Recorded payment";
+  return <div className="fixed inset-0 z-[240] flex items-center justify-center overflow-y-auto bg-[#172033]/55 p-3 backdrop-blur-sm sm:p-5 print:static print:block print:bg-white print:p-0" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section role="dialog" aria-modal="true" aria-label={`Payment receipt for booking ${appointment.id}`} className="payment-receipt-print relative my-auto max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[#E5D5DF] bg-white p-5 shadow-2xl sm:p-7 print:static print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:shadow-none">
+      <button type="button" onClick={onClose} aria-label="Close receipt" className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full text-[#6B7280] hover:bg-[#FFF0F7] print:hidden"><HiOutlineXMark className="h-5 w-5" /></button>
+      <div className="border-b border-dashed border-[#D1D5DB] pb-4 text-center"><img src="/images/happy-skin-logo.svg" alt="Happy Skin" className="mx-auto h-14 w-14 object-contain" /><h2 className="mt-2 text-lg font-extrabold text-[#713B5A]">Happy Skin</h2><p className="mt-1 text-xs font-bold uppercase tracking-widest text-[#C9558F]">Payment receipt</p></div>
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt className="text-xs text-[#6B7280]">Receipt no.</dt><dd className="font-bold">#{receipt?.transaction_id ?? appointment.id}</dd></div><div><dt className="text-xs text-[#6B7280]">Booking no.</dt><dd className="font-bold">#{appointment.id}</dd></div><div><dt className="text-xs text-[#6B7280]">Payment date</dt><dd className="font-semibold">{paymentDate}</dd></div><div><dt className="text-xs text-[#6B7280]">Payment method</dt><dd className="font-semibold capitalize">{String(receipt?.payment_method || appointment.payment_method || "online").replaceAll("_", " ")}</dd></div><div className="col-span-2"><dt className="text-xs text-[#6B7280]">Service</dt><dd className="font-semibold">{services}</dd></div><div className="col-span-2"><dt className="text-xs text-[#6B7280]">Branch</dt><dd className="font-semibold">{appointment.branch?.name || "Happy Skin"}</dd></div>{appointment.payment_reference && <div className="col-span-2"><dt className="text-xs text-[#6B7280]">Payment reference</dt><dd className="break-all font-mono text-xs font-semibold">{appointment.payment_reference}</dd></div>}</dl>
+      <div className="mt-5 flex justify-between border-t border-[#E5E7EB] pt-4 text-base"><span className="font-extrabold">Total paid</span><strong className="text-[#166534]">{Number(receipt?.amount || appointment.payment_amount || 0).toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</strong></div>
+      <p className="mt-5 text-center text-xs text-[#6B7280]">Thank you for choosing Happy Skin!</p>
+      <button type="button" onClick={() => window.print()} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#166534] px-4 text-sm font-bold text-white print:hidden"><HiOutlinePrinter className="h-5 w-5" /> Print / save receipt</button>
+    </section>
+  </div>;
+}
+
+function PaymentDialog({ appointment, paymentMethod, onSelectPaymentMethod, onClose, onPaymentComplete }) {
+  return <div className="fixed inset-0 z-[230] flex items-center justify-center overflow-y-auto overscroll-contain bg-[#172033]/55 p-3 backdrop-blur-sm sm:p-5" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section role="dialog" aria-modal="true" aria-labelledby={`payment-title-${appointment.id}`} className="my-auto max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-[1.5rem] border border-[#F3E8EF] bg-white p-4 shadow-[0_24px_80px_rgba(31,41,55,0.28)] sm:p-6">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div><h2 id={`payment-title-${appointment.id}`} className="text-lg font-extrabold text-[#1F2937]">Complete payment</h2><p className="mt-1 text-sm text-[#6B7280]">Booking #{appointment.id} · PHP {Number(appointment.payment_amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })}</p></div>
+        <button type="button" onClick={onClose} aria-label="Close payment" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#6B7280] hover:bg-[#FFF0F7]"><HiOutlineXMark className="h-5 w-5" /></button>
+      </div>
+      <PaymentMethodPicker selected={paymentMethod} onSelect={onSelectPaymentMethod} />
+      {paymentMethod === "gcash" ? <GCashPaymentPanel bookingId={appointment.id} amount={appointment.payment_amount} onSubmitted={onPaymentComplete} /> : <div className="mt-4 rounded-2xl border border-[#F0E3EA] p-4"><p className="mb-3 text-center text-sm text-[#667085]">PayPal checkout is provider verified.</p><PayPalBookingButton bookingId={appointment.id} amount={appointment.payment_amount} onPaid={onPaymentComplete} /></div>}
+    </section>
+  </div>;
+}
+
 function CancelDialog({ busy, onClose, onConfirm }) {
-  return <div className="fixed inset-0 z-[240] grid place-items-center bg-[#172033]/35 p-4 backdrop-blur-[2px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section role="alertdialog" aria-modal="true" aria-labelledby="cancel-title" className="w-full max-w-md rounded-[1.75rem] border border-[#F3E8EF] bg-white p-6 text-center shadow-[0_24px_80px_rgba(31,41,55,0.22)]"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#FFF1F2] text-[#DC2626]"><HiOutlineXMark className="h-7 w-7" /></span><h2 id="cancel-title" className="mt-4 text-xl font-extrabold text-[#1F2937]">Cancel this appointment?</h2><p className="mt-2 text-sm leading-6 text-[#6B7280]">This will release your reserved schedule. This action is recorded and cannot be undone from this page.</p><div className="mt-6 grid gap-2 sm:grid-cols-2"><button type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-xl border border-[#E8DCE3] px-4 text-sm font-bold text-[#374151]">Keep appointment</button><button type="button" disabled={busy} onClick={onConfirm} className="min-h-11 rounded-xl bg-[#DC2626] px-4 text-sm font-bold text-white disabled:opacity-60">{busy ? "Cancelling…" : "Yes, cancel"}</button></div></section></div>;
+  return <div className="fixed inset-0 z-[240] grid place-items-center bg-[#172033]/35 p-4 backdrop-blur-[2px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section role="alertdialog" aria-modal="true" aria-labelledby="cancel-title" className="w-full max-w-md rounded-[1.75rem] border border-[#F3E8EF] bg-white p-6 text-center shadow-[0_24px_80px_rgba(31,41,55,0.22)]"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#FFF1F2] text-[#DC2626]"><HiOutlineXMark className="h-7 w-7" /></span><h2 id="cancel-title" className="mt-4 text-xl font-extrabold text-[#1F2937]">Cancel this appointment?</h2><p className="mt-2 text-sm leading-6 text-[#6B7280]">This will release your reserved schedule. This action is recorded and cannot be undone from this page.</p><p className="mt-3 rounded-xl bg-[#FFF8FB] p-3 text-left text-xs leading-5 text-[#667085]">Paid bookings are non-refundable. Please attend your scheduled appointment. If you do not check in within 30 minutes after your appointment time, your booking may be cancelled.</p><div className="mt-6 grid gap-2 sm:grid-cols-2"><button type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-xl border border-[#E8DCE3] px-4 text-sm font-bold text-[#374151]">Keep appointment</button><button type="button" disabled={busy} onClick={onConfirm} className="min-h-11 rounded-xl bg-[#DC2626] px-4 text-sm font-bold text-white disabled:opacity-60">{busy ? "Cancelling…" : "Yes, cancel"}</button></div></section></div>;
 }

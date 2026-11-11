@@ -8,6 +8,14 @@ class HistoricalDemandPoint(BaseModel):
     actual_demand: int = Field(ge=0)
 
 
+class ServiceCapacityPoint(BaseModel):
+    service_id: int
+    service_name: str
+    expected_bookings: float = Field(ge=0)
+    suggested_slots: int = Field(ge=0)
+    duration_minutes: int = Field(ge=0)
+
+
 class ForecastPoint(BaseModel):
     date: date
     predicted_demand: float = Field(ge=0)
@@ -15,6 +23,10 @@ class ForecastPoint(BaseModel):
     upper_bound: float | None = Field(default=None, ge=0)
     demand_level: str
     recommendation: str
+    active_staff_count: int = Field(default=0, ge=0)
+    recommended_staff_count: int = Field(default=0, ge=0)
+    staffing_gap: int = Field(default=0, ge=0)
+    service_capacity: list[ServiceCapacityPoint] = Field(default_factory=list)
 
 
 class ForecastReadiness(BaseModel):

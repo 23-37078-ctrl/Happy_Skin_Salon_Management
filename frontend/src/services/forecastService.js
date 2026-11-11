@@ -20,6 +20,13 @@ const forecastService = {
     const response = await api.post("/forecast/train");
     return response.data;
   },
+
+  businessHistory: async (days = 1095, branchId = null) => {
+    const params = { days };
+    if (branchId) params.branch_id = branchId;
+    const response = await api.get("/forecast/business-history", { params });
+    return response.data;
+  },
 };
 
 export default forecastService;

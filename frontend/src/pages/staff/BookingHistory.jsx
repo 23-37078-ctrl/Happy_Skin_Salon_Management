@@ -10,6 +10,7 @@ import {
   HiOutlinePrinter,
   HiOutlineUserCircle,
   HiOutlineChartBar,
+  HiOutlineXMark,
 } from "react-icons/hi2";
 import staffTransactionService from "../../services/staffTransactionService";
 import {
@@ -23,6 +24,7 @@ import {
   formatCurrency,
   formatDateTime,
   getApiError,
+  getAppointmentDateKey,
   paymentLabels,
 } from "./staffWorkspaceUtils";
 import { getTransactionSale, printTransactionReceipt } from "./printTransactionReceipt";
@@ -32,6 +34,8 @@ import ModernDatePicker from "../../components/common/ModernDatePicker";
 export default function BookingHistory() {
   const [transactions, setTransactions] = useState([]);
   const [cancelledBookings, setCancelledBookings] = useState([]);
+  const [cancelledSearch, setCancelledSearch] = useState("");
+  const [showCancelledBookings, setShowCancelledBookings] = useState(false);
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -62,9 +66,11 @@ export default function BookingHistory() {
 
   const filteredTransactions = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return transactions.filter((transaction) => {
-      const created = new Date(transaction.created_at);
-      const localDate = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}-${String(created.getDate()).padStart(2, "0")}`;
+    return [...transactions].sort((left, right) => {
+      const byPaymentDate = new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+      return byPaymentDate || Number(right.id || 0) - Number(left.id || 0);
+    }).filter((transaction) => {
+      const localDate = getAppointmentDateKey(transaction.created_at);
       if (dateFilter && localDate !== dateFilter) return false;
       if (methodFilter !== "all" && transaction.payment_method !== methodFilter) return false;
       const source = transaction.booking?.notes?.startsWith("Walk-in") ? "walk_in" : "online";
@@ -89,11 +95,16 @@ export default function BookingHistory() {
   }, [transactions, search, dateFilter, methodFilter, sourceFilter]);
   const safePage = Math.min(page, Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE)));
   const visibleTransactions = useMemo(() => filteredTransactions.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filteredTransactions, safePage]);
+  const filteredCancelledBookings = useMemo(() => {
+    const term = cancelledSearch.trim().toLowerCase();
+    if (!term) return cancelledBookings;
+    return cancelledBookings.filter((booking) => [booking.id, booking.customer?.full_name, booking.customer?.phone_number, booking.guest_name, booking.guest_phone, booking.service?.name, booking.notes, formatDateTime(booking.appointment_date)].filter(Boolean).join(" ").toLowerCase().includes(term));
+  }, [cancelledBookings, cancelledSearch]);
 
   const stats = useMemo(() => {
     const totalRevenue = filteredTransactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
-    const today = new Date().toDateString();
-    const todayTransactions = filteredTransactions.filter((transaction) => new Date(transaction.created_at).toDateString() === today);
+    const today = getAppointmentDateKey(new Date().toISOString());
+    const todayTransactions = filteredTransactions.filter((transaction) => getAppointmentDateKey(transaction.created_at) === today);
     const todayCount = todayTransactions.length;
     const todayCollected = todayTransactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
     return [
@@ -118,7 +129,7 @@ export default function BookingHistory() {
             placeholder="Search transaction, booking number, staff, or payment method"
             className="min-h-12 w-full rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] px-10 py-3 text-sm font-medium text-[#1F2937] outline-none transition focus:border-[#D65A9A] focus:ring-2 focus:ring-[#D65A9A]/20"
           />
-        </div><ModernDatePicker value={dateFilter} onChange={setDateFilter} placeholder="Filter by payment date" ariaLabel="Filter transactions by payment date" /><select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="form-input"><option value="all">All payment methods</option><option value="cash">Cash</option><option value="gcash">GCash</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option></select><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="form-input"><option value="all">All booking types</option><option value="online">Online reservation</option><option value="walk_in">Walk-in</option></select></div>
+        </div><ModernDatePicker value={dateFilter} onChange={setDateFilter} placeholder="Filter by payment date" ariaLabel="Filter transactions by payment date" /><select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="form-input"><option value="all">All payment methods</option><option value="cash">Cash</option><option value="gcash">GCash</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option></select><div className="flex gap-2"><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="form-input min-w-0 flex-1"><option value="all">All booking types</option><option value="online">Online reservation</option><option value="walk_in">Walk-in</option></select><button type="button" onClick={() => { setCancelledSearch(""); setShowCancelledBookings(true); }} aria-label={`View ${cancelledBookings.length} cancelled bookings`} title="Cancelled bookings" className="relative grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] text-[#B42318] hover:bg-[#FFF5F5]"><HiOutlineCalendarDays className="h-5 w-5" />{cancelledBookings.length > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#B42318] px-1 text-[10px] font-extrabold text-white">{cancelledBookings.length}</span>}</button></div></div>
       </section>
 
       <section className="mt-5">
@@ -135,10 +146,7 @@ export default function BookingHistory() {
           <EmptyState icon={HiOutlineBanknotes} title="No transactions found" description="Payments recorded by staff will appear in this ledger for quick branch reconciliation." />
         )}
       </section>
-      {cancelledBookings.length > 0 && <section className="mt-5 rounded-[1.5rem] border border-[#F3E8EF] bg-white p-5 shadow-[0_12px_34px_rgba(31,41,55,0.055)]">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-[#B42318]">Booking records</p><h2 className="mt-1 text-lg font-extrabold text-[#1F2937]">Cancelled bookings</h2><p className="mt-1 text-sm text-[#6B7280]">Cancellation records are shown here and are not counted as payments.</p></div><span className="rounded-full bg-[#FEE2E2] px-3 py-1 text-xs font-bold text-[#991B1B]">{cancelledBookings.length} cancelled</span></div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">{cancelledBookings.map((booking) => <article key={booking.id} className="rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-extrabold text-[#1F2937]">{booking.customer?.full_name || "Guest customer"}</p><p className="mt-1 text-sm text-[#6B7280]">{booking.service?.name || "Salon service"}</p><p className="mt-2 text-xs text-[#667085]">Scheduled: {formatDateTime(booking.appointment_date)}</p><p className="mt-1 text-xs text-[#667085]">Cancelled: {formatDateTime(booking.updated_at || booking.created_at)}</p></div><StatusBadge status="cancelled" /></div><p className="mt-3 border-t border-[#F0DCE7] pt-3 text-xs leading-5 text-[#6B7280]">{booking.notes?.split("\n").filter((line) => /cancel/i.test(line)).join(" ") || "This appointment was cancelled."}</p></article>)}</div>
-      </section>}
+      {showCancelledBookings && <div className="fixed inset-0 z-[240] flex items-center justify-center bg-[#172033]/45 p-4 backdrop-blur-[2px]" onMouseDown={(event) => event.target === event.currentTarget && setShowCancelledBookings(false)}><section role="dialog" aria-modal="true" aria-labelledby="cancelled-bookings-title" className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"><header className="flex items-start justify-between gap-4 border-b border-[#F3E8EF] p-5"><div><p className="text-xs font-bold uppercase tracking-wide text-[#B42318]">Booking records</p><h2 id="cancelled-bookings-title" className="mt-1 text-xl font-extrabold text-[#1F2937]">Cancelled bookings</h2><p className="mt-1 text-sm text-[#6B7280]">These records are separate from completed payments.</p></div><button type="button" onClick={() => setShowCancelledBookings(false)} aria-label="Close cancelled bookings" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-[#667085] hover:bg-[#FFF0F7]"><HiOutlineXMark className="h-5 w-5" /></button></header><div className="border-b border-[#F3E8EF] p-4"><div className="relative"><HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#D65A9A]" /><input autoFocus value={cancelledSearch} onChange={(event) => setCancelledSearch(event.target.value)} placeholder="Search customer, service, phone, booking #, or reason" className="form-input w-full pl-10" /></div><p className="mt-2 text-right text-xs font-semibold text-[#6B7280]">{filteredCancelledBookings.length} of {cancelledBookings.length} cancelled bookings</p></div><div className="max-h-[calc(90vh-190px)] overflow-y-auto p-4">{filteredCancelledBookings.length ? <div className="grid gap-3 sm:grid-cols-2">{filteredCancelledBookings.map((booking) => <article key={booking.id} className="rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-extrabold text-[#1F2937]">{booking.customer?.full_name || "Guest customer"}</p><p className="mt-1 text-sm text-[#6B7280]">{booking.service?.name || "Salon service"}</p><p className="mt-2 text-xs text-[#667085]">Scheduled: {formatDateTime(booking.appointment_date)}</p><p className="mt-1 text-xs text-[#667085]">Cancelled: {formatDateTime(booking.updated_at || booking.created_at)}</p></div><StatusBadge status="cancelled" /></div><p className="mt-3 border-t border-[#F0DCE7] pt-3 text-xs leading-5 text-[#6B7280]">{booking.notes?.split("\n").filter((line) => /cancel/i.test(line)).join(" ") || "This appointment was cancelled."}</p></article>)}</div> : <EmptyState title="No cancelled bookings found" description={cancelledBookings.length ? "Try another search term." : "Cancelled bookings will appear here."} />}</div></section></div>}
     </StaffWorkspace>
   );
 }

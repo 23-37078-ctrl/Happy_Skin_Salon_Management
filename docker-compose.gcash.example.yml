@@ -1,0 +1,10 @@
+# Apply alongside docker-compose.yml after placing the official QR PNG on the VPS.
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ${GCASH_QR_HOST_PATH:?Set GCASH_QR_HOST_PATH to the official merchant QR image}
+        target: /run/secrets/gcash-merchant-qr.jpg
+        read_only: true
+        bind:
+          create_host_path: false

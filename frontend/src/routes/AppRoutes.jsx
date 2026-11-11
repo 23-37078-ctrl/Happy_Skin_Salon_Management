@@ -16,12 +16,12 @@ import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage";
 import OwnerDashboard from "../pages/owner/OwnerDashboard";
 import UserManagement from "../pages/owner/UserManagement";
 import AllTransactions from "../pages/owner/AllTransactions";
-import ForcastingPage from "../pages/owner/ForcastingPage";
 const WorkforcePage = lazy(() => import("../pages/owner/WorkforcePage"));
 import AuditLogPage from "../pages/owner/AuditLogPage";
 import CentralizedReports from "../pages/owner/CentralizedReports";
 import OwnerCustomerSupport from "../pages/owner/OwnerCustomerSupport";
 import OwnerCustomerManagement from "../pages/owner/OwnerCustomerManagement";
+import BranchManagement from "../pages/owner/BranchManagement";
 
 // Manager
 import ManagerDashboard from "../pages/manager/ManagerDashboard";
@@ -39,6 +39,7 @@ import BookingHistory from "../pages/staff/BookingHistory";
 import OnlineBookings from "../pages/staff/OnlineBookings";
 import SubmitFeedback from "../pages/staff/SubmitFeedback";
 import DayEndReport from "../pages/staff/DayEndReport";
+import GCashVerification from "../pages/staff/GCashVerification";
 import CommissionOverview from "../pages/CommissionOverview";
 
 // Customer
@@ -137,11 +138,13 @@ export default function AppRoutes() {
       {/* Owner */}
       <Route path="/owner/dashboard"  element={<PrivateRoute allowedRoles={["owner"]}><OwnerDashboard /></PrivateRoute>} />
       <Route path="/owner/users" element={<PrivateRoute allowedRoles={["owner"]}><UserManagement /></PrivateRoute>} />
+      <Route path="/owner/branches" element={<PrivateRoute allowedRoles={["owner"]}><BranchManagement /></PrivateRoute>} />
       <Route path="/owner/bookings"   element={<PrivateRoute allowedRoles={["owner"]}><Navigate to="/owner/transactions" replace /></PrivateRoute>} />
       <Route path="/owner/transactions" element={<PrivateRoute allowedRoles={["owner"]}><AllTransactions /></PrivateRoute>} />
       <Route path="/owner/commissions" element={<PrivateRoute allowedRoles={["owner"]}><CommissionOverview /></PrivateRoute>} />
-      <Route path="/owner/forecasting" element={<PrivateRoute allowedRoles={["owner"]}><ForcastingPage /></PrivateRoute>} />
+      <Route path="/owner/forecasting" element={<PrivateRoute allowedRoles={["owner"]}><Navigate to="/owner/dashboard" replace /></PrivateRoute>} />
       <Route path="/owner/workforce"  element={<PrivateRoute allowedRoles={["owner"]}><WorkforcePage /></PrivateRoute>} />
+      <Route path="/manager/capacity-review" element={<PrivateRoute allowedRoles={["manager"]}><WorkforcePage /></PrivateRoute>} />
       <Route path="/owner/audit-logs" element={<PrivateRoute allowedRoles={["owner"]}><AuditLogPage /></PrivateRoute>} />
       <Route path="/owner/reports"    element={<PrivateRoute allowedRoles={["owner"]}><CentralizedReports /></PrivateRoute>} />
       <Route path="/owner/support"    element={<PrivateRoute allowedRoles={["owner"]}><OwnerCustomerSupport /></PrivateRoute>} />
@@ -163,6 +166,7 @@ export default function AppRoutes() {
       <Route path="/staff/dashboard" element={<PrivateRoute allowedRoles={["staff"]}><StaffDashboard /></PrivateRoute>} />
       <Route path="/staff/online-bookings" element={<PrivateRoute allowedRoles={["staff"]}><OnlineBookings /></PrivateRoute>} />
       <Route path="/staff/transactions" element={<PrivateRoute allowedRoles={["staff"]}><BookingHistory /></PrivateRoute>} />
+      <Route path="/staff/gcash-verification" element={<PrivateRoute allowedRoles={["staff"]}><GCashVerification /></PrivateRoute>} />
       <Route path="/staff/commissions" element={<PrivateRoute allowedRoles={["staff"]}><CommissionOverview /></PrivateRoute>} />
       <Route path="/staff/day-end" element={<PrivateRoute allowedRoles={["staff"]}><DayEndReport /></PrivateRoute>} />
       <Route path="/staff/reports" element={<PrivateRoute allowedRoles={["staff"]}><Navigate to="/staff/day-end" replace /></PrivateRoute>} />

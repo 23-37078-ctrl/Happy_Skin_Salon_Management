@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     PAYPAL_MODE: str = "sandbox"
     PAYPAL_WEBHOOK_ID: str = ""
 
+    # Display name customers should confirm in GCash before they pay.
+    GCASH_MERCHANT_NAME: str = "HAPPY SKIN"
+    GCASH_QR_IMAGE_PATH: str = ""
+    GCASH_PROOF_STORAGE_PATH: str = ""
+    GCASH_PROOF_MAX_BYTES: int = 5 * 1024 * 1024
+
     # JWT
     SECRET_KEY: str = "change-this-to-a-long-random-secret"
     ALGORITHM: str = "HS256"

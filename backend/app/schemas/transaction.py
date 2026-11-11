@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import math
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
+from app.schemas.booking import normalize_appointment_date
 
 
 # ── Request Schemas ──────────────────────────────────────────────
@@ -76,7 +77,13 @@ class WalkInBookingRequest(BaseModel):
     service_provider_id: int
     service_ids: list[int] = Field(default_factory=list)
     service_provider_ids: dict[int, int] = Field(default_factory=dict)
+    appointment_date: Optional[datetime] = None
     notes: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("appointment_date")
+    @classmethod
+    def normalize_walk_in_time(cls, value: Optional[datetime]) -> Optional[datetime]:
+        return normalize_appointment_date(value) if value is not None else None
 
     @field_validator("customer_name")
     @classmethod
@@ -221,6 +228,12 @@ class TransactionOut(BaseModel):
     commission_rate: float = 0
     commission_amount: float = 0
     created_at: datetime
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def transaction_datetime_is_utc(cls, value: datetime) -> datetime:
+        # Transaction timestamps are stored as naive UTC by the existing table.
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
     model_config = {"from_attributes": True}
 

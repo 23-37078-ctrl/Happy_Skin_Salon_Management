@@ -98,10 +98,10 @@ def send_booking_confirmation_sms(phone_number: str, full_name: str, booking_id:
         raise RuntimeError("iProgSMS is not configured.")
     local_time = appointment_date.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Manila")) if appointment_date.tzinfo is None else appointment_date.astimezone(ZoneInfo("Asia/Manila"))
     message = (
-        f"Happy Skin: Hi {full_name}, full payment for booking #{booking_id} is confirmed. Your request for {service_names} at {branch_name} is received. "
-        "The branch will confirm your appointment separately. "
-        f"Your requested time is {local_time.strftime('%b %d, %Y %I:%M %p')}. Please arrive 10-15 mins early. Late arrivals may wait while present walk-ins are served. "
-        "No staff check-in within 30 mins after your appointment means cancellation."
+        f"Happy Skin: Hi {full_name}, payment is CONFIRMED for booking #{booking_id}. Your paid booking request for {service_names} at {branch_name} "
+        f"({local_time.strftime('%b %d, %Y %I:%M %p')}) is recorded. The branch will text again when your appointment is formally confirmed. "
+        "Policy: arrive 10-15 mins early. Late arrivals may wait while present walk-ins are served. "
+        "If you are not checked in within 30 mins after your appointment time, the booking may be cancelled."
     )
     payload = {"api_token": settings.IPROG_API_TOKEN, "phone_number": cleaned, "message": message}
     try:
@@ -125,5 +125,43 @@ def send_booking_confirmation_sms(phone_number: str, full_name: str, booking_id:
         status_code = exc.response.status_code if exc.response is not None else "unavailable"
         logger.warning("iProgSMS booking confirmation failed (HTTP %s).", status_code)
         raise RuntimeError("Booking confirmation SMS delivery failed.") from exc
+    except ValueError as exc:
+        raise RuntimeError("iProgSMS returned an unreadable response.") from exc
+
+
+def send_appointment_confirmed_sms(phone_number: str, full_name: str, booking_id: int, branch_name: str, service_names: str, appointment_date: datetime) -> None:
+    """Notify a customer after salon staff confirms the paid appointment."""
+    cleaned = _normalize_phone_number(phone_number)
+    if not settings.IPROG_API_TOKEN.strip():
+        raise RuntimeError("iProgSMS is not configured.")
+    local_time = appointment_date.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Manila")) if appointment_date.tzinfo is None else appointment_date.astimezone(ZoneInfo("Asia/Manila"))
+    message = (
+        f"Happy Skin: Hi {full_name}, your appointment booking #{booking_id} is CONFIRMED for "
+        f"{service_names} at {branch_name} on {local_time.strftime('%b %d, %Y %I:%M %p')}. "
+        "Policy: arrive 10-15 mins early. Late arrivals may wait while present walk-ins are served. "
+        "If you are not checked in within 30 mins after your appointment time, the booking may be cancelled."
+    )
+    payload = {"api_token": settings.IPROG_API_TOKEN, "phone_number": cleaned, "message": message}
+    try:
+        response = requests.post(
+            f"{IPROG_BASE_URL}/sms_messages",
+            params={"api_token": settings.IPROG_API_TOKEN},
+            json=payload,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        result = response.json()
+        provider_status = result.get("status") if isinstance(result, dict) else None
+        if response.status_code not in (200, 201) or provider_status not in (200, "200", 201, "201", "success") or not result.get("message_id"):
+            raise RuntimeError("iProgSMS did not accept the appointment confirmation message.")
+        logger.info("iProgSMS accepted appointment confirmation (HTTP %s).", response.status_code)
+    except requests.exceptions.Timeout as exc:
+        logger.warning("iProgSMS appointment confirmation timed out.")
+        raise RuntimeError("SMS delivery timed out.") from exc
+    except requests.exceptions.RequestException as exc:
+        status_code = exc.response.status_code if exc.response is not None else "unavailable"
+        logger.warning("iProgSMS appointment confirmation failed (HTTP %s).", status_code)
+        raise RuntimeError("Appointment confirmation SMS delivery failed.") from exc
     except ValueError as exc:
         raise RuntimeError("iProgSMS returned an unreadable response.") from exc

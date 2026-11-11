@@ -27,6 +27,7 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-salonapp}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@db:5432/${POSTGRES_DB:-happy_skin}
     volumes:
       - uploads_data:/app/backend/uploads
+      - private_payment_proofs:/app/backend/private_uploads
     depends_on:
       db:
         condition: service_healthy
@@ -41,6 +42,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_PAYPAL_CLIENT_ID: ${VITE_PAYPAL_CLIENT_ID:-}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     depends_on:
       - api
@@ -56,6 +58,7 @@ services:
 volumes:
   postgres_data:
   uploads_data:
+  private_payment_proofs:
 
 networks:
   app_net:

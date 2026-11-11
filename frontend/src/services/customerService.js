@@ -96,6 +96,23 @@ export async function getCustomerPaymentStatus(bookingId) {
   return data;
 }
 
+export async function getGCashInstructions(bookingId, paymentToken) {
+  const { data } = await api.get(`/customer/payments/${bookingId}/gcash/instructions`, { params: paymentToken ? { payment_token: paymentToken } : {} });
+  return data;
+}
+
+export async function submitGCashProof(bookingId, payload, paymentToken, onUploadProgress) {
+  const formData = new FormData();
+  formData.append("reference_number", payload.reference_number);
+  if (payload.reported_paid_at) formData.append("reported_paid_at", payload.reported_paid_at);
+  formData.append("proof", payload.proof);
+  const { data } = await api.post(`/customer/payments/${bookingId}/gcash/proof`, formData, {
+    params: paymentToken ? { payment_token: paymentToken } : {},
+    headers: { "Content-Type": "multipart/form-data" }, onUploadProgress,
+  });
+  return data;
+}
+
 export async function createCustomerPayPalOrder(bookingId) {
   const { data } = await api.post("/customer/payments/paypal/orders", { booking_id: bookingId });
   return data;

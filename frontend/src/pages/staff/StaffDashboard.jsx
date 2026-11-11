@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  HiOutlineBanknotes,
   HiOutlineMagnifyingGlass,
   HiOutlineXMark,
 } from "react-icons/hi2";
@@ -48,7 +47,6 @@ const getWalkInServiceImage = (service) => {
 };
 
 export default function StaffDashboard() {
-  const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [posServices, setPosServices] = useState([]);
@@ -60,13 +58,11 @@ export default function StaffDashboard() {
     setError("");
     try {
       const results = await Promise.allSettled([
-        staffTransactionService.list({ page: 1, page_size: 5 }),
         staffTransactionService.posServices(),
         staffTransactionService.posStaff(),
         staffTransactionService.posContext(),
       ]);
-      const [transactionResult, serviceResult, staffResult, contextResult] = results;
-      setTransactions(transactionResult.status === "fulfilled" ? transactionResult.value.transactions || [] : []);
+      const [serviceResult, staffResult, contextResult] = results;
       setPosServices(serviceResult.status === "fulfilled" ? serviceResult.value || [] : []);
       setPosStaff(staffResult.status === "fulfilled" ? staffResult.value || [] : []);
       setStaffContext(contextResult.status === "fulfilled" ? contextResult.value : null);
@@ -84,27 +80,14 @@ export default function StaffDashboard() {
     Promise.resolve().then(() => loadDashboard());
   }, [loadDashboard]);
 
-  const stats = useMemo(() => {
-    const today = new Date().toDateString();
-    const todayRevenue = transactions
-      .filter((transaction) => new Date(transaction.created_at).toDateString() === today)
-      .reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
-
-    return [
-      { label: "Today Revenue", value: formatCurrency(todayRevenue), icon: HiOutlineBanknotes, tone: "blue" },
-    ];
-  }, [transactions]);
-
   return (
     <StaffWorkspace
       title="Staff Dashboard"
       eyebrow="Branch operations"
       brandOnly
-      headerStats={stats}
       identity={staffContext}
     >
       {error && <ErrorNotice message={error} onRetry={loadDashboard} />}
-
       {isLoading ? <CardSkeleton rows={4} /> : <>
         <WalkInPOS services={posServices} staffMembers={posStaff} bookings={[]} onCompleted={loadDashboard} showBookingList={false} />
       </>}
