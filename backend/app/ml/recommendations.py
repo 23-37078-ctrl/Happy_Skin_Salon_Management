@@ -12,8 +12,8 @@ def demand_level(predicted: float, recent_daily_average: float) -> str:
 
 def recommendation_for(level: str, capacity_available: bool = False) -> str:
     if level == "high":
-        return "High expected demand. Manual staffing and service-capacity review recommended."
+        return "This may be a busy day. Check staff availability and prepare supplies for the appointments booked."
     if level == "moderate":
-        return "Maintain normal capacity and review the appointment schedule before the service day."
-    return "Normal staffing may be sufficient; continue monitoring confirmed appointments."
+        return "Plan for a usual day and check the appointment list before opening."
+    return "This may be a quieter day. Keep your usual team plan and check for new bookings."
 

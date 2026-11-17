@@ -109,7 +109,32 @@ def build_branch_forecast(db: Session, branch_id: int, horizon: int = 7) -> dict
     registry = _active_model(db) if readiness.sufficient else None
     if frame.empty:
         today = datetime.now(BUSINESS_TIMEZONE).date()
-        frame = pd.DataFrame([{"date": today - timedelta(days=1), "branch_id": branch_id, "demand": 0}])
+        frame = pd.DataFrame(columns=["date", "branch_id", "demand"])
+    if not readiness.sufficient:
+        return {
+            "branch_id": branch.id,
+            "branch_name": branch.name,
+            "forecast_period": None,
+            "horizon_days": horizon,
+            "model": "Insufficient history; no validated forecast",
+            "model_version": None,
+            "generated_at": datetime.now(BUSINESS_TIMEZONE),
+            "data_quality": readiness.status,
+            "data_source": "operational",
+            "limitation": "Insufficient historical completed appointments; no prediction is shown until the minimum data threshold is met.",
+            "readiness": {
+                "status": readiness.status,
+                "history_days": readiness.history_days,
+                "completed_appointments": readiness.completed_appointments,
+                "nonzero_days": readiness.nonzero_days,
+                "reasons": readiness.reasons,
+            },
+            "historical": [
+                {"date": row.date, "actual_demand": int(row.demand)}
+                for row in frame[frame["branch_id"] == branch_id].tail(28).itertuples()
+            ],
+            "predictions": [],
+        }
 
     branch_frame = frame[frame["branch_id"] == branch_id].copy()
     model_name, model_version, values = _predict_future(branch_frame, horizon, registry)
@@ -166,11 +191,11 @@ def build_branch_forecast(db: Session, branch_id: int, horizon: int = 7) -> dict
         staffing_gap = max(0, recommended_staff - active_staff_count)
         if service_capacity:
             if staffing_gap:
-                plan = f"Plan for about {recommended_staff} staff ({staffing_gap} more than the {active_staff_count} active staff on record); prioritize capacity for the listed services. Confirm schedules and qualifications."
+                plan = f"The estimate suggests about {recommended_staff} staff may be needed, around {staffing_gap} more than the {active_staff_count} active staff on record. Check who is available and qualified."
             else:
-                plan = f"About {recommended_staff} staff-hours coverage units should meet estimated service time; prepare the listed service slots and confirm staff schedules."
+                plan = f"The estimated appointments may need about {recommended_staff} staff. Check staff schedules and prepare the listed appointment times."
         else:
-            plan = "Service-level history is not available yet; review confirmed bookings and staff schedules manually."
+            plan = "There is not enough appointment history to suggest service needs yet. Check the current bookings and staff schedules."
         predictions.append({
             "date": forecast_date,
             "predicted_demand": predicted,
@@ -187,8 +212,6 @@ def build_branch_forecast(db: Session, branch_id: int, horizon: int = 7) -> dict
     start = values[0][0]
     end = values[-1][0]
     limitation = None
-    if not readiness.sufficient:
-        limitation = "Historical data is insufficient for validated ML forecasting. Values use a descriptive moving-average fallback."
 
     return {
         "branch_id": branch.id,
@@ -214,6 +237,64 @@ def build_branch_forecast(db: Session, branch_id: int, horizon: int = 7) -> dict
         ],
         "predictions": predictions,
     }
+
+
+def build_traffic_analysis(db: Session, branch_id: int, horizon_days: int = 84) -> dict:
+    """Weekly/monthly traffic outlook and evidence-based seasonal comparisons."""
+    branch = db.query(Branch).filter(Branch.id == branch_id, Branch.is_active.is_(True)).first()
+    if not branch:
+        raise LookupError("Branch not found or inactive.")
+    frame = extract_daily_completed_demand(db, branch_id=branch_id)
+    readiness = assess_readiness(frame)
+    base = {
+        "branch_id": branch.id,
+        "branch_name": branch.name,
+        "data_quality": readiness.status,
+        "limitation": None if readiness.sufficient else "Insufficient history for validated forecasts. Historical patterns are shown where available; predictions are withheld.",
+        "readiness": {
+            "status": readiness.status,
+            "history_days": readiness.history_days,
+            "completed_appointments": readiness.completed_appointments,
+            "nonzero_days": readiness.nonzero_days,
+            "reasons": readiness.reasons,
+        },
+    }
+    if frame.empty:
+        return {**base, "weekly": [], "monthly": [], "peak_periods": [], "weekday_patterns": [], "history": []}
+
+    branch_frame = frame[frame["branch_id"] == branch_id].copy().sort_values("date")
+    history = [{"date": row.date, "actual_demand": int(row.demand)} for row in branch_frame.itertuples()]
+    weekday_avg = branch_frame.assign(weekday=pd.to_datetime(branch_frame["date"]).dt.dayofweek).groupby("weekday")["demand"].mean()
+    weekday_patterns = [{"weekday": int(day), "average_customers": round(float(value), 2)} for day, value in weekday_avg.items()]
+    weekly = []
+    monthly = []
+    peak_periods = []
+    if readiness.sufficient:
+        registry = _active_model(db)
+        _, _, future = _predict_future(branch_frame, horizon_days, registry)
+        future_frame = pd.DataFrame([{"date": day, "demand": value} for day, value in future])
+        future_frame["week_start"] = pd.to_datetime(future_frame["date"]).dt.to_period("W-SUN").dt.start_time.dt.date
+        future_frame["month_start"] = pd.to_datetime(future_frame["date"]).dt.to_period("M").dt.start_time.dt.date
+        weekly_actual = branch_frame.assign(week_start=pd.to_datetime(branch_frame["date"]).dt.to_period("W-SUN").dt.start_time.dt.date).groupby("week_start")["demand"].sum()
+        weekly_predicted = future_frame.groupby("week_start")["demand"].sum()
+        month_actual = branch_frame.assign(month_start=pd.to_datetime(branch_frame["date"]).dt.to_period("M").dt.start_time.dt.date).groupby("month_start")["demand"].sum()
+        month_predicted = future_frame.groupby("month_start")["demand"].sum()
+        weekly = [{"period_start": day, "actual_customers": int(weekly_actual.get(day, 0)), "predicted_customers": round(float(value), 1)} for day, value in weekly_predicted.items()]
+        monthly = [{"period_start": day, "actual_customers": int(month_actual.get(day, 0)), "predicted_customers": round(float(value), 1)} for day, value in month_predicted.items()]
+
+        # Compare each calendar month against the same month's available prior-year observations.
+        monthly_history = branch_frame.assign(month=pd.to_datetime(branch_frame["date"]).dt.month, year=pd.to_datetime(branch_frame["date"]).dt.year)
+        expected = monthly_history.groupby("month")["demand"].mean()
+        for row in monthly:
+            month = row["period_start"].month
+            baseline = float(expected.get(month, branch_frame["demand"].mean()))
+            predicted = row["predicted_customers"]
+            delta = ((predicted - baseline) / baseline * 100) if baseline > 0 else None
+            level = "normal" if delta is None or delta < 15 else ("peak_season" if delta >= 40 else "high_demand")
+            if delta is not None and delta < -20:
+                level = "low_demand"
+            peak_periods.append({"period_start": row["period_start"], "period": row["period_start"].strftime("%B %Y"), "predicted_customers": predicted, "historical_average": round(baseline, 1), "change_percent": round(delta, 1) if delta is not None else None, "classification": level, "reason": "Compared with observed completed-appointment averages for this calendar month across available history."})
+    return {**base, "weekly": weekly, "monthly": monthly, "peak_periods": peak_periods, "weekday_patterns": weekday_patterns, "history": history}
 
 
 def train_forecast_model(db: Session) -> ModelRegistry:

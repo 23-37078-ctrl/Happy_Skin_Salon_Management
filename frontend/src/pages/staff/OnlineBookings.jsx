@@ -27,6 +27,13 @@ function compareBookings(left, right) {
   return leftCreatedAt - rightCreatedAt || Number(left.id) - Number(right.id);
 }
 
+function toDateTimeLocal(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 function groupBookingsByCustomer(bookings) {
   const groups = new Map();
   bookings.forEach((booking) => {
@@ -63,6 +70,7 @@ export default function OnlineBookings() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOtherDate, setSelectedOtherDate] = useState("");
@@ -70,6 +78,7 @@ export default function OnlineBookings() {
   const [cancelBooking, setCancelBooking] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelError, setCancelError] = useState("");
+  const [rescheduleDraft, setRescheduleDraft] = useState(null);
   const paymentIdempotencyKeys = useRef(new Map());
   const providersRef = useRef([]);
 
@@ -123,7 +132,7 @@ export default function OnlineBookings() {
   const filteredBookings = useMemo(() => {
     const term = search.trim().toLowerCase();
     return allBookings.filter((booking) => {
-      const searchable = [booking.id, booking.booking_type, booking.customer?.full_name, booking.customer?.email, booking.customer?.phone_number, booking.service?.name, booking.service_provider?.full_name].filter(Boolean).join(" ").toLowerCase();
+      const searchable = [booking.id, booking.group_reference, ...(booking.group_members || []).map((member) => member.member_name), booking.booking_type, booking.customer?.full_name, booking.customer?.email, booking.customer?.phone_number, booking.service?.name, booking.service_provider?.full_name].filter(Boolean).join(" ").toLowerCase();
       const statusMatches = statusFilter === "all"
         || (statusFilter === "pending" && booking.booking_type === "online" && booking.status === "pending")
         || (statusFilter === "confirmed" && booking.booking_type === "online" && booking.status === "confirmed")
@@ -148,10 +157,7 @@ export default function OnlineBookings() {
     });
     return [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right));
   }, [filteredBookings, todayDateKey]);
-  const selectedDateBookings = otherBookingsByDate.find(([date]) => date === selectedOtherDate)?.[1] || [];
-  useEffect(() => {
-    if (selectedOtherDate && selectedOtherDate === todayDateKey) setSelectedOtherDate("");
-  }, [selectedOtherDate, todayDateKey]);
+  const selectedDateBookings = useMemo(() => otherBookingsByDate.find(([date]) => date === selectedOtherDate)?.[1] || [], [otherBookingsByDate, selectedOtherDate]);
   const todayCustomerGroups = useMemo(() => groupBookingsByCustomer(todayBookings), [todayBookings]);
   const selectedDateCustomerGroups = useMemo(() => groupBookingsByCustomer(selectedDateBookings), [selectedDateBookings]);
   const safePage = Math.min(page, Math.max(1, Math.ceil(todayCustomerGroups.length / BOOKING_PAGE_SIZE)));
@@ -203,7 +209,7 @@ export default function OnlineBookings() {
     if (!cancelReason.trim()) return setCancelError("Please provide a cancellation reason.");
     setBusy(true); setCancelError(""); setError("");
     try {
-      const result = await staffTransactionService.cancelOnlineBooking(cancelBooking.id, {
+      await staffTransactionService.cancelOnlineBooking(cancelBooking.id, {
         reason: cancelReason.trim(),
       });
       await load();
@@ -213,27 +219,46 @@ export default function OnlineBookings() {
     } finally { setBusy(false); }
   };
 
+  const submitReschedule = async (event, booking) => {
+    event.preventDefault();
+    if (!rescheduleDraft?.appointment_date) return;
+    await runAction(async () => {
+      const result = await staffTransactionService.rescheduleOnlineBooking(
+        booking.id,
+        new Date(rescheduleDraft.appointment_date).toISOString(),
+      );
+      setRescheduleDraft(null);
+      setNotice(`Booking #${booking.id} moved to ${formatDateTime(result.appointment_date)}. Its original payment remains attached and is non-refundable; no new payment was taken.`);
+      setSelectedOtherDate("");
+    });
+  };
+
   const renderBookingCard = (booking) => {
-    const isAppointmentDay = getAppointmentDateKey(booking.appointment_date) === todayDateKey;
+    const canReschedule = booking.booking_type === "online"
+      && ["pending", "confirmed"].includes(booking.status)
+      && !booking.checked_in_at
+      && booking.payment_status === "paid";
     return <article key={booking.id} className="rounded-2xl border border-[#F3E8EF] bg-[#FFF8FB] p-4">
     <div className="flex items-start justify-between gap-3">
       <div>
-        <div className="flex flex-wrap items-center gap-2"><p className="font-extrabold text-[#1F2937]">{booking.customer?.full_name || "Guest customer"}</p>{booking.customer?.id == null && <span className="rounded-full bg-[#FFF0F7] px-2 py-0.5 text-[10px] font-bold text-[#A83F78]">Guest</span>}</div>
+        <div className="flex flex-wrap items-center gap-2"><p className="font-extrabold text-[#1F2937]">{booking.customer?.full_name || "Guest customer"}</p>{booking.customer?.id == null && <span className="rounded-full bg-[#FFF0F7] px-2 py-0.5 text-[10px] font-bold text-[#A83F78]">Guest</span>}{booking.group_reference && <span className="rounded-full bg-[#FCE7F3] px-2 py-0.5 text-[10px] font-extrabold text-[#A83F78]">{booking.group_reference} · {booking.group_members?.length || 0} people</span>}</div>
         <p className="mt-1 text-xs text-[#9CA3AF]">{formatDateTime(booking.appointment_date)}</p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${booking.booking_type === "walk-in" ? "bg-[#F3E8FF] text-[#7E22CE]" : "bg-[#FFF0F7] text-[#A83F78]"}`}>{booking.booking_type === "walk-in" ? "Walk-in" : "Online"}</span><Status status={booking.status} bookingType={booking.booking_type} /></div>
     </div>
+    {booking.group_reference && <div className="mt-3 rounded-xl border border-[#F3E8EF] bg-white p-3"><p className="text-xs font-extrabold text-[#374151]">Group service assignments</p><p className="mt-1 text-[10px] text-[#6B7280]">Cancelling one service does not change the full amount already paid.</p><div className="mt-2 space-y-2">{(booking.services || []).map((service) => <div key={service.booking_service_item_id || service.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[#F6EDF2] pt-2 text-xs"><span><strong>{service.member_name || "Group member"}{service.member_is_booker ? " (booker)" : ""}</strong> · {service.name}{service.appointment_start ? ` · ${formatDateTime(service.appointment_start)}` : ""}</span><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-[#FFF8FB] px-2 py-1 capitalize text-[#A83F78]">{service.status || "pending"}</span>{booking.status === "confirmed" && !["completed", "cancelled"].includes(service.status) && <><select aria-label={`Staff for ${service.name} assigned to ${service.member_name || "group member"}`} value={service.service_provider?.id || ""} onChange={(event) => runAction(() => staffTransactionService.updateGroupServiceProvider(booking.id, service.booking_service_item_id, event.target.value))} disabled={busy} className="max-w-44 rounded-lg border border-[#F0DCE7] bg-white px-2 py-1 text-xs"><option value="">Choose staff</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.full_name} · {provider.job_title}</option>)}</select><button type="button" disabled={busy} onClick={() => runAction(() => staffTransactionService.updateGroupServiceStatus(booking.id, service.booking_service_item_id, "completed"))} className="rounded-lg bg-[#DCFCE7] px-2 py-1 font-bold text-[#166534] disabled:opacity-50">Done</button><button type="button" disabled={busy} onClick={() => { if (window.confirm(`Cancel ${service.name} for ${service.member_name || "this member"}? Other group services will remain booked and paid amounts are unchanged.`)) runAction(() => staffTransactionService.updateGroupServiceStatus(booking.id, service.booking_service_item_id, "cancelled")); }} className="rounded-lg bg-[#FEE2E2] px-2 py-1 font-bold text-[#991B1B] disabled:opacity-50">Cancel service</button></>}</div></div>)}</div></div>}
     {booking.booking_type === "online" && <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-bold ${booking.payment_status === "paid" ? "bg-[#DCFCE7] text-[#166534]" : "bg-[#FFF4E5] text-[#9A5B13]"}`}>{booking.payment_status === "paid" ? `Full payment received online · ${booking.payment_method || "PayPal"}` : "Awaiting full online payment. Do not confirm or check in this booking yet."}</p>}
-    {booking.booking_type === "online" && booking.status === "pending" && isAppointmentDay && <div className="mt-4 space-y-3">{(booking.services?.length ? booking.services : [booking.service].filter(Boolean)).map((service) => { const assignmentKey = String(service.booking_service_item_id || service.id); return <label key={assignmentKey} className="block text-xs font-bold text-[#374151]">{service.name || "Service provider"}<select value={assignments[booking.id]?.[assignmentKey] || ""} onChange={(event) => setAssignments((current) => ({ ...current, [booking.id]: { ...(current[booking.id] || {}), [assignmentKey]: event.target.value } }))} className="form-input mt-1"><option value="">Choose provider</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.full_name} ({provider.job_title}) - {provider.active_customer_count || 0} active bookings</option>)}</select></label>; })}</div>}
-    {booking.status === "treatment_done" && isAppointmentDay && <p className="mt-4 text-xs font-bold text-[#166534]">Treatment is complete. Record payment below.</p>}
-    {!isAppointmentDay && <p className="mt-4 rounded-lg bg-[#F3F4F6] px-3 py-2 text-xs font-semibold text-[#667085]">Read only until the scheduled appointment date. Staff actions will be available that day.</p>}
-    {isAppointmentDay && <div className="mt-4 flex gap-2">
+    {booking.booking_type === "online" && booking.status === "pending" && <div className="mt-4 space-y-3">{(booking.services?.length ? booking.services : [booking.service].filter(Boolean)).map((service) => { const assignmentKey = String(service.booking_service_item_id || service.id); return <label key={assignmentKey} className="block text-xs font-bold text-[#374151]">{service.name || "Service provider"}<select value={assignments[booking.id]?.[assignmentKey] || ""} onChange={(event) => setAssignments((current) => ({ ...current, [booking.id]: { ...(current[booking.id] || {}), [assignmentKey]: event.target.value } }))} className="form-input mt-1"><option value="">Choose provider</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.full_name} ({provider.job_title}) - {provider.active_customer_count || 0} active bookings</option>)}</select></label>; })}</div>}
+    {booking.status === "treatment_done" && <p className="mt-4 text-xs font-bold text-[#166534]">Treatment is complete. Record payment below.</p>}
+    {canReschedule && <div className="mt-4 rounded-lg bg-[#F3F4F6] px-3 py-3 text-xs font-semibold text-[#667085]">Need to change the appointment? Reschedule this original booking and keep its verified payment attached. Paid bookings are non-refundable.<button type="button" disabled={busy} onClick={() => setRescheduleDraft({ id: booking.id, appointment_date: toDateTimeLocal(booking.appointment_date) })} className="ml-3 mt-2 rounded-lg bg-white px-3 py-2 font-bold text-[#A83F78] ring-1 ring-[#E8C9D9] disabled:opacity-50">Reschedule booking</button></div>}
+    {rescheduleDraft?.id === booking.id && <form onSubmit={(event) => submitReschedule(event, booking)} className="mt-3 rounded-xl border border-[#F2D8B7] bg-[#FFFAF2] p-3"><p className="text-xs font-bold leading-5 text-[#755B3B]">This changes the original booking. The verified payment stays attached, is non-refundable, and will not be charged again.</p><label className="mt-3 block text-xs font-bold text-[#374151]">New appointment date and time<input required type="datetime-local" value={rescheduleDraft.appointment_date} onChange={(event) => setRescheduleDraft((current) => ({ ...current, appointment_date: event.target.value }))} className="form-input mt-1 bg-white" /></label><div className="mt-3 flex gap-2"><button type="submit" disabled={busy || !rescheduleDraft.appointment_date} className="min-h-10 rounded-lg bg-[#C85B95] px-4 text-xs font-bold text-white disabled:opacity-50">{busy ? "Saving…" : "Save new time"}</button><button type="button" disabled={busy} onClick={() => setRescheduleDraft(null)} className="min-h-10 rounded-lg border border-[#E8DCE3] bg-white px-4 text-xs font-bold text-[#374151]">Cancel</button></div></form>}
+    <div className="mt-4 flex gap-2">
       {booking.booking_type === "online" && ["pending", "confirmed"].includes(booking.status) && !booking.checked_in_at && booking.payment_status === "paid" && <button disabled={busy} onClick={() => runAction(() => staffTransactionService.checkInOnlineBooking(booking.id))} className="min-h-10 rounded-xl border border-[#166534]/30 px-3 text-xs font-bold text-[#166534] hover:bg-[#DCFCE7]">Mark arrived</button>}
       {booking.booking_type === "online" && booking.status === "pending" && booking.payment_status === "paid" && <button disabled={busy || !(booking.services?.length ? booking.services : [booking.service].filter(Boolean)).every((service) => assignments[booking.id]?.[String(service.booking_service_item_id || service.id)])} onClick={() => { const services = booking.services?.length ? booking.services : [booking.service].filter(Boolean); const serviceProviderIds = Object.fromEntries(services.map((service) => [String(service.booking_service_item_id || service.id), Number(assignments[booking.id][String(service.booking_service_item_id || service.id)])])); const primaryProviderId = Number(Object.values(serviceProviderIds)[0]); return runAction(() => staffTransactionService.confirmOnlineBooking(booking.id, primaryProviderId, serviceProviderIds)); }} className="min-h-10 flex-1 rounded-xl bg-[#C85B95] px-3 text-xs font-bold text-white disabled:opacity-40">Confirm booking</button>}
       {booking.status === "confirmed" && <button disabled={busy} onClick={() => runAction(() => booking.booking_type === "walk-in" ? staffTransactionService.markTreatmentDone(booking.id) : staffTransactionService.markOnlineTreatmentDone(booking.id))} className="min-h-10 flex-1 rounded-xl bg-[#1F2937] px-3 text-xs font-bold text-white">Treatment done</button>}
       {booking.status === "treatment_done" && (booking.payment_status === "paid" ? <span className="min-h-10 flex-1 rounded-xl bg-[#DCFCE7] px-3 py-2 text-center text-xs font-bold text-[#166534]">Paid online · {booking.payment_method || "PayPal"}</span> : <button disabled={busy} onClick={() => { setSelectedOtherDate(""); setPaymentBooking(booking); setPayment(emptyPayment); setReceipt(null); }} className="min-h-10 flex-1 rounded-xl bg-[#166534] px-3 text-xs font-bold text-white">Collect payment</button>)}
       {["pending", "confirmed"].includes(booking.status) && <button type="button" disabled={busy} onClick={() => { setCancelBooking(booking); setCancelReason(""); setCancelError(""); }} className="min-h-10 rounded-xl border border-[#DC2626] px-3 text-xs font-bold text-[#B91C1C] hover:bg-[#FEE2E2]">Cancel</button>}
-    </div>}
+    </div>
   </article>;
   };
 
@@ -249,6 +274,7 @@ export default function OnlineBookings() {
 
   return <StaffWorkspace title="Bookings" eyebrow="All branch reservations">
     {error && <ErrorNotice message={error} onRetry={load} />}
+    {notice && <div role="status" className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] px-4 py-3 text-sm font-semibold text-[#166534]">{notice}<button type="button" onClick={() => setNotice("")} className="ml-3 font-extrabold underline">Dismiss</button></div>}
 
     <section className="rounded-[1.5rem] border border-[#F3E8EF] bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">

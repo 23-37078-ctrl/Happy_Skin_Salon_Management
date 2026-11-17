@@ -17,10 +17,19 @@ const managerService = {
     const response = await api.get("/manager/bookings", { params });
     return response.data;
   },
+  bookingProviders: async () => (await api.get("/manager/booking-providers")).data,
 
   updateBookingStatus: async (bookingId, status) => {
     const response = await api.patch(`/manager/bookings/${bookingId}/status`, { status });
     return response.data;
+  },
+  updateGroupServiceStatus: async (bookingId, serviceItemId, status) => {
+    const { data } = await api.patch(`/manager/bookings/${bookingId}/service-items/${serviceItemId}/status`, { status });
+    return data;
+  },
+  updateGroupServiceProvider: async (bookingId, serviceItemId, serviceProviderId) => {
+    const { data } = await api.patch(`/manager/bookings/${bookingId}/service-items/${serviceItemId}/provider`, { service_provider_id: Number(serviceProviderId) });
+    return data;
   },
 
   rescheduleBooking: async (bookingId, appointment_date) => {

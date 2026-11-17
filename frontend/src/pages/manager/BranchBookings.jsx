@@ -32,6 +32,7 @@ function toDateTimeLocal(value) {
 
 export default function BranchBookings() {
   const [bookings, setBookings] = useState([]);
+  const [providers, setProviders] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState("");
@@ -46,10 +47,11 @@ export default function BranchBookings() {
     setIsLoading(true);
     setError("");
     try {
-      const payload = await managerService.bookings({
+      const [payload, providerRows] = await Promise.all([managerService.bookings({
         status_filter: statusFilter === "all" ? null : statusFilter,
-      });
+      }), managerService.bookingProviders()]);
       setBookings(payload.bookings || []);
+      setProviders(providerRows || []);
     } catch (err) {
       setError(getApiError(err, "We couldn't load branch bookings."));
     } finally {
@@ -66,7 +68,7 @@ export default function BranchBookings() {
     return bookings.filter((booking) => {
       const appointmentDate = getAppointmentDateKey(booking.appointment_date);
       const matchesDate = !dateFilter || appointmentDate === dateFilter;
-      const matchesSearch = !term || [booking.id, booking.customer?.full_name, booking.customer?.email, booking.guest_name, booking.guest_email, booking.guest_phone, booking.service?.name, booking.status, booking.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase().includes(term);
+      const matchesSearch = !term || [booking.id, booking.group_reference, ...(booking.group_members || []).map((member) => member.member_name), booking.customer?.full_name, booking.customer?.email, booking.guest_name, booking.guest_email, booking.guest_phone, booking.service?.name, booking.status, booking.preferred_service_provider?.full_name].filter(Boolean).join(" ").toLowerCase().includes(term);
       return matchesDate && matchesSearch;
     });
   }, [bookings, search, dateFilter]);
@@ -88,6 +90,40 @@ export default function BranchBookings() {
     }
   };
 
+  const updateServiceStatus = async (bookingId, itemId, status) => {
+    setBusyId(bookingId);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await managerService.updateGroupServiceStatus(bookingId, itemId, status);
+      setBookings((items) => items.map((booking) => booking.id !== bookingId ? booking : {
+        ...booking,
+        status: result.booking_status,
+        service_items: booking.service_items.map((item) => item.id === itemId ? { ...item, status: result.service_status } : item),
+      }));
+      setSuccess(`Group service assignment updated to ${status}.`);
+    } catch (err) {
+      setError(getApiError(err, "Couldn't update that group service."));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const updateServiceProvider = async (bookingId, itemId, providerId) => {
+    setBusyId(bookingId);
+    setError("");
+    setSuccess("");
+    try {
+      await managerService.updateGroupServiceProvider(bookingId, itemId, providerId);
+      setSuccess("Group service provider updated.");
+      await loadBookings();
+    } catch (err) {
+      setError(getApiError(err, "Couldn't reassign that group service."));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const reschedule = async (event) => {
     event.preventDefault();
     if (!editing.id || !editing.appointment_date) return;
@@ -97,7 +133,9 @@ export default function BranchBookings() {
     try {
       const updated = await managerService.rescheduleBooking(editing.id, new Date(editing.appointment_date).toISOString());
       setBookings((prev) => prev.map((booking) => (booking.id === editing.id ? updated : booking)));
-      setSuccess(`Booking #${editing.id} rescheduled.`);
+      setSuccess(updated.payment_status === "paid"
+        ? `Booking #${editing.id} rescheduled. Its verified payment remains attached and is non-refundable.`
+        : `Booking #${editing.id} rescheduled.`);
       setEditing({ id: null, appointment_date: "" });
     } catch (err) {
       setError(getApiError(err, "Couldn't reschedule that booking."));
@@ -140,6 +178,9 @@ export default function BranchBookings() {
                 onEdit={setEditing}
                 onReschedule={reschedule}
                 onStatus={updateStatus}
+                onServiceStatus={updateServiceStatus}
+                providers={providers}
+                onServiceProvider={updateServiceProvider}
               />
             ))}
             <ListPagination page={page} totalItems={visibleBookings.length} onPageChange={setPage} itemLabel="bookings" />
@@ -150,8 +191,9 @@ export default function BranchBookings() {
   );
 }
 
-function BookingCard({ booking, busy, editing, onEdit, onReschedule, onStatus }) {
+function BookingCard({ booking, busy, editing, onEdit, onReschedule, onStatus, onServiceStatus, providers, onServiceProvider }) {
   const canManage = !["completed", "cancelled"].includes(booking.status);
+  const canUpdateGroupServices = ["confirmed", "treatment_done"].includes(booking.status);
   const isEditing = editing.id === booking.id;
 
   return (
@@ -159,7 +201,7 @@ function BookingCard({ booking, busy, editing, onEdit, onReschedule, onStatus })
       <div className="grid gap-4 p-4 lg:grid-cols-[1.2fr_0.9fr_auto] lg:items-center lg:p-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">Booking #{booking.id}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-[#D65A9A]">{booking.group_reference || `Booking #${booking.id}`}{booking.group_reference && ` · ${booking.group_members?.length || 0} people`}</p>
             <StatusBadge status={booking.status} />
           </div>
           <h2 className="mt-3 truncate text-lg font-bold text-[#1F2937]">{booking.service?.name || "Service"}</h2>
@@ -172,24 +214,27 @@ function BookingCard({ booking, busy, editing, onEdit, onReschedule, onStatus })
             </p>
           )}
           {booking.notes && <p className="mt-3 rounded-xl bg-[#FFF8FB] px-3 py-2 text-sm text-[#6B7280]">{booking.notes}</p>}
+          {booking.group_reference && <details className="mt-3 rounded-xl border border-[#F3E8EF] bg-[#FFF8FB] p-3"><summary className="cursor-pointer text-sm font-bold text-[#A83F78]">View group details and service assignments</summary><div className="mt-3 space-y-3">{(booking.group_members || []).map((member) => <section key={member.id} className="rounded-lg bg-white p-3"><p className="text-sm font-extrabold text-[#344054]">{member.member_name}{member.is_booker ? " · Main booker" : ""}{member.contact_number ? ` · ${member.contact_number}` : ""}</p><div className="mt-2 space-y-2">{(booking.service_items || []).filter((item) => item.member_id === member.id).map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[#F3E8EF] pt-2 text-xs"><span>{item.service.name} · {item.appointment_start ? formatDateTime(item.appointment_start) : formatDateTime(booking.appointment_date)} · {formatCurrency(item.service_price ?? item.service.price)}</span><select aria-label={`Staff for ${item.service.name} assigned to ${member.member_name}`} value={item.service_provider?.id || ""} onChange={(event) => onServiceProvider(booking.id, item.id, event.target.value)} disabled={busy || !canUpdateGroupServices || item.status === "completed" || item.status === "cancelled"} className="rounded-lg border border-[#F0DCE7] bg-white px-2 py-1 text-xs"><option value="">Choose staff</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.full_name} · {provider.job_title}</option>)}</select><span className="rounded-full bg-[#FFF0F7] px-2 py-1 capitalize text-[#A83F78]">{item.status}</span>{canUpdateGroupServices && item.status !== "cancelled" && <div className="flex gap-1"><button type="button" disabled={busy || item.status === "completed"} onClick={() => onServiceStatus(booking.id, item.id, "completed")} className="rounded-lg bg-[#DCFCE7] px-2 py-1 font-bold text-[#166534] disabled:opacity-50">Done</button><button type="button" disabled={busy} onClick={() => { if (window.confirm(`Cancel ${item.service.name} for ${member.member_name}? Other group services will stay booked and paid amounts are unchanged.`)) onServiceStatus(booking.id, item.id, "cancelled"); }} className="rounded-lg bg-[#FEE2E2] px-2 py-1 font-bold text-[#991B1B] disabled:opacity-50">Cancel service</button></div>}</div>)}</div></section>)}</div></details>}
         </div>
 
         <div className="grid gap-3 text-sm text-[#6B7280] sm:grid-cols-2 lg:grid-cols-1">
           <span className="inline-flex items-center gap-2"><HiOutlineCalendarDays className="h-5 w-5 text-[#D65A9A]" /> {formatDateTime(booking.appointment_date)}</span>
           <span className="inline-flex items-center gap-2"><HiOutlineClock className="h-5 w-5 text-[#D65A9A]" /> {booking.service?.duration_minutes || 0} minutes</span>
           <span className="text-sm font-bold text-[#166534]">{formatCurrency(booking.service?.price)}</span>
+          {booking.payment_status && <span className={`rounded-lg px-3 py-2 text-xs font-bold ${booking.payment_status === "paid" ? "bg-[#DCFCE7] text-[#166534]" : "bg-[#FFF4E5] text-[#9A5B13]"}`}>{booking.payment_status === "paid" ? "Paid · non-refundable" : `Payment ${booking.payment_status}`}</span>}
         </div>
 
         <div className="flex flex-wrap gap-2 lg:w-64 lg:justify-end">
           {booking.status === "pending" && <ActionButton disabled={busy} onClick={() => onStatus(booking.id, "confirmed")} icon={HiOutlineCheck}>Confirm</ActionButton>}
           {canManage && <ActionButton disabled={busy} onClick={() => onEdit({ id: booking.id, appointment_date: toDateTimeLocal(booking.appointment_date) })} icon={HiOutlinePencilSquare}>Reschedule</ActionButton>}
-          {canManage && <ActionButton disabled={busy} onClick={() => onStatus(booking.id, "completed")} icon={HiOutlineCheck}>Complete & Record Sale</ActionButton>}
+          {canManage && !booking.group_reference && <ActionButton disabled={busy} onClick={() => onStatus(booking.id, "completed")} icon={HiOutlineCheck}>Complete & Record Sale</ActionButton>}
           {canManage && <ActionButton disabled={busy} variant="danger" onClick={() => onStatus(booking.id, "cancelled")} icon={HiOutlineXMark}>Cancel</ActionButton>}
         </div>
       </div>
 
       {isEditing && (
         <form onSubmit={onReschedule} className="border-t border-[#F3E8EF] bg-[#FFF8FB] p-4 lg:p-5">
+          {booking.payment_status === "paid" && <p className="mb-3 rounded-xl border border-[#F2D8B7] bg-[#FFFAF2] p-3 text-xs leading-5 text-[#755B3B]">Rescheduling updates this original booking. Its verified payment stays attached to the new appointment date and is non-refundable. No new payment is collected for the reschedule.</p>}
           <div className="grid gap-3 md:grid-cols-[minmax(15rem,1fr)_13rem_auto] md:items-end">
             <div className="text-sm font-bold text-[#1F2937]">
               <span>New appointment date</span>

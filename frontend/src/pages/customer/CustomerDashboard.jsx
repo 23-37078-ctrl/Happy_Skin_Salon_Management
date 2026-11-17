@@ -87,28 +87,50 @@ export default function CustomerDashboard() {
   const loggingOutRef = useRef(false);
 
   const fetchDashboard = useCallback((signal) => {
+    const previousRequest = dashboardRequestRef.current;
+    const requestController = signal ? { signal, abort: () => {} } : new AbortController();
+    const requestSignal = requestController.signal;
+    if (previousRequest?.signal !== requestSignal) previousRequest?.abort();
+    dashboardRequestRef.current = requestController;
     setIsLoading(true);
     setError(null);
-    Promise.all([
-      getCustomerDashboard(signal),
-      getCustomerBranches(signal),
+    Promise.allSettled([
+      getCustomerDashboard(requestSignal),
+      getCustomerBranches(requestSignal),
     ])
       .then(([dashboardPayload, branchesPayload]) => {
-        setData(dashboardPayload);
-        const availableBranches = branchesPayload || [];
+        if (requestSignal.aborted) return;
+        const availableBranches = branchesPayload.status === "fulfilled"
+          ? Array.isArray(branchesPayload.value) ? branchesPayload.value : branchesPayload.value?.branches || []
+          : [];
         setBranches(availableBranches);
         const mainBranch = availableBranches.find((branch) => /main branch/i.test(branch.name || "")) || availableBranches[0];
         if (mainBranch) setSelectedBranchId((current) => current || mainBranch.id);
-        if (dashboardPayload?.promotions?.length) setShowPromotions(true);
-      })
-      .catch((err) => {
-        if (!loggingOutRef.current && err.name !== "CanceledError" && err.code !== "ERR_CANCELED") {
-          setError(
-            "We couldn't load your dashboard right now. Please try again."
-          );
+        if (dashboardPayload.status === "fulfilled") {
+          setData(dashboardPayload.value);
+          if (dashboardPayload.value?.promotions?.length) setShowPromotions(true);
+        }
+        if (dashboardPayload.status === "rejected" && branchesPayload.status === "rejected") {
+          setError("We couldn't load your dashboard or branch locations right now. Please retry.");
+        } else if (dashboardPayload.status === "rejected") {
+          setError("Your branches and services loaded, but dashboard details could not be loaded. Please retry.");
+        } else if (branchesPayload.status === "rejected") {
+          setError("Your dashboard loaded, but branch locations could not be loaded. Please retry.");
+        } else {
+          setError(null);
         }
       })
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!requestSignal.aborted && !loggingOutRef.current && err.name !== "CanceledError" && err.code !== "ERR_CANCELED") {
+          setError("We couldn't load your dashboard or branch locations right now. Please retry.");
+        }
+      })
+      .finally(() => {
+        if (dashboardRequestRef.current?.signal === requestSignal) {
+          dashboardRequestRef.current = null;
+          setIsLoading(false);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -117,7 +139,7 @@ export default function CustomerDashboard() {
     Promise.resolve().then(() => fetchDashboard(controller.signal));
     return () => {
       controller.abort();
-      if (dashboardRequestRef.current === controller) dashboardRequestRef.current = null;
+      if (dashboardRequestRef.current?.signal === controller.signal) dashboardRequestRef.current = null;
     };
   }, [fetchDashboard]);
 
@@ -221,7 +243,7 @@ export default function CustomerDashboard() {
           promotionCount={data?.promotions?.length || 0}
         />
 
-        {error && <SystemPopup message={error} tone="error" onRetry={fetchDashboard} />}
+        {error && <SystemPopup message={error} tone="error" onRetry={() => fetchDashboard()} />}
 
         <Section className="mb-7" title="Top services">
           {isLoading ? (

@@ -46,6 +46,55 @@ class BookingCreateRequest(BaseModel):
         return unique
 
 
+class GroupBookingMemberRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    contact_number: Optional[str] = Field(default=None, max_length=20)
+    service_ids: list[int] = Field(min_length=1, max_length=20)
+
+    @field_validator("name", "contact_number")
+    @classmethod
+    def trim_member_fields(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def member_name_is_valid(cls, value: str) -> str:
+        if len(value) < 2:
+            raise ValueError("Enter each group member's full name.")
+        return value
+
+    @field_validator("contact_number")
+    @classmethod
+    def member_contact_is_valid(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value:
+            return None
+        digits = sum(character.isdigit() for character in value)
+        if not 7 <= digits <= 15 or any(character not in "+0123456789 ()-" for character in value):
+            raise ValueError("Enter a valid mobile number or leave the contact field empty.")
+        return value
+
+
+class GroupBookingCreateRequest(BaseModel):
+    branch_id: int
+    appointment_date: datetime
+    members: list[GroupBookingMemberRequest] = Field(min_length=1, max_length=99)
+    booker_service_ids: list[int] = Field(default_factory=list, max_length=20)
+    allow_duplicate: bool = False
+    notes: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("appointment_date")
+    @classmethod
+    def normalize_appointment_time(cls, value: datetime) -> datetime:
+        return normalize_appointment_date(value)
+
+    @field_validator("notes")
+    @classmethod
+    def clean_notes(cls, value):
+        return value.strip() or None if value else None
+
+
 class GuestBookingCreateRequest(BookingCreateRequest):
     guest_name: str = Field(min_length=2, max_length=100)
     guest_phone: str = Field(min_length=7, max_length=20)
@@ -76,6 +125,21 @@ class BookingStatusUpdateRequest(BaseModel):
         if v not in allowed:
             raise ValueError(f"Status must be one of: {', '.join(sorted(allowed))}")
         return v
+
+
+class BookingServiceItemStatusRequest(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def valid_group_service_status(cls, value: str) -> str:
+        if value not in {"completed", "cancelled"}:
+            raise ValueError("Service status must be completed or cancelled.")
+        return value
+
+
+class BookingServiceProviderUpdateRequest(BaseModel):
+    service_provider_id: int = Field(gt=0)
 
 class BookingCancellationRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=255)
@@ -137,6 +201,21 @@ class BookingServiceItemOut(BaseModel):
     id: int
     service: BookingServiceOut
     service_provider: Optional[BookingProviderOut] = None
+    member_id: Optional[int] = None
+    appointment_start: Optional[datetime] = None
+    appointment_end: Optional[datetime] = None
+    service_price: Optional[float] = None
+    service_duration_minutes: Optional[int] = None
+    status: str = "pending"
+
+    model_config = {"from_attributes": True}
+
+
+class GroupBookingMemberOut(BaseModel):
+    id: int
+    member_name: str
+    contact_number: Optional[str] = None
+    is_booker: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -160,6 +239,8 @@ class BookingOut(BaseModel):
     checkout_url: Optional[str] = None
     status: str
     notes: Optional[str] = None
+    group_reference: Optional[str] = None
+    group_members: list["GroupBookingMemberOut"] = Field(default_factory=list)
     created_at: datetime
     updated_at: Optional[datetime] = None
 

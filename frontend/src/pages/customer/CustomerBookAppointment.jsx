@@ -11,12 +11,14 @@ import {
 } from "react-icons/hi2";
 import {
   createAppointment,
+  createGroupAppointment,
   createGuestAppointment,
   getBookingAvailability,
   getCustomerBranches,
   getCustomerServices,
   getBookingPaymentStatus,
   getCustomerPaymentStatus,
+  getGroupBookingAvailability,
   getGuestBookingAvailability,
   getPublicDiscovery,
   sendGuestBookingPhoneOtp,
@@ -59,6 +61,9 @@ export default function CustomerBookAppointment() {
   const [branches, setBranches] = useState([]);
   const [services, setServices] = useState([]);
   const [serviceSearch, setServiceSearch] = useState("");
+  const [bookingType, setBookingType] = useState("individual");
+  const [groupMembers, setGroupMembers] = useState([{ name: "", contact_number: "", service_ids: [] }]);
+  const [activeMemberIndex, setActiveMemberIndex] = useState(0);
   const [slotAvailability, setSlotAvailability] = useState({});
   const [form, setForm] = useState({
     branch_id: searchParams.get("branch") || "",
@@ -90,6 +95,13 @@ export default function CustomerBookAppointment() {
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("gcash");
+  const groupServiceIds = [...form.service_ids, ...groupMembers.flatMap((member) => member.service_ids)];
+  const groupServiceKey = groupServiceIds.join(",");
+  const groupAvailabilityKey = JSON.stringify([form.service_ids.map(String), ...groupMembers.map((member) => member.service_ids.map(String))]);
+  const groupAssignmentCount = form.service_ids.length + groupMembers.reduce((sum, member) => sum + member.service_ids.length, 0);
+  const selectionServiceIds = useMemo(() => bookingType === "group" && activeMemberIndex > 0
+    ? groupMembers[activeMemberIndex - 1]?.service_ids || form.service_ids
+    : form.service_ids, [activeMemberIndex, bookingType, form.service_ids, groupMembers]);
 
   useEffect(() => {
     const token = searchParams.get("payment_token");
@@ -186,24 +198,32 @@ export default function CustomerBookAppointment() {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (!form.branch_id || !form.service_id || !form.appointment_date) return undefined;
+    const availabilityServiceIds = bookingType === "group" ? (groupServiceKey ? groupServiceKey.split(",") : []) : form.service_ids;
+    const availabilityServiceId = availabilityServiceIds[0] || "";
+    if (!form.branch_id || !availabilityServiceId || !form.appointment_date) return undefined;
     const controller = new AbortController();
     async function loadAvailability() {
       setIsLoadingAvailability(true);
       try {
-        const loadAvailability = isAuthenticated ? getBookingAvailability : getGuestBookingAvailability;
-        const data = await loadAvailability(
-          form.branch_id,
-          form.service_id,
-          form.appointment_date,
-          controller.signal,
-          form.service_ids
-        );
-        setSlotAvailability({ branchId: String(form.branch_id), serviceId: String(form.service_id), appointmentDate: form.appointment_date, slots: Object.fromEntries((data.slots || []).map((slot) => [slot.time, slot])) });
+        let data;
+        if (bookingType === "group") {
+          data = await getGroupBookingAvailability({
+            branch_id: Number(form.branch_id),
+            booking_date: form.appointment_date,
+            booker_service_ids: form.service_ids.map(Number),
+            member_service_ids: groupMembers.map((member) => member.service_ids.map(Number)),
+          }, controller.signal);
+        } else {
+          const loadAvailability = isAuthenticated ? getBookingAvailability : getGuestBookingAvailability;
+          data = await loadAvailability(form.branch_id, availabilityServiceId, form.appointment_date, controller.signal, availabilityServiceIds);
+        }
+        const selectionKey = bookingType === "group" ? groupAvailabilityKey : String(availabilityServiceId);
+        setSlotAvailability({ branchId: String(form.branch_id), serviceId: selectionKey, appointmentDate: form.appointment_date, slots: Object.fromEntries((data.slots || []).map((slot) => [slot.time, slot])), capacitySummary: data.capacity_summary || null });
       } catch (requestError) {
         if (requestError.name !== "CanceledError" && requestError.code !== "ERR_CANCELED") {
           setError("We couldn't load live availability. Please try again.");
-          setSlotAvailability({ branchId: String(form.branch_id), serviceId: String(form.service_id), appointmentDate: form.appointment_date, slots: {} });
+          const selectionKey = bookingType === "group" ? groupAvailabilityKey : String(availabilityServiceId);
+          setSlotAvailability({ branchId: String(form.branch_id), serviceId: selectionKey, appointmentDate: form.appointment_date, slots: {}, capacitySummary: null });
         }
       } finally {
         setIsLoadingAvailability(false);
@@ -214,7 +234,7 @@ export default function CustomerBookAppointment() {
     const refreshOnFocus = () => { if (document.visibilityState === "visible") loadAvailability(); };
     document.addEventListener("visibilitychange", refreshOnFocus);
     return () => { controller.abort(); window.clearInterval(refreshTimer); document.removeEventListener("visibilitychange", refreshOnFocus); };
-  }, [form.appointment_date, form.branch_id, form.service_id, form.service_ids, isAuthenticated]);
+  }, [form.appointment_date, form.branch_id, form.service_id, form.service_ids, groupServiceKey, groupAvailabilityKey, groupMembers, bookingType, isAuthenticated]);
 
   const selectedBranch = useMemo(
     () => branches.find((branch) => String(branch.id) === String(form.branch_id)),
@@ -225,7 +245,7 @@ export default function CustomerBookAppointment() {
     () => services.find((service) => String(service.id) === String(form.service_id)),
     [form.service_id, services]
   );
-  const selectedServices = useMemo(() => availableServices.filter((service) => form.service_ids.map(String).includes(String(service.id))), [availableServices, form.service_ids]);
+  const selectedServices = useMemo(() => availableServices.filter((service) => selectionServiceIds.map(String).includes(String(service.id))), [availableServices, selectionServiceIds]);
   const availableServiceGroups = useMemo(() => {
     const grouped = new Map();
     const query = serviceSearch.trim().toLocaleLowerCase();
@@ -241,11 +261,17 @@ export default function CustomerBookAppointment() {
       return (firstOrder < 0 ? Number.MAX_SAFE_INTEGER : firstOrder) - (secondOrder < 0 ? Number.MAX_SAFE_INTEGER : secondOrder);
     });
   }, [availableServices, serviceSearch]);
-  const combinedDuration = selectedServices.reduce((sum, service) => sum + Number(service.duration_minutes || 0), 0);
-  const combinedPrice = selectedServices.reduce((sum, service) => sum + Number(service.price || 0), 0);
+  const allSelectedServiceIds = bookingType === "group" ? groupServiceIds : form.service_ids;
+  const combinedDuration = bookingType === "group"
+    ? Math.max(0, ...[form.service_ids, ...groupMembers.map((member) => member.service_ids)].map((serviceIds) => serviceIds.reduce((sum, id) => sum + Number(availableServices.find((service) => String(service.id) === String(id))?.duration_minutes || 0), 0)))
+    : selectedServices.reduce((sum, service) => sum + Number(service.duration_minutes || 0), 0);
+  const combinedPrice = bookingType === "group"
+    ? [...form.service_ids, ...groupMembers.flatMap((member) => member.service_ids)].reduce((sum, id) => sum + Number(availableServices.find((service) => String(service.id) === String(id))?.price || 0), 0)
+    : selectedServices.reduce((sum, service) => sum + Number(service.price || 0), 0);
   const availabilityMatchesSelection = slotAvailability.branchId === String(form.branch_id)
-    && slotAvailability.serviceId === String(form.service_id)
+    && slotAvailability.serviceId === String(bookingType === "group" ? groupAvailabilityKey : form.service_id)
     && slotAvailability.appointmentDate === form.appointment_date;
+  const groupCapacitySummary = bookingType === "group" && availabilityMatchesSelection ? slotAvailability.capacitySummary : null;
   const availableTimeSlots = useMemo(() => {
     if (!form.appointment_date) return APPOINTMENT_SLOTS;
     const slots = availabilityMatchesSelection ? slotAvailability.slots : {};
@@ -259,13 +285,26 @@ export default function CustomerBookAppointment() {
       service_ids: [],
       appointment_time: "",
     }));
+    setGroupMembers((members) => members.map((member) => ({ ...member, service_ids: [] })));
   };
 
   const toggleService = (service) => {
     setError("");
-    const selected = form.service_ids.map(String).includes(String(service.id));
-    if (!selected && form.service_ids.length >= 20) {
+    const currentIds = selectionServiceIds.map(String);
+    const selected = currentIds.includes(String(service.id));
+    if (!selected && bookingType === "group" && groupAssignmentCount >= 20) {
+      setError("A group booking can include up to 20 service assignments.");
+      return;
+    }
+    if (!selected && bookingType === "individual" && form.service_ids.length >= 20) {
       setError("You can select up to 20 services in one booking.");
+      return;
+    }
+    if (bookingType === "group" && activeMemberIndex > 0) {
+      setGroupMembers((members) => members.map((member, index) => index === activeMemberIndex - 1
+        ? { ...member, service_ids: selected ? member.service_ids.filter((id) => String(id) !== String(service.id)) : [...member.service_ids, String(service.id)] }
+        : member));
+      setForm((previous) => ({ ...previous, appointment_time: "" }));
       return;
     }
     setForm((previous) => {
@@ -278,15 +317,23 @@ export default function CustomerBookAppointment() {
 
   const toggleCategory = (categoryServices) => {
     setError("");
-    const selectedIds = new Set(form.service_ids.map(String));
+    const selectedIds = new Set(selectionServiceIds.map(String));
     const allSelected = categoryServices.every((service) => selectedIds.has(String(service.id)));
     if (allSelected) categoryServices.forEach((service) => selectedIds.delete(String(service.id)));
     else categoryServices.forEach((service) => selectedIds.add(String(service.id)));
-    if (selectedIds.size > 20) {
+    const otherMemberServiceCount = activeMemberIndex === 0
+      ? groupMembers.reduce((sum, member) => sum + member.service_ids.length, 0)
+      : form.service_ids.length + groupMembers.reduce((sum, member, index) => sum + (index === activeMemberIndex - 1 ? 0 : member.service_ids.length), 0);
+    if (selectedIds.size + (bookingType === "group" ? otherMemberServiceCount : 0) > 20) {
       setError("You can select up to 20 services in one booking. Deselect a few before adding this category.");
       return;
     }
     const ids = [...selectedIds];
+    if (bookingType === "group" && activeMemberIndex > 0) {
+      setGroupMembers((members) => members.map((member, index) => index === activeMemberIndex - 1 ? { ...member, service_ids: ids } : member));
+      setForm((previous) => ({ ...previous, appointment_time: "" }));
+      return;
+    }
     setForm((previous) => {
       return { ...previous, service_ids: ids, service_id: ids[0] || "", appointment_time: "" };
     });
@@ -296,7 +343,8 @@ export default function CustomerBookAppointment() {
     event.preventDefault();
     setError("");
     setSuccess("");
-    if (!form.branch_id || !form.service_ids.length || !form.appointment_date || !form.appointment_time) {
+    const hasServices = bookingType === "group" ? groupAssignmentCount > 0 : form.service_ids.length > 0;
+    if (!form.branch_id || !hasServices || !form.appointment_date || !form.appointment_time) {
       setError("Please complete the branch, service, date, and time fields.");
       return;
     }
@@ -305,12 +353,22 @@ export default function CustomerBookAppointment() {
       setError("Appointments must be booked at least 30 minutes in advance.");
       return;
     }
+    if (bookingType === "group" && groupMembers.some((member) => member.name.trim().length < 2 || !member.service_ids.length)) {
+      setError("Enter each group member’s name and select at least one service for them.");
+      return;
+    }
     if (!availabilityMatchesSelection || !slotAvailability.slots[form.appointment_time]?.available) {
-      setError("That time is unavailable or fully booked. Please choose another slot.");
+      setError(bookingType === "group"
+        ? "That time cannot accommodate all group members. Please choose an available group slot."
+        : "That time is unavailable or fully booked. Please choose another slot.");
       return;
     }
 
     if (!isAuthenticated) {
+      if (bookingType === "group") {
+        setError("Sign in to create a group booking. Guest bookings are available for individual appointments.");
+        return;
+      }
       setShowGuestContact(true);
       return;
     }
@@ -363,17 +421,27 @@ export default function CustomerBookAppointment() {
     setError("");
     setDoubleBookingMessage("");
     try {
-      const bookingPayload = {
+      const appointmentDate = `${form.appointment_date}T${form.appointment_time}:00+08:00`;
+      const bookingPayload = bookingType === "group" ? {
+        branch_id: Number(form.branch_id),
+        appointment_date: appointmentDate,
+        booker_service_ids: form.service_ids.map(Number),
+        members: groupMembers.map((member) => ({ name: member.name.trim(), contact_number: member.contact_number.trim() || null, service_ids: member.service_ids.map(Number) })),
+        allow_duplicate: allowDuplicate,
+        notes: form.notes.trim() || null,
+      } : {
         branch_id: Number(form.branch_id),
         service_id: Number(form.service_id),
         service_ids: form.service_ids.map(Number),
         allow_duplicate: allowDuplicate,
-        appointment_date: `${form.appointment_date}T${form.appointment_time}:00+08:00`,
+        appointment_date: appointmentDate,
         notes: form.notes.trim() || null,
       };
-      const bookingResult = contact
-        ? await createGuestAppointment({ ...bookingPayload, ...contact, phone_verification_id: guestPhoneVerificationId })
-        : await createAppointment(bookingPayload);
+      const bookingResult = bookingType === "group"
+        ? await createGroupAppointment(bookingPayload)
+        : contact
+          ? await createGuestAppointment({ ...bookingPayload, ...contact, phone_verification_id: guestPhoneVerificationId })
+          : await createAppointment(bookingPayload);
       setPaymentBookingId(String(bookingResult.id));
       setPaymentToken(bookingResult.payment_token || "");
       setPaymentAmount(combinedPrice);
@@ -383,7 +451,7 @@ export default function CustomerBookAppointment() {
       if (bookingResult.payment_token) nextParams.set("payment_token", bookingResult.payment_token);
       else nextParams.set("booking_id", String(bookingResult.id));
       navigate({ search: nextParams.toString() }, { replace: true });
-      setSuccess("Your booking request is saved. Choose a payment method below; your booking remains pending until payment is verified.");
+      setSuccess(`${bookingResult.group_reference ? `Group booking ${bookingResult.group_reference} is saved. ` : "Your booking request is saved. "}Choose a payment method below; your booking remains pending until payment is verified.`);
       setShowGuestContact(false);
       setGuestPhoneVerificationId("");
       setGuestPhoneVerified(false);
@@ -398,7 +466,9 @@ export default function CustomerBookAppointment() {
         setShowDuplicateBookingConfirm(true);
         return;
       }
-      const validationMessage = Array.isArray(detail) ? detail.map((item) => item.msg).filter(Boolean).join(" ") : detail;
+      const validationMessage = Array.isArray(detail) ? detail.map((item) => item.msg).filter(Boolean).join(" ")
+        : detail && typeof detail === "object" ? [detail.message, detail.alternative_schedules?.length ? `Available alternatives: ${detail.alternative_schedules.join(", ")}.` : ""].filter(Boolean).join(" ")
+          : detail;
       setError(validationMessage || (!requestError.response && requestError.message !== "Network Error" ? requestError.message : !requestError.response
         ? "The booking server is temporarily unavailable. Please try again shortly."
         : "We couldn't create that appointment. Please review your details and try again."));
@@ -422,6 +492,18 @@ export default function CustomerBookAppointment() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <FormSection number="1" title="Service and location" description="Select where you'd like to visit and what you need.">
               <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#FFF8FB] p-1">
+                  {[{ value: "individual", label: "Individual booking" }, { value: "group", label: "Group booking" }].map((option) => <button key={option.value} type="button" onClick={() => { setBookingType(option.value); setActiveMemberIndex(0); setForm((previous) => ({ ...previous, appointment_time: "" })); }} aria-pressed={bookingType === option.value} className={`min-h-10 rounded-lg px-3 py-2 text-sm font-bold ${bookingType === option.value ? "bg-[#B94B86] text-white shadow-sm" : "text-[#667085] hover:text-[#A83F78]"}`}>{option.label}</button>)}
+                </div>
+                {bookingType === "group" && <section className="rounded-2xl border border-[#F0E3EA] bg-[#FFFBFD] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold text-[#344054]">Group members</h3><p className="mt-1 text-xs text-[#667085]">You’re included as the main booker. Add up to 99 other people.</p></div><span className="rounded-full bg-[#FCE7F3] px-3 py-1 text-xs font-bold text-[#A83F78]">{groupMembers.length + 1} / 100 people</span></div>
+                  {!isAuthenticated && <p className="mt-3 rounded-lg bg-[#FFF4E5] p-3 text-xs text-[#9A5B13]">Sign in to submit a group booking. Guest booking remains available for individual appointments.</p>}
+                  <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setActiveMemberIndex(0)} className={`rounded-lg border px-3 py-2 text-xs font-bold ${activeMemberIndex === 0 ? "border-[#B94B86] bg-[#FCE7F3] text-[#A83F78]" : "border-[#F0E3EA] bg-white text-[#667085]"}`}>You (booker)</button>{groupMembers.map((member, index) => <div key={index} className="flex items-center gap-1"><button type="button" onClick={() => setActiveMemberIndex(index + 1)} className={`rounded-lg border px-3 py-2 text-xs font-bold ${activeMemberIndex === index + 1 ? "border-[#B94B86] bg-[#FCE7F3] text-[#A83F78]" : "border-[#F0E3EA] bg-white text-[#667085]"}`}>{member.name.trim() || `Member ${index + 2}`}</button><button type="button" aria-label={`Remove member ${index + 2}`} onClick={() => { setGroupMembers((items) => items.filter((_, itemIndex) => itemIndex !== index)); setActiveMemberIndex((current) => current === index + 1 ? 0 : current > index + 1 ? current - 1 : current); }} className="grid h-8 w-8 place-items-center rounded-lg text-[#98A2B3] hover:bg-[#FCE7F3] hover:text-[#A83F78]">×</button></div>)}</div>
+                  <div className="mt-4 space-y-3">{activeMemberIndex > 0 && <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold text-[#667085]">Member name<input required minLength={2} maxLength={100} value={groupMembers[activeMemberIndex - 1]?.name || ""} onChange={(event) => setGroupMembers((items) => items.map((member, index) => index === activeMemberIndex - 1 ? { ...member, name: event.target.value } : member))} className="form-input mt-1" placeholder="Full name" /></label><label className="text-xs font-bold text-[#667085]">Contact number <span className="font-normal">(optional)</span><input type="tel" maxLength={20} value={groupMembers[activeMemberIndex - 1]?.contact_number || ""} onChange={(event) => setGroupMembers((items) => items.map((member, index) => index === activeMemberIndex - 1 ? { ...member, contact_number: event.target.value } : member))} className="form-input mt-1" placeholder="09XX XXX XXXX" /></label></div>}
+                    <p className="text-xs text-[#667085]">Choose services for {activeMemberIndex === 0 ? "you" : groupMembers[activeMemberIndex - 1]?.name.trim() || `Member ${activeMemberIndex + 1}`} below. The same service can be selected for multiple people.</p>
+                    {groupMembers.length < 99 && <button type="button" onClick={() => { setGroupMembers((items) => [...items, { name: "", contact_number: "", service_ids: [] }]); setActiveMemberIndex(groupMembers.length + 1); }} className="rounded-lg border border-dashed border-[#DCAEC5] px-3 py-2 text-xs font-bold text-[#A83F78] hover:bg-[#FFF4F9]">+ Add member</button>}
+                  </div>
+                </section>}
                 <Field label="Branch" icon={HiOutlineMapPin}>
                   <select aria-label="Branch" required value={form.branch_id} onChange={(event) => handleBranchChange(event.target.value)} disabled={isLoading} className="form-input">
                     <option value="">{isLoading ? "Loading branches..." : "Choose a branch"}</option>
@@ -434,12 +516,12 @@ export default function CustomerBookAppointment() {
                     <label className="relative mb-4 block"><span className="sr-only">Search services</span><HiOutlineMagnifyingGlass aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 z-10 h-5 w-5 -translate-y-1/2 text-[#B94B86]" /><input type="search" value={serviceSearch} onChange={(event) => setServiceSearch(event.target.value)} placeholder="Search services by name or category" className="form-input w-full !pl-11 !pr-10 [&::-webkit-search-cancel-button]:ml-2 [&::-webkit-search-cancel-button]:cursor-pointer" /></label>
                     <div className="max-h-[40rem] space-y-5 overflow-y-auto pr-1">
                       {isLoading ? <p className="rounded-xl bg-white px-4 py-8 text-center text-sm text-[#667085]" role="status">Loading services...</p> : availableServiceGroups.length ? availableServiceGroups.map(([category, categoryServices]) => {
-                        const allSelected = categoryServices.every((service) => form.service_ids.map(String).includes(String(service.id)));
+                        const allSelected = categoryServices.every((service) => selectionServiceIds.map(String).includes(String(service.id)));
                         return <section key={category}>
                           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-[#F0E3EA] pb-2"><h3 className="text-xs font-extrabold uppercase tracking-wide text-[#B94B86]">{category} <span className="font-semibold text-[#98A2B3]">({categoryServices.length})</span></h3><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs font-bold text-[#A83F78] hover:bg-[#FCE7F3]"><input type="checkbox" checked={allSelected} onChange={() => toggleCategory(categoryServices)} aria-label={`${allSelected ? "Deselect" : "Select"} all ${category} services`} className="h-4 w-4 accent-[#B94B86]" /><span>{allSelected ? "Deselect all" : "Select all"}</span></label></div>
                           <div className="grid gap-2 md:grid-cols-2">
                             {categoryServices.map((service) => {
-                              const selected = form.service_ids.map(String).includes(String(service.id));
+                              const selected = selectionServiceIds.map(String).includes(String(service.id));
                               return <label key={service.id} className={`flex min-h-28 cursor-pointer items-center gap-3 rounded-xl border p-2.5 transition ${selected ? "border-[#B94B86] bg-[#FCE7F3] ring-1 ring-[#B94B86]/20" : "border-[#F0E3EA] bg-white hover:border-[#E7B8CF]"}`}>
                                 <img src={service.image || service.image_url || "/images/services/signature-facial.jpg"} alt="" loading="lazy" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = "/images/services/signature-facial.jpg"; }} className="h-20 w-20 shrink-0 rounded-lg object-cover" />
                                 <span className="min-w-0 flex-1"><span className="block font-bold text-[#344054]">{service.name}</span><span className="mt-1 block line-clamp-2 text-xs text-[#667085]">{service.description || "Salon service"}</span><span className="mt-1 block text-xs font-semibold text-[#754463]">{service.duration_minutes || 0} min &middot; PHP {Number(service.price || 0).toLocaleString()}</span></span>
@@ -450,7 +532,7 @@ export default function CustomerBookAppointment() {
                         </section>;
                       }) : <p className="rounded-xl bg-white px-4 py-8 text-center text-sm text-[#667085]">{serviceSearch ? "No services match your search." : "No services are offered at this branch yet."}</p>}
                     </div>
-                    <p className="mt-3 text-right text-xs text-[#667085]">{isLoading ? "Loading services..." : `${form.service_ids.length} of 20 services selected`}</p>
+                    <p className="mt-3 text-right text-xs text-[#667085]">{isLoading ? "Loading services..." : `${selectionServiceIds.length} selected for ${bookingType === "group" ? activeMemberIndex === 0 ? "you" : groupMembers[activeMemberIndex - 1]?.name.trim() || `Member ${activeMemberIndex + 1}` : "this booking"}`}</p>
                   </div>
                 </Field>
               </div>
@@ -462,12 +544,13 @@ export default function CustomerBookAppointment() {
                   <ModernDatePicker value={form.appointment_date} min={today()} onChange={(value) => setForm((previous) => ({ ...previous, appointment_date: value, appointment_time: "" }))} placeholder="Choose a preferred date" ariaLabel="Choose preferred appointment date" />
                 </Field>
               </div>
+              {bookingType === "group" && <div className="mt-5 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-sm text-[#667085]">{groupCapacitySummary ? <><p>This group needs <strong className="text-[#344054]">{groupCapacitySummary.required_staff} staff at the busiest time</strong>. The branch has <strong className="text-[#344054]">{groupCapacitySummary.active_staff} active staff</strong>{groupCapacitySummary.required_staff > groupCapacitySummary.active_staff ? <span className="font-bold text-[#B42318]"> · at least {groupCapacitySummary.required_staff - groupCapacitySummary.active_staff} more qualified staff needed</span> : null}.</p>{Object.entries(groupCapacitySummary.required_resources || {}).map(([name, resource]) => <p key={name} className="mt-1">{name}: <strong className="text-[#344054]">{resource.required} needed</strong>{resource.capacity != null ? <> / {resource.capacity} available{resource.required > resource.capacity ? <span className="font-bold text-[#B42318]"> · add {resource.required - resource.capacity}</span> : null}</> : null}</p>)}<p className="mt-1 text-xs">Times are checked against staff and equipment capacity for every member’s services. Availability may change as bookings are made.</p></> : "Group schedules are checked against each member’s selected services, qualified staff, and equipment capacity."}</div>}
               <div className="mt-5">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-2 text-sm font-bold text-[#344054]"><HiOutlineClock className="h-5 w-5 text-[#B94B86]" />Preferred time</span>
                   {form.appointment_time && <span className="rounded-full bg-[#FCE7F3] px-3 py-1 text-xs font-extrabold text-[#A83F78]">Selected: {APPOINTMENT_SLOTS.find((slot) => slot.value === form.appointment_time)?.label}</span>}
                 </div>
-                <TimeSlotPicker date={form.appointment_date} value={form.appointment_time} slots={availableTimeSlots} loading={isLoadingAvailability} onChange={(value) => setForm((previous) => ({ ...previous, appointment_time: value }))} />
+                <TimeSlotPicker date={form.appointment_date} value={form.appointment_time} slots={availableTimeSlots} loading={isLoadingAvailability} onChange={(value) => setForm((previous) => ({ ...previous, appointment_time: value }))} bookingType={bookingType} />
               </div>
               <label className="mt-4 block text-sm font-bold text-[#344054]">Notes <span className="font-normal text-[#98A2B3]">(optional)</span>
                 <textarea value={form.notes} maxLength={255} onChange={(event) => setForm((previous) => ({ ...previous, notes: event.target.value }))} rows={3} placeholder="Share preferences or anything our team should know" className="form-input mt-2 resize-none" />
@@ -485,14 +568,14 @@ export default function CustomerBookAppointment() {
             {selectedService?.image && <img src={selectedService.image} alt="" className="h-36 w-full object-cover" />}
             <div className="p-5 sm:p-6">
               <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#B94B86]">Your request</p>
-              <h2 className="mt-2 text-xl font-extrabold text-[#202534]">{selectedServices.length ? `${selectedServices.length} service${selectedServices.length === 1 ? "" : "s"} selected` : "Choose services"}</h2>
-              <div className="mt-2 space-y-1 text-sm text-[#667085]">{selectedServices.map((service) => <p key={service.id}>{service.name}</p>)}</div>
+              <h2 className="mt-2 text-xl font-extrabold text-[#202534]">{bookingType === "group" ? `${groupMembers.length + 1} people · ${form.service_ids.length + groupMembers.reduce((sum, member) => sum + member.service_ids.length, 0)} services` : selectedServices.length ? `${selectedServices.length} service${selectedServices.length === 1 ? "" : "s"} selected` : "Choose services"}</h2>
+              <div className="mt-2 space-y-1 text-sm text-[#667085]">{bookingType === "group" ? <><p className="font-bold text-[#344054]">You (booker)</p>{form.service_ids.map((id, index) => <p key={`booker-${id}-${index}`} className="pl-2">{availableServices.find((service) => String(service.id) === String(id))?.name}</p>)}{groupMembers.map((member, memberIndex) => <div key={`member-${memberIndex}`} className="pt-2"><p className="font-bold text-[#344054]">{member.name.trim() || `Member ${memberIndex + 2}`}</p>{member.service_ids.map((id, index) => <p key={`${memberIndex}-${id}-${index}`} className="pl-2">{availableServices.find((service) => String(service.id) === String(id))?.name}</p>)}</div>)}</> : selectedServices.map((service) => <p key={service.id}>{service.name}</p>)}</div>
               <div className="mt-5 divide-y divide-[#F0E3EA] rounded-2xl border border-[#F0E3EA] bg-[#FFFBFD] px-4">
                 <SummaryRow icon={HiOutlineMapPin} label="Branch" value={selectedBranch?.name || "Not selected"} />
                 <SummaryRow icon={HiOutlineCalendarDays} label="Date" value={form.appointment_date || "Not selected"} />
                 <SummaryRow icon={HiOutlineClock} label="Time" value={APPOINTMENT_SLOTS.find((slot) => slot.value === form.appointment_time)?.label || "Not selected"} />
-                <SummaryRow icon={HiOutlineClock} label="Combined duration" value={selectedServices.length ? `${combinedDuration} minutes` : "-"} />
-                <SummaryRow icon={HiOutlineSparkles} label="Full payment due online" value={selectedServices.length ? `PHP ${combinedPrice.toLocaleString()}` : "-"} />
+                <SummaryRow icon={HiOutlineClock} label={bookingType === "group" ? "Longest guest visit" : "Combined duration"} value={allSelectedServiceIds.length ? `${combinedDuration} minutes` : "-"} />
+                <SummaryRow icon={HiOutlineSparkles} label="Full payment due online" value={allSelectedServiceIds.length ? `PHP ${combinedPrice.toLocaleString()}` : "-"} />
               </div>
               <div className="mt-4 rounded-xl border border-[#F0E3EA] bg-[#FFFBFD] p-3 text-xs leading-5 text-[#667085]"><strong className="text-[#344054]">Secure online payment required.</strong> Pay online with GCash or PayPal. GCash proof must be verified by staff before the booking is marked paid.</div>
               {selectedBranch?.address && <p className="mt-4 text-xs leading-5 text-[#667085]">{selectedBranch.address}</p>}
@@ -551,7 +634,7 @@ export default function CustomerBookAppointment() {
           <p id="confirm-booking-description" className="mt-2 text-center text-sm leading-6 text-[#667085]">Review your appointment and full amount due. The booking is confirmed after online payment.</p>
           <div className="mt-5 space-y-2 rounded-2xl border border-[#F0E3EA] bg-[#FFFBFD] p-4 text-sm">
             <p><span className="font-bold text-[#344054]">Branch:</span> <span className="text-[#667085]">{selectedBranch?.name || "Not selected"}</span></p>
-            <p><span className="font-bold text-[#344054]">Services:</span> <span className="text-[#667085]">{selectedServices.map((service) => service.name).join(", ") || "Not selected"}</span></p>
+            <p><span className="font-bold text-[#344054]">Services:</span> <span className="text-[#667085]">{bookingType === "group" ? [...form.service_ids.map((id) => ({ person: "You", id })), ...groupMembers.flatMap((member) => member.service_ids.map((id) => ({ person: member.name.trim() || "Member", id })))].map(({ person, id }) => `${person}: ${availableServices.find((service) => String(service.id) === String(id))?.name || "Service"}`).join("; ") || "Not selected" : selectedServices.map((service) => service.name).join(", ") || "Not selected"}</span></p>
             <p><span className="font-bold text-[#344054]">Date and time:</span> <span className="text-[#667085]">{form.appointment_date || "Not selected"} · {APPOINTMENT_SLOTS.find((slot) => slot.value === form.appointment_time)?.label || "Not selected"}</span></p>
             <p><span className="font-bold text-[#344054]">Estimated total:</span> <span className="text-[#667085]">PHP {combinedPrice.toLocaleString()}</span></p>
           </div>
@@ -596,7 +679,7 @@ function Field({ label, icon: Icon, children }) {
   return <div className="block text-sm font-bold text-[#344054]"><span className="mb-2 inline-flex items-center gap-2"><Icon className="h-5 w-5 text-[#B94B86]" />{label}</span>{children}</div>;
 }
 
-function TimeSlotPicker({ date, value, slots, loading, onChange }) {
+function TimeSlotPicker({ date, value, slots, loading, onChange, bookingType }) {
   if (!date) {
     return <div className="grid min-h-28 place-items-center rounded-2xl border border-dashed border-[#DDB8CB] bg-[#FFFAFC] px-5 py-6 text-center"><div><span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-[#FCE7F3]"><HiOutlineCalendarDays className="h-5 w-5 text-[#B94B86]" /></span><p className="mt-2 text-sm font-bold text-[#475467]">Choose a date first</p><p className="mt-1 text-xs text-[#98A2B3]">Available appointment times will appear here.</p></div></div>;
   }
@@ -606,7 +689,7 @@ function TimeSlotPicker({ date, value, slots, loading, onChange }) {
   }
 
   if (!slots.some((slot) => slot.available)) {
-    return <div className="rounded-2xl border border-[#F0E3EA] bg-[#FFFAFC] px-5 py-6 text-center"><p className="text-sm font-bold text-[#475467]">No times available for this date</p><p className="mt-1 text-xs text-[#98A2B3]">Please choose another day.</p></div>;
+    return <div className="rounded-2xl border border-[#F0E3EA] bg-[#FFFAFC] px-5 py-6 text-center"><p className="text-sm font-bold text-[#475467]">No times available for this date</p><p className="mt-1 text-xs text-[#98A2B3]">{bookingType === "group" ? "No slot can accommodate the selected group services. Try another date or adjust the services." : "Please choose another day."}</p></div>;
   }
 
   return <div aria-label="Available appointment times" className="space-y-4 rounded-2xl border border-[#F0E3EA] bg-white p-4 sm:p-5">
@@ -618,7 +701,8 @@ function TimeSlotPicker({ date, value, slots, loading, onChange }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {periodSlots.map((slot) => {
             const selected = value === slot.value;
-            return <button key={slot.value} type="button" disabled={!slot.available} aria-pressed={selected} title={slot.available ? (slot.assigned_services || []).map((item) => `${item.service_name}: ${item.duration_minutes} min with ${item.provider_name || "staff"}`).join("; ") : slot.reason || "Unavailable"} onClick={() => onChange(slot.value)} className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-bold transition focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15 ${selected ? "border-[#B94B86] bg-[#B94B86] text-white shadow-sm" : slot.available ? "border-[#E8C9D9] bg-[#FFFAFC] text-[#754463] hover:border-[#B94B86] hover:bg-[#FCE7F3]" : "cursor-not-allowed border-[#EEE7EB] bg-[#F7F5F6] text-[#B4ADB2] line-through"}`}>
+            const preliminaryAvailable = slot.available;
+            return <button key={slot.value} type="button" disabled={!preliminaryAvailable} aria-pressed={selected} title={slot.available ? (slot.assigned_services || []).map((item) => `${item.service_name}: ${item.duration_minutes} min with ${item.provider_name || "staff"}`).join("; ") : slot.reason || "Unavailable"} onClick={() => onChange(slot.value)} className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-bold transition focus:outline-none focus:ring-4 focus:ring-[#B94B86]/15 ${selected ? "border-[#B94B86] bg-[#B94B86] text-white shadow-sm" : preliminaryAvailable ? "border-[#E8C9D9] bg-[#FFFAFC] text-[#754463] hover:border-[#B94B86] hover:bg-[#FCE7F3]" : "cursor-not-allowed border-[#EEE7EB] bg-[#F7F5F6] text-[#B4ADB2] line-through"}`}>
               {slot.label}{!slot.available && <span className="ml-1 text-[10px] font-medium no-underline">{slot.is_full ? "Full" : "Unavailable"}</span>}
             </button>;
           })}

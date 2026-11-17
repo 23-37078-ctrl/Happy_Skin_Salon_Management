@@ -71,7 +71,7 @@ def test_lag_features_do_not_include_current_target():
     assert featured.iloc[29]["rolling_mean_7"] == pytest.approx(sum(range(22, 29)) / 7)
 
 
-def test_current_small_dataset_uses_non_negative_transparent_fallback(db):
+def test_current_small_dataset_withholds_forecast_until_ready(db):
     branch, service = seed_branch(db)
     db.add(Booking(customer_id=1, branch_id=branch.id, service_id=service.id, appointment_date=datetime.now(timezone.utc), status="completed"))
     db.commit()
@@ -79,10 +79,9 @@ def test_current_small_dataset_uses_non_negative_transparent_fallback(db):
     result = build_branch_forecast(db, branch.id)
 
     assert result["data_quality"] == "insufficient"
-    assert "fallback" in result["model"]
-    assert len(result["predictions"]) == 7
-    assert all(point["predicted_demand"] >= 0 for point in result["predictions"])
-    assert all("Manual staffing" not in point["recommendation"] or point["demand_level"] == "high" for point in result["predictions"])
+    assert "Insufficient history" in result["model"]
+    assert result["predictions"] == []
+    assert "no prediction" in result["limitation"]
 
 
 def test_training_refuses_insufficient_history(db):

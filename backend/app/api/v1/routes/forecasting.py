@@ -8,7 +8,7 @@ from app.models.branch import Branch
 from app.models.user import User
 from app.schemas.forecast import BranchForecastResponse, ModelAccuracyResponse, TrainingResponse
 from app.services.business_analytics_service import build_business_history
-from app.services.forecast_service import InsufficientForecastData, build_branch_forecast, train_forecast_model
+from app.services.forecast_service import InsufficientForecastData, build_branch_forecast, build_traffic_analysis, train_forecast_model
 
 
 router = APIRouter(prefix="/forecast", tags=["Forecasting"])
@@ -87,6 +87,20 @@ def get_branch_recommendations(
             for point in forecast["predictions"]
         ],
     }
+
+
+@router.get("/branches/{branch_id}/traffic-analysis")
+def get_traffic_analysis(
+    branch_id: int,
+    horizon_days: int = Query(default=84, ge=7, le=365),
+    current_user: User = Depends(require_role("owner", "manager")),
+    db: Session = Depends(get_db),
+):
+    _authorize_branch(current_user, branch_id)
+    try:
+        return build_traffic_analysis(db, branch_id=branch_id, horizon_days=horizon_days)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/accuracy", response_model=ModelAccuracyResponse)

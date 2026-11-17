@@ -3,15 +3,16 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import Date, cast, func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import Date, and_, cast, func, or_
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
 from app.crud.booking import get_booking_by_id, get_bookings_for_branch, update_booking_status
 from app.crud.transaction import create_transaction, get_transactions_for_branch
 from app.dependencies.permissions import require_manager_branch
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingServiceItem
+from app.models.booking_payment import BookingPayment
 from app.models.branch import Branch
 from app.models.feedback import Feedback
 from app.models.service import Service
@@ -19,7 +20,7 @@ from app.models.transaction import Transaction
 from app.models.day_closure import DayClosure
 from app.models.user import User
 from app.models.promotion import Promotion
-from app.schemas.booking import BookingListResponse, BookingOut, BookingRescheduleRequest, BookingStatusUpdateRequest
+from app.schemas.booking import BookingListResponse, BookingOut, BookingRescheduleRequest, BookingStatusUpdateRequest, BookingServiceItemStatusRequest, BookingServiceProviderUpdateRequest
 from app.services.booking_scheduling import validate_booking_schedule, lock_branch_schedule
 from app.schemas.transaction import TransactionListResponse, TransactionOut
 from app.schemas.user import PasswordUpdateRequest, ProfileUpdateRequest, UserOut
@@ -29,6 +30,12 @@ router = APIRouter(prefix="/manager", tags=["Manager"])
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
 BUSINESS_OPEN_TIME = time(8, 30)
 AUTOMATIC_CUTOFF_TIME = time(5, 0)
+
+
+def _booking_out_with_payment(db: Session, booking: Booking) -> BookingOut:
+    result = BookingOut.model_validate(booking)
+    payment_status = db.query(BookingPayment.status).filter(BookingPayment.booking_id == booking.id).scalar()
+    return result.model_copy(update={"payment_status": payment_status})
 
 
 def _manager_business_date() -> date:
@@ -270,12 +277,25 @@ def list_manager_bookings(
         page_size=page_size,
         status_filter=status_filter,
     )
+    payment_status_by_booking = {
+        booking_id: payment_status
+        for booking_id, payment_status in db.query(BookingPayment.booking_id, BookingPayment.status)
+        .filter(BookingPayment.booking_id.in_([booking.id for booking in bookings]))
+        .all()
+    } if bookings else {}
     return BookingListResponse(
-        bookings=[BookingOut.model_validate(booking) for booking in bookings],
+        bookings=[BookingOut.model_validate(booking).model_copy(update={"payment_status": payment_status_by_booking.get(booking.id)}) for booking in bookings],
         total=total,
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/booking-providers")
+def list_manager_booking_providers(current_user: User = Depends(require_manager_branch), db: Session = Depends(get_db)):
+    staff = db.query(User).filter(User.role == "staff", User.branch_id == current_user.branch_id,
+                                  User.is_active.is_(True), User.job_title.isnot(None)).order_by(User.full_name).all()
+    return [{"id": item.id, "full_name": item.full_name, "job_title": item.job_title or "Salon Specialist"} for item in staff]
 
 
 @router.get("/dashboard/performance")
@@ -297,10 +317,15 @@ def get_manager_dashboard_performance(
     staff_commission = float(db.query(func.coalesce(func.sum(Transaction.commission_amount), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
     average_rating = float(db.query(func.avg(Feedback.branch_rating)).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Feedback.branch_rating.isnot(None)).scalar() or 0)
 
-    service_rows = db.query(Service.name, func.count(Booking.id).label("bookings")).join(Booking, Booking.service_id == Service.id).filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end).group_by(Service.name).order_by(func.count(Booking.id).desc()).limit(5).all()
+    service_rows = db.query(Service.name, func.count(BookingServiceItem.id).label("bookings")).join(BookingServiceItem, BookingServiceItem.service_id == Service.id).join(Booking, Booking.id == BookingServiceItem.booking_id).filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end, BookingServiceItem.status != "cancelled").group_by(Service.name).order_by(func.count(BookingServiceItem.id).desc()).limit(5).all()
 
-    transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
-    transaction_metrics = {row.provider_id: row for row in transaction_rows}
+    transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch_id, Booking.group_reference.is_(None), Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
+    transaction_metrics = {row.provider_id: {"services": int(row.services), "revenue": float(row.revenue or 0), "commission": float(row.commission or 0)} for row in transaction_rows}
+    group_service_rows = db.query(BookingServiceItem.service_provider_id.label("provider_id"), func.count(BookingServiceItem.id).label("services"), func.coalesce(func.sum(func.coalesce(BookingServiceItem.service_price, Service.price)), 0).label("revenue")).join(Booking, Booking.id == BookingServiceItem.booking_id).join(Service, Service.id == BookingServiceItem.service_id).filter(Booking.branch_id == branch_id, Booking.group_reference.isnot(None), Booking.appointment_date >= start, Booking.appointment_date < end, BookingServiceItem.status == "completed", BookingServiceItem.service_provider_id.isnot(None)).group_by(BookingServiceItem.service_provider_id).all()
+    for row in group_service_rows:
+        metrics = transaction_metrics.setdefault(row.provider_id, {"services": 0, "revenue": 0.0, "commission": 0.0})
+        metrics["services"] += int(row.services)
+        metrics["revenue"] += float(row.revenue or 0)
 
     # Ratings are a staff score across all recorded feedback, independent of
     # the selected bookings/revenue period. This keeps it meaningful in
@@ -319,16 +344,16 @@ def get_manager_dashboard_performance(
     staff_members = db.query(User).filter(User.role == "staff", User.branch_id == branch_id, User.is_active.is_(True), User.job_title.isnot(None)).all()
     staff_performance = []
     for staff in staff_members:
-        transaction = transaction_metrics.get(staff.id)
+        transaction = transaction_metrics.get(staff.id, {"services": 0, "revenue": 0, "commission": 0})
         rating = rating_metrics.get(staff.id)
         retention = repeat_metrics.get(staff.id, {"clients": 0, "repeat_clients": 0})
         staff_performance.append({
             "staff_id": staff.id,
             "full_name": staff.full_name,
             "job_title": staff.job_title or "Salon Specialist",
-            "services_completed": int(transaction.services if transaction else 0),
-            "revenue": float(transaction.revenue if transaction else 0),
-            "commission": float(transaction.commission if transaction else 0),
+            "services_completed": transaction["services"],
+            "revenue": transaction["revenue"],
+            "commission": transaction["commission"],
             "average_rating": round(float(rating.average or 0), 1) if rating else 0,
             "rating_count": int(rating.count if rating else 0),
             "repeat_clients": retention["repeat_clients"],
@@ -363,6 +388,17 @@ def update_manager_booking_status(
     booking = get_booking_by_id(db, booking_id, branch_id=current_user.branch_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found for your branch.")
+
+    if booking.group_reference:
+        if payload.status in {"completed", "cancelled"}:
+            if payload.status == "completed":
+                raise HTTPException(status_code=409, detail="Complete each group service assignment individually to avoid recording a duplicate sale.")
+            raise HTTPException(status_code=409, detail="Cancel individual group service assignments from the group details.")
+        booking.status = payload.status
+        booking.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(booking)
+        return BookingOut.model_validate(booking)
 
     if payload.status == "completed":
         existing_transaction = (
@@ -402,7 +438,7 @@ def reschedule_manager_booking(
     services = [item.service for item in booking.service_items] or [booking.service]
     provider_ids = validate_booking_schedule(
         db, booking.branch_id, payload.appointment_date, services, online=True,
-        requested_provider_ids={item.service_id: item.service_provider_id for item in booking.service_items if item.service_provider_id},
+        requested_provider_ids=[item.service_provider_id for item in booking.service_items],
         exclude_booking_id=booking.id,
     )
 
@@ -412,7 +448,80 @@ def reschedule_manager_booking(
     booking.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(booking)
-    return BookingOut.model_validate(booking)
+    return _booking_out_with_payment(db, booking)
+
+
+@router.patch("/bookings/{booking_id}/service-items/{service_item_id}/status")
+def update_manager_group_service_status(
+    booking_id: int,
+    service_item_id: int,
+    payload: BookingServiceItemStatusRequest,
+    current_user: User = Depends(require_manager_branch),
+    db: Session = Depends(get_db),
+):
+    booking = db.query(Booking).options(joinedload(Booking.service), selectinload(Booking.service_items)).filter(
+        Booking.id == booking_id, Booking.branch_id == current_user.branch_id,
+    ).first()
+    if not booking or not booking.group_reference:
+        raise HTTPException(status_code=404, detail="Group booking not found for your branch.")
+    if booking.status not in {"confirmed", "treatment_done"}:
+        raise HTTPException(status_code=409, detail="Group service statuses can only be changed after the booking is confirmed.")
+    item = next((service_item for service_item in booking.service_items if service_item.id == service_item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Service assignment was not found in this group.")
+    if item.status == "cancelled":
+        raise HTTPException(status_code=409, detail="This service assignment was already cancelled.")
+    if item.status == "completed":
+        raise HTTPException(status_code=409, detail="This service assignment is already completed.")
+    item.status = payload.status
+    active_items = [service_item for service_item in booking.service_items if service_item.status != "cancelled"]
+    if active_items and all(service_item.status == "completed" for service_item in active_items):
+        booking.status = "completed"
+    elif not active_items:
+        booking.status = "cancelled"
+    else:
+        booking.status = "confirmed"
+    db.commit()
+    return {"booking_id": booking.id, "booking_status": booking.status,
+            "service_item_id": item.id, "service_status": item.status}
+
+
+@router.patch("/bookings/{booking_id}/service-items/{service_item_id}/provider")
+def update_manager_group_service_provider(
+    booking_id: int,
+    service_item_id: int,
+    payload: BookingServiceProviderUpdateRequest,
+    current_user: User = Depends(require_manager_branch),
+    db: Session = Depends(get_db),
+):
+    booking = db.query(Booking).options(selectinload(Booking.service_items).joinedload(BookingServiceItem.service)).filter(
+        Booking.id == booking_id, Booking.branch_id == current_user.branch_id,
+    ).first()
+    if not booking or not booking.group_reference:
+        raise HTTPException(status_code=404, detail="Group booking not found for your branch.")
+    if booking.status != "confirmed":
+        raise HTTPException(status_code=409, detail="Group staff can only be reassigned after confirmation and before completion.")
+    target = next((item for item in booking.service_items if item.id == service_item_id), None)
+    if not target or target.status in {"completed", "cancelled"}:
+        raise HTTPException(status_code=404, detail="Active service assignment was not found in this group.")
+    if not lock_branch_schedule(db, booking.branch_id):
+        raise HTTPException(status_code=404, detail="Branch is not available.")
+    provider = db.query(User).filter(User.id == payload.service_provider_id, User.role == "staff",
+        User.branch_id == booking.branch_id, User.is_active.is_(True), User.job_title.isnot(None)).first()
+    if not provider:
+        raise HTTPException(status_code=400, detail="Choose an active staff member from this branch.")
+    target_start = target.appointment_start or booking.appointment_date
+    target_end = target.appointment_end or target_start + timedelta(minutes=max(1, int(target.service_duration_minutes or target.service.duration_minutes or 0)))
+    for item in booking.service_items:
+        if item.id == target.id or item.status in {"completed", "cancelled"} or item.service_provider_id != provider.id:
+            continue
+        other_start = item.appointment_start or booking.appointment_date
+        other_end = item.appointment_end or other_start + timedelta(minutes=max(1, int(item.service_duration_minutes or item.service.duration_minutes or 0)))
+        if other_start < target_end and other_end > target_start:
+            raise HTTPException(status_code=409, detail="This staff member already has an overlapping service in the group.")
+    target.service_provider_id = provider.id
+    db.commit()
+    return {"booking_id": booking.id, "service_item_id": target.id, "service_provider_id": target.service_provider_id}
 
 
 @router.get("/transactions", response_model=TransactionListResponse)
@@ -458,9 +567,9 @@ def get_manager_reports(
         Booking.appointment_date < end,
     )
     if staff_id:
-        bookings_query = bookings_query.filter(Booking.service_provider_id == staff_id)
+        bookings_query = bookings_query.filter(or_(Booking.service_provider_id == staff_id, Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id)))
     if service_id:
-        bookings_query = bookings_query.filter(Booking.service_id == service_id)
+        bookings_query = bookings_query.filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)))
     if appointment_status:
         bookings_query = bookings_query.filter(Booking.status == appointment_status)
     if booking_type in {"online", "walk_in"}:
@@ -475,9 +584,9 @@ def get_manager_reports(
         .filter(Booking.branch_id == branch_id, Transaction.created_at >= start, Transaction.created_at < end)
     )
     if staff_id:
-        transaction_query = transaction_query.filter(Transaction.service_provider_id == staff_id)
+        transaction_query = transaction_query.filter(or_(Transaction.service_provider_id == staff_id, and_(Booking.group_reference.isnot(None), Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id))))
     if service_id:
-        transaction_query = transaction_query.filter(Booking.service_id == service_id)
+        transaction_query = transaction_query.filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)))
     if payment_method:
         transaction_query = transaction_query.filter(Transaction.payment_method == payment_method)
 
@@ -485,18 +594,23 @@ def get_manager_reports(
         Transaction.booking_id.label("booking_id"),
         func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)).label("sales"),
     ).group_by(Transaction.booking_id).subquery()
+    assignment_price = func.coalesce(BookingServiceItem.service_price, Service.price)
+    assignment_totals = db.query(BookingServiceItem.booking_id.label("booking_id"), func.sum(assignment_price).label("total_price")).join(Service, Service.id == BookingServiceItem.service_id).filter(BookingServiceItem.status != "cancelled").group_by(BookingServiceItem.booking_id).subquery()
     service_rows = (
-        db.query(Service.name, func.count(func.distinct(Booking.id)).label("bookings"), func.coalesce(func.sum(filtered_transaction_totals.c.sales), 0).label("sales"))
-        .join(Booking, Booking.service_id == Service.id)
+        db.query(Service.name, func.count(BookingServiceItem.id).label("bookings"), func.coalesce(func.sum(func.coalesce(filtered_transaction_totals.c.sales, 0) * func.coalesce(BookingServiceItem.service_price, Service.price) / func.nullif(assignment_totals.c.total_price, 0)), 0).label("sales"))
+        .join(BookingServiceItem, BookingServiceItem.service_id == Service.id)
+        .join(Booking, Booking.id == BookingServiceItem.booking_id)
+        .outerjoin(assignment_totals, assignment_totals.c.booking_id == Booking.id)
         .outerjoin(filtered_transaction_totals, filtered_transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.branch_id == branch_id, Booking.appointment_date >= start, Booking.appointment_date < end)
-        .filter(Booking.service_provider_id == staff_id if staff_id else True)
-        .filter(Booking.service_id == service_id if service_id else True)
+        .filter(or_(Booking.service_provider_id == staff_id, Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id)) if staff_id else True)
+        .filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)) if service_id else True)
         .filter(Booking.status == appointment_status if appointment_status else True)
         .filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else (~Booking.notes.like("Walk-in%") if booking_type == "online" else True))
         .filter(Booking.customer_id.is_(None) if booking_type == "guest" else (Booking.customer_id.isnot(None) if booking_type == "registered" else True))
         .group_by(Service.name)
-        .order_by(func.count(func.distinct(Booking.id)).desc())
+        .filter(BookingServiceItem.status != "cancelled")
+        .order_by(func.count(BookingServiceItem.id).desc())
         .all()
     )
 

@@ -67,6 +67,11 @@ export async function getBookingAvailability(branchId, serviceId, bookingDate, s
   return data;
 }
 
+export async function getGroupBookingAvailability(payload, signal) {
+  const { data } = await api.post("/customer/group-availability", payload, { signal });
+  return data;
+}
+
 export async function getGuestBookingAvailability(branchId, serviceId, bookingDate, signal, serviceIds = []) {
   const { data } = await api.get("/customer/guest/availability", {
     params: { branch_id: branchId, service_id: serviceId, service_ids: serviceIds, booking_date: bookingDate },
@@ -77,12 +82,17 @@ export async function getGuestBookingAvailability(branchId, serviceId, bookingDa
 }
 
 export async function createAppointment(payload) {
-  const { data } = await api.post("/customer/appointments", payload);
+  const { data } = await api.post("/customer/appointments", payload, { timeout: 45000 });
+  return data;
+}
+
+export async function createGroupAppointment(payload) {
+  const { data } = await api.post("/customer/group-appointments", payload, { timeout: 45000 });
   return data;
 }
 
 export async function createGuestAppointment(payload) {
-  const { data } = await api.post("/customer/guest/appointments", payload);
+  const { data } = await api.post("/customer/guest/appointments", payload, { timeout: 45000 });
   return data;
 }
 

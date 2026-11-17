@@ -40,9 +40,9 @@ class ForecastReadiness(BaseModel):
 class BranchForecastResponse(BaseModel):
     branch_id: int
     branch_name: str
-    forecast_period: str
+    forecast_period: str | None = None
     horizon_days: int
-    model: str
+    model: str | None = None
     model_version: str | None = None
     generated_at: datetime
     data_quality: str

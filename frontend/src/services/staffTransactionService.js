@@ -73,8 +73,20 @@ export const staffTransactionService = {
     const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/treatment-done`);
     return response.data;
   },
+  updateGroupServiceStatus: async (bookingId, serviceItemId, status) => {
+    const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/service-items/${serviceItemId}/status`, { status });
+    return response.data;
+  },
+  updateGroupServiceProvider: async (bookingId, serviceItemId, serviceProviderId) => {
+    const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/service-items/${serviceItemId}/provider`, { service_provider_id: Number(serviceProviderId) });
+    return response.data;
+  },
   checkInOnlineBooking: async (bookingId) => {
     const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/check-in`);
+    return response.data;
+  },
+  rescheduleOnlineBooking: async (bookingId, appointmentDate) => {
+    const response = await api.patch(`/staff/transactions/online-bookings/${bookingId}/reschedule`, { appointment_date: appointmentDate });
     return response.data;
   },
   cancelOnlineBooking: async (bookingId, payload) => {

@@ -32,7 +32,7 @@ from app.schemas.transaction import (
     WalkInBookingRequest,
     WalkInCheckoutRequest,
 )
-from app.schemas.booking import BookingCancellationRequest
+from app.schemas.booking import BookingCancellationRequest, BookingRescheduleRequest, BookingServiceItemStatusRequest, BookingServiceProviderUpdateRequest
 from app.services.sms_service import send_appointment_confirmed_sms, send_booking_confirmation_sms
 from app.services.booking_lifecycle_service import cancel_overdue_bookings
 from app.services.booking_scheduling import validate_booking_schedule, lock_branch_schedule
@@ -40,15 +40,6 @@ from app.services.booking_scheduling import validate_booking_schedule, lock_bran
 router = APIRouter(prefix="/staff/transactions", tags=["Staff - Transactions"])
 logger = logging.getLogger(__name__)
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
-
-
-def _require_appointment_day(booking: Booking) -> None:
-    appointment = booking.appointment_date
-    if appointment.tzinfo is None:
-        appointment = appointment.replace(tzinfo=timezone.utc)
-    appointment_day = appointment.astimezone(BUSINESS_TIMEZONE).date()
-    if appointment_day != datetime.now(BUSINESS_TIMEZONE).date():
-        raise HTTPException(status_code=409, detail="This booking is read-only until its scheduled appointment date.")
 
 
 def _send_booking_sms(booking: Booking, sender, label: str) -> None:
@@ -256,8 +247,8 @@ def _serialize_walk_in_booking(booking: Booking) -> dict:
             "email": booking.customer.email if booking.customer else booking.guest_email,
             "phone_number": booking.customer.phone_number if booking.customer else booking.guest_phone,
         },
-        "service": {"id": booking.service.id, "name": ", ".join(service.name for service in services), "price": sum(float(service.price) for service in services), "duration_minutes": sum(service.duration_minutes or 0 for service in services)},
-        "services": [{"id": item.service.id, "booking_service_item_id": item.id, "name": item.service.name, "price": item.service.price, "duration_minutes": item.service.duration_minutes, "service_provider": {"id": item.service_provider.id, "full_name": item.service_provider.full_name} if item.service_provider else None} for item in items] or [{"id": booking.service.id, "booking_service_item_id": None, "name": booking.service.name, "price": booking.service.price, "duration_minutes": booking.service.duration_minutes, "service_provider": None}],
+        "service": {"id": booking.service.id, "name": ", ".join(service.name for service in services), "price": sum(float(item.service_price if item.service_price is not None else item.service.price) for item in items) if items else float(booking.service.price), "duration_minutes": sum(service.duration_minutes or 0 for service in services)},
+        "services": [{"id": item.service.id, "booking_service_item_id": item.id, "name": item.service.name, "price": float(item.service_price if item.service_price is not None else item.service.price), "duration_minutes": item.service.duration_minutes, "member_id": item.member_id, "member_name": item.member.member_name if item.member else None, "member_is_booker": item.member.is_booker if item.member else False, "appointment_start": item.appointment_start, "appointment_end": item.appointment_end, "status": item.status, "service_provider": {"id": item.service_provider.id, "full_name": item.service_provider.full_name} if item.service_provider else None} for item in items] or [{"id": booking.service.id, "booking_service_item_id": None, "name": booking.service.name, "price": booking.service.price, "duration_minutes": booking.service.duration_minutes, "service_provider": None}],
         "service_provider": {
             "id": booking.service_provider.id,
             "full_name": booking.service_provider.full_name,
@@ -268,6 +259,8 @@ def _serialize_walk_in_booking(booking: Booking) -> dict:
         "status": booking.status,
         "notes": booking.notes,
         "updated_at": booking.updated_at,
+        "group_reference": booking.group_reference,
+        "group_members": [{"id": member.id, "member_name": member.member_name, "contact_number": member.contact_number, "is_booker": member.is_booker} for member in booking.group_members],
     }
 
 
@@ -279,7 +272,7 @@ def list_unpaid_walk_in_bookings(
     _cancel_online_no_shows(db, current_user.branch_id)
     bookings = (
         db.query(Booking)
-        .options(joinedload(Booking.customer), joinedload(Booking.service), joinedload(Booking.service_provider))
+        .options(joinedload(Booking.customer), joinedload(Booking.service), joinedload(Booking.service_provider), selectinload(Booking.service_items).joinedload(BookingServiceItem.service), selectinload(Booking.service_items).joinedload(BookingServiceItem.service_provider), selectinload(Booking.service_items).joinedload(BookingServiceItem.member), selectinload(Booking.group_members))
         .filter(
             Booking.branch_id == current_user.branch_id,
             Booking.notes.like("Walk-in booking%"),
@@ -406,7 +399,7 @@ def list_online_bookings(
         .filter(
             Booking.branch_id == current_user.branch_id,
             or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
-            Booking.status.in_(["pending", "confirmed", "treatment_done"]),
+            Booking.status.in_(["pending", "confirmed"]),
             BookingPayment.status == "paid",
         )
         .order_by(Booking.created_at.asc(), Booking.id.asc())
@@ -457,7 +450,6 @@ def check_in_online_booking(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Active online booking not found.")
-    _require_appointment_day(booking)
     _require_online_booking_paid(db, booking)
     if booking.checked_in_at is None:
         appointment_time = booking.appointment_date
@@ -474,14 +466,70 @@ def check_in_online_booking(
     db.commit()
     return {"id": booking.id, "checked_in_at": booking.checked_in_at}
 
+
+@router.patch("/online-bookings/{booking_id}/reschedule")
+def reschedule_online_booking(
+    booking_id: int,
+    payload: BookingRescheduleRequest,
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    if not lock_branch_schedule(db, current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Branch is not available.")
+    booking = (
+        db.query(Booking)
+        .options(joinedload(Booking.service), selectinload(Booking.service_items).joinedload(BookingServiceItem.service))
+        .filter(
+            Booking.id == booking_id,
+            Booking.branch_id == current_user.branch_id,
+            or_(Booking.notes.is_(None), ~Booking.notes.like("Walk-in booking%")),
+            Booking.status.in_(["pending", "confirmed"]),
+        )
+        .with_for_update()
+        .first()
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Active online booking not found for your branch.")
+    if booking.checked_in_at:
+        raise HTTPException(status_code=409, detail="A checked-in booking cannot be rescheduled.")
+    payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).with_for_update().first()
+    if not payment or payment.status != "paid":
+        raise HTTPException(status_code=409, detail="Only fully paid bookings can be rescheduled here.")
+
+    service_items = [item for item in booking.service_items if item.status not in {"completed", "cancelled"}]
+    services = [item.service for item in service_items] or [booking.service]
+    provider_ids = validate_booking_schedule(
+        db,
+        booking.branch_id,
+        payload.appointment_date,
+        services,
+        online=True,
+        requested_provider_ids=[item.service_provider_id for item in service_items] if service_items else [booking.service_provider_id],
+        exclude_booking_id=booking.id,
+    )
+    booking.appointment_date = payload.appointment_date
+    for item, provider_id in zip(service_items, provider_ids):
+        item.service_provider_id = provider_id
+    booking.updated_at = datetime.utcnow()
+    db.commit()
+    return {
+        "id": booking.id,
+        "appointment_date": booking.appointment_date,
+        "status": booking.status,
+        "payment_status": payment.status,
+        "payment_method": payment.payment_method or payment.provider,
+        "non_refundable": True,
+    }
+
 @router.patch("/online-bookings/{booking_id}/cancel")
 def cancel_online_booking(booking_id: int, payload: BookingCancellationRequest, current_user: User = Depends(require_staff_branch), db: Session = Depends(get_db)):
     booking = db.query(Booking).filter(Booking.id == booking_id, Booking.branch_id == current_user.branch_id).with_for_update().first()
     if not booking:
         raise HTTPException(status_code=404, detail="Appointment not found.")
-    _require_appointment_day(booking)
     if booking.status in {"cancelled", "completed", "treatment_done"}:
         raise HTTPException(status_code=400, detail="This appointment cannot be cancelled.")
+    if booking.group_reference:
+        raise HTTPException(status_code=409, detail="Cancel individual group service assignments from the group details.")
     payment = db.query(BookingPayment).filter(BookingPayment.booking_id == booking.id).with_for_update().first()
     if payment and payment.status == "creating":
         raise HTTPException(status_code=409, detail="The secure checkout is still being prepared. Try cancelling again in a moment.")
@@ -509,7 +557,6 @@ def confirm_online_booking(
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Pending online booking not found.")
-    _require_appointment_day(booking)
     _require_online_booking_paid(db, booking)
     provider = db.query(User).filter(
         User.id == payload.service_provider_id,
@@ -522,11 +569,38 @@ def confirm_online_booking(
         raise HTTPException(status_code=400, detail="Select an active service provider from your branch.")
     if not lock_branch_schedule(db, current_user.branch_id):
         raise HTTPException(status_code=404, detail="Branch is not available.")
+    if booking.group_reference:
+        requested_provider_ids = [payload.service_provider_ids.get(item.id, payload.service_provider_id) for item in booking.service_items]
+        provider_intervals = {}
+        for item, requested_id in zip(booking.service_items, requested_provider_ids):
+            if item.status == "cancelled":
+                continue
+            requested_provider = db.query(User).filter(User.id == requested_id, User.role == "staff",
+                User.branch_id == current_user.branch_id, User.is_active.is_(True), User.job_title.isnot(None)).first()
+            if not requested_provider:
+                raise HTTPException(status_code=400, detail="Choose an active staff member for every group service.")
+            interval_start = item.appointment_start or booking.appointment_date
+            interval_end = item.appointment_end or interval_start + timedelta(minutes=max(1, int(item.service_duration_minutes or item.service.duration_minutes or 0)))
+            if any(existing_start < interval_end and existing_end > interval_start for existing_start, existing_end in provider_intervals.get(requested_id, [])):
+                raise HTTPException(status_code=409, detail="The same staff member cannot handle overlapping group services.")
+            provider_intervals.setdefault(requested_id, []).append((interval_start, interval_end))
+            item.service_provider_id = requested_id
+            item.status = "confirmed"
+        if item.appointment_start and item.appointment_end:
+            validate_booking_schedule(db, booking.branch_id, item.appointment_start, [item.service], online=False,
+                requested_provider_ids=[requested_id], exclude_booking_id=booking.id)
+        booking.service_provider_id = booking.service_items[0].service_provider_id if booking.service_items else provider.id
+        booking.status = "confirmed"
+        db.commit()
+        _send_booking_sms(booking, send_appointment_confirmed_sms, "appointment confirmation")
+        return {"id": booking.id, "status": booking.status}
     services = [item.service for item in booking.service_items] or [booking.service]
-    requested_ids = {item.service_id: payload.service_provider_ids.get(item.id, payload.service_provider_id) for item in booking.service_items}
+    requested_ids = [payload.service_provider_ids.get(item.id, payload.service_provider_id) for item in booking.service_items]
     assigned_ids = validate_booking_schedule(db, booking.branch_id, booking.appointment_date, services, online=False, requested_provider_ids=requested_ids, exclude_booking_id=booking.id)
     for item, assigned_id in zip(booking.service_items, assigned_ids):
         item.service_provider_id = assigned_id
+        if item.status != "cancelled":
+            item.status = "confirmed"
     booking.service_provider_id = assigned_ids[0] if assigned_ids else provider.id
     booking.status = "confirmed"
     db.commit()
@@ -540,18 +614,93 @@ def mark_online_treatment_done(
     current_user: User = Depends(require_staff_branch),
     db: Session = Depends(get_db),
 ):
-    booking = db.query(Booking).filter(
+    booking = db.query(Booking).options(selectinload(Booking.service_items)).filter(
         Booking.id == booking_id,
         Booking.branch_id == current_user.branch_id,
         Booking.status == "confirmed",
     ).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Confirmed online booking not found.")
-    _require_appointment_day(booking)
     _require_online_booking_paid(db, booking)
+    if booking.group_reference:
+        raise HTTPException(status_code=409, detail="Update each group service assignment individually.")
     booking.status = "treatment_done"
+    for service_item in booking.service_items:
+        if service_item.status != "cancelled":
+            service_item.status = "completed"
     db.commit()
     return {"id": booking.id, "status": booking.status}
+
+
+@router.patch("/online-bookings/{booking_id}/service-items/{service_item_id}/status")
+def update_group_service_status(
+    booking_id: int,
+    service_item_id: int,
+    payload: BookingServiceItemStatusRequest,
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    booking = db.query(Booking).options(selectinload(Booking.service_items)).filter(
+        Booking.id == booking_id, Booking.branch_id == current_user.branch_id,
+    ).first()
+    if not booking or not booking.group_reference:
+        raise HTTPException(status_code=404, detail="Group booking not found.")
+    if booking.status != "confirmed":
+        raise HTTPException(status_code=409, detail="Group services can only be updated after the booking is confirmed.")
+    service_item = next((item for item in booking.service_items if item.id == service_item_id), None)
+    if not service_item:
+        raise HTTPException(status_code=404, detail="Service assignment not found in this group.")
+    if service_item.status == "completed":
+        raise HTTPException(status_code=409, detail="This service assignment is already completed.")
+    if service_item.status == "cancelled":
+        raise HTTPException(status_code=409, detail="This service assignment was already cancelled.")
+    service_item.status = payload.status
+    active_items = [item for item in booking.service_items if item.status != "cancelled"]
+    if active_items and all(item.status == "completed" for item in active_items):
+        booking.status = "completed"
+    elif not active_items:
+        booking.status = "cancelled"
+    db.commit()
+    return {"booking_id": booking.id, "booking_status": booking.status,
+            "service_item_id": service_item.id, "service_status": service_item.status}
+
+
+@router.patch("/online-bookings/{booking_id}/service-items/{service_item_id}/provider")
+def update_group_service_provider(
+    booking_id: int,
+    service_item_id: int,
+    payload: BookingServiceProviderUpdateRequest,
+    current_user: User = Depends(require_staff_branch),
+    db: Session = Depends(get_db),
+):
+    booking = db.query(Booking).options(selectinload(Booking.service_items).joinedload(BookingServiceItem.service)).filter(
+        Booking.id == booking_id, Booking.branch_id == current_user.branch_id,
+    ).first()
+    if not booking or not booking.group_reference:
+        raise HTTPException(status_code=404, detail="Group booking not found.")
+    if booking.status != "confirmed":
+        raise HTTPException(status_code=409, detail="Group staff can only be reassigned after confirmation and before completion.")
+    target = next((item for item in booking.service_items if item.id == service_item_id), None)
+    if not target or target.status in {"completed", "cancelled"}:
+        raise HTTPException(status_code=404, detail="Active service assignment was not found in this group.")
+    if not lock_branch_schedule(db, booking.branch_id):
+        raise HTTPException(status_code=404, detail="Branch is not available.")
+    provider = db.query(User).filter(User.id == payload.service_provider_id, User.role == "staff",
+        User.branch_id == booking.branch_id, User.is_active.is_(True), User.job_title.isnot(None)).first()
+    if not provider:
+        raise HTTPException(status_code=400, detail="Choose an active staff member from this branch.")
+    target_start = target.appointment_start or booking.appointment_date
+    target_end = target.appointment_end or target_start + timedelta(minutes=max(1, int(target.service_duration_minutes or target.service.duration_minutes or 0)))
+    for item in booking.service_items:
+        if item.id == target.id or item.status in {"completed", "cancelled"} or item.service_provider_id != provider.id:
+            continue
+        other_start = item.appointment_start or booking.appointment_date
+        other_end = item.appointment_end or other_start + timedelta(minutes=max(1, int(item.service_duration_minutes or item.service.duration_minutes or 0)))
+        if other_start < target_end and other_end > target_start:
+            raise HTTPException(status_code=409, detail="This staff member already has an overlapping service in the group.")
+    target.service_provider_id = provider.id
+    db.commit()
+    return {"booking_id": booking.id, "service_item_id": target.id, "service_provider_id": target.service_provider_id}
 
 
 @router.post("/pos/walk-in", status_code=status.HTTP_201_CREATED)
@@ -653,8 +802,8 @@ def encode_transaction(
     booking = get_booking_by_id(db, payload.booking_id, branch_id=current_user.branch_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found for your branch.")
-    _require_appointment_day(booking)
-
+    if booking.group_reference:
+        raise HTTPException(status_code=409, detail="This group already has a single payment for all assigned services; do not record a second sale.")
     if booking.status == "cancelled":
         raise HTTPException(
             status_code=400,
@@ -682,7 +831,8 @@ def encode_transaction(
             raise HTTPException(status_code=400, detail="Every additional charge needs a reason and an amount greater than zero.")
         charge_items.append({"reason": reason, "amount": amount})
     booking_services = [item.service for item in booking.service_items] or [booking.service]
-    base_price = sum(float(service.price) for service in booking_services)
+    base_price = sum(float(item.service_price if item.service_price is not None else item.service.price)
+                     for item in booking.service_items if item.service) if booking.service_items else sum(float(service.price) for service in booking_services)
     additional_charge = sum(item["amount"] for item in charge_items)
     charge_reason = "; ".join(f'{item["reason"]}: PHP {item["amount"]:,.2f}' for item in charge_items) or None
     commission_amount = round(float(payload.commission_amount or 0), 2)
@@ -826,6 +976,8 @@ def get_day_end_summary(
         else:
             online_count += 1
         provider = transaction.service_provider
+        if transaction.booking.group_reference:
+            continue
         provider_id = provider.id if provider else 0
         row = provider_totals.setdefault(provider_id, {"name": provider.full_name if provider else "Unassigned", "services": 0, "commission": 0.0})
         row["services"] += 1
@@ -922,9 +1074,9 @@ def get_staff_period_report(
         .filter(Booking.branch_id == current_user.branch_id, Transaction.created_at >= start, Transaction.created_at < end)
     )
     if staff_id:
-        transaction_query = transaction_query.filter(Transaction.service_provider_id == staff_id)
+        transaction_query = transaction_query.filter(or_(Transaction.service_provider_id == staff_id, and_(Booking.group_reference.isnot(None), Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id))))
     if service_id:
-        transaction_query = transaction_query.filter(Booking.service_id == service_id)
+        transaction_query = transaction_query.filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)))
     if booking_type in {"online", "walk_in"}:
         transaction_query = transaction_query.filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else ~Booking.notes.like("Walk-in%"))
     elif booking_type == "guest":
@@ -958,6 +1110,40 @@ def get_staff_period_report(
         row["commission"] += commission
         # Revenue belongs to the salon; staff commission/tips are shown separately.
         row["sales"] += max(0.0, amount - commission)
+
+    group_assignments = db.query(
+        BookingServiceItem.service_provider_id.label("provider_id"),
+        User.full_name.label("provider_name"),
+        func.count(BookingServiceItem.id).label("services"),
+        func.coalesce(func.sum(func.coalesce(BookingServiceItem.service_price, Service.price)), 0).label("sales"),
+    ).join(Booking, Booking.id == BookingServiceItem.booking_id).join(Service, Service.id == BookingServiceItem.service_id).join(
+        User, User.id == BookingServiceItem.service_provider_id,
+    ).filter(
+        Booking.branch_id == current_user.branch_id,
+        Booking.group_reference.isnot(None),
+        Booking.appointment_date >= start,
+        Booking.appointment_date < end,
+        BookingServiceItem.status == "completed",
+    )
+    if staff_id:
+        group_assignments = group_assignments.filter(BookingServiceItem.service_provider_id == staff_id)
+    if service_id:
+        group_assignments = group_assignments.filter(BookingServiceItem.service_id == service_id)
+    if appointment_status:
+        group_assignments = group_assignments.filter(Booking.status == appointment_status)
+    if booking_type in {"online", "walk_in"}:
+        group_assignments = group_assignments.filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else ~Booking.notes.like("Walk-in%"))
+    elif booking_type == "guest":
+        group_assignments = group_assignments.filter(Booking.customer_id.is_(None))
+    elif booking_type == "registered":
+        group_assignments = group_assignments.filter(Booking.customer_id.isnot(None))
+    if payment_method:
+        matching_payment = db.query(Transaction.id).filter(Transaction.booking_id == Booking.id, Transaction.payment_method == payment_method).exists()
+        group_assignments = group_assignments.filter(matching_payment)
+    for assignment in group_assignments.group_by(BookingServiceItem.service_provider_id, User.full_name).all():
+        row = providers.setdefault(assignment.provider_id, {"name": assignment.provider_name, "services": 0, "commission": 0.0, "sales": 0.0})
+        row["services"] += int(assignment.services)
+        row["sales"] += float(assignment.sales or 0)
 
     return {
         "period": period,

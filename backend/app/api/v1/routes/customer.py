@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.core.database import get_db
 from app.core.config import BACKEND_DIR, settings
 from app.dependencies.auth import get_current_user, get_optional_current_user
-from app.models.booking import Booking, BookingServiceItem
+from app.models.booking import Booking, BookingServiceItem, GroupBookingMember
 from app.models.branch import Branch
 from app.models.feedback import Feedback
 from app.models.service import Service
@@ -32,7 +32,7 @@ from app.models.promotion import Promotion
 from app.models.booking_phone_verification import BookingPhoneVerification
 from app.models.customer_support import CustomerProfileChangeRequest
 from app.models.customer_notification import CustomerNotificationRead
-from app.schemas.booking import BookingCreateRequest, BookingOut, GuestBookingCreateRequest
+from app.schemas.booking import BookingCreateRequest, BookingOut, GuestBookingCreateRequest, GroupBookingCreateRequest
 from app.services.sms_service import normalize_phone_number, send_booking_confirmation_sms, send_verification_sms
 from app.services.booking_lifecycle_service import cancel_overdue_bookings
 from app.services.booking_scheduling import (
@@ -42,6 +42,7 @@ from app.services.booking_scheduling import (
     LAST_START_TIME,
     SLOT_INTERVAL_MINUTES,
     validate_booking_schedule,
+    validate_group_booking_schedule,
 )
 from app.services.paypal_service import (
     PayPalApiError,
@@ -64,11 +65,18 @@ class PayPalOrderRequest(BaseModel):
 class PayPalCaptureRequest(BaseModel):
     order_id: str = Field(min_length=5, max_length=80)
 
+
+class GroupBookingAvailabilityRequest(BaseModel):
+    branch_id: int
+    booking_date: date
+    booker_service_ids: list[int] = Field(default_factory=list, max_length=20)
+    member_service_ids: list[list[int]] = Field(min_length=1, max_length=99)
+
 BUSINESS_TIMEZONE = SCHEDULING_TIMEZONE
 OPENING_TIME = SCHEDULING_OPENING_TIME
 CLOSING_TIME = SCHEDULING_CLOSING_TIME
 ACTIVE_BOOKING_STATUSES = {"pending", "confirmed"}
-FACIAL_MACHINE_CAPACITY = 2
+FACIAL_MACHINE_CAPACITY = 5
 HAIR_TOOL_CAPACITY = 5
 FACIAL_RESOURCE_SERVICES = {
     "basic facial", "deep cleansing facial", "acne facial", "brightening facial",
@@ -428,11 +436,20 @@ def _slot_has_resource_capacity(
             cursor = cursor.replace(tzinfo=timezone.utc)
         else:
             cursor = cursor.astimezone(timezone.utc)
-        for service in _booking_services(booking):
-            end = cursor + timedelta(minutes=service.duration_minutes or 0)
-            for resource in _service_resource_types(service):
+        if booking.service_items:
+            for item in booking.service_items:
+                if item.status in {"completed", "cancelled"}:
+                    continue
+                item_start = item.appointment_start.astimezone(timezone.utc) if item.appointment_start and item.appointment_start.tzinfo else item.appointment_start.replace(tzinfo=timezone.utc) if item.appointment_start else cursor
+                item_end = item.appointment_end.astimezone(timezone.utc) if item.appointment_end and item.appointment_end.tzinfo else item.appointment_end.replace(tzinfo=timezone.utc) if item.appointment_end else item_start + timedelta(minutes=max(1, int(item.service.duration_minutes or 0)))
+                for resource in _service_resource_types(item.service):
+                    occupied[resource].append((item_start, item_end))
+                if not item.appointment_start:
+                    cursor = item_end
+        elif booking.service:
+            end = cursor + timedelta(minutes=max(1, int(booking.service.duration_minutes or 0)))
+            for resource in _service_resource_types(booking.service):
                 occupied[resource].append((cursor, end))
-            cursor = end
 
     capacities = {
         "face_machine": FACIAL_MACHINE_CAPACITY,
@@ -451,6 +468,122 @@ def _slot_has_resource_capacity(
                 return False
         cursor = end
     return True
+
+
+def _group_slot_has_resource_capacity(db: Session, branch_id: int, appointment_date: datetime,
+                                      member_services: list[list[Service]], bookings: list[Booking] | None = None,
+                                      nurse_capacity: int | None = None) -> bool:
+    if bookings is None:
+        bookings = _branch_day_bookings(db, branch_id, appointment_date)
+    if nurse_capacity is None:
+        nurse_capacity = _branch_nurse_capacity(db, branch_id)
+    occupied: dict[str, list[tuple[datetime, datetime]]] = {"face_machine": [], "hair_tool": [], "nurse": []}
+
+    def utc(value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+    for booking in bookings:
+        cursor = utc(booking.appointment_date)
+        if booking.service_items:
+            for item in booking.service_items:
+                if item.status in {"completed", "cancelled"}:
+                    continue
+                item_start = utc(item.appointment_start) if item.appointment_start else cursor
+                item_end = utc(item.appointment_end) if item.appointment_end else item_start + timedelta(minutes=max(1, int(item.service.duration_minutes or 0)))
+                for resource in _service_resource_types(item.service):
+                    occupied[resource].append((item_start, item_end))
+                if not item.appointment_start:
+                    cursor = item_end
+        elif booking.service:
+            end = cursor + timedelta(minutes=max(1, int(booking.service.duration_minutes or 0)))
+            for resource in _service_resource_types(booking.service):
+                occupied[resource].append((cursor, end))
+
+    capacities = {"face_machine": FACIAL_MACHINE_CAPACITY, "hair_tool": HAIR_TOOL_CAPACITY, "nurse": nurse_capacity}
+    proposed: list[tuple[Service, datetime, datetime]] = []
+    start_utc = utc(appointment_date)
+    for services in member_services:
+        cursor = start_utc
+        for service in services:
+            end = cursor + timedelta(minutes=max(1, int(service.duration_minutes or 0)))
+            proposed.append((service, cursor, end))
+            cursor = end
+    proposed.sort(key=lambda item: item[1])
+    for service, start, end in proposed:
+        for resource in _service_resource_types(service):
+            capacity = capacities[resource]
+            if capacity < 1 or sum(existing_start < end and existing_end > start for existing_start, existing_end in occupied[resource]) >= capacity:
+                return False
+            occupied[resource].append((start, end))
+    return True
+
+
+def _group_capacity_requirements(member_services: list[list[Service]]) -> dict:
+    intervals: list[tuple[int, int, set[str]]] = []
+    for services in member_services:
+        cursor = 0
+        for service in services:
+            end = cursor + max(1, int(service.duration_minutes or 0))
+            intervals.append((cursor, end, _service_resource_types(service)))
+            cursor = end
+
+    def peak_for(resource: str | None = None) -> int:
+        events = []
+        for start, end, resources in intervals:
+            if resource is None or resource in resources:
+                events.extend(((start, 1), (end, -1)))
+        active = peak = 0
+        for _minute, change in sorted(events, key=lambda event: (event[0], event[1])):
+            active += change
+            peak = max(peak, active)
+        return peak
+
+    resource_labels = {
+        "face_machine": "Facial machines",
+        "hair_tool": "Hair tools",
+        "nurse": "Nurses",
+    }
+    capacities = {
+        "face_machine": FACIAL_MACHINE_CAPACITY,
+        "hair_tool": HAIR_TOOL_CAPACITY,
+    }
+    required_resources = {}
+    for resource, label in resource_labels.items():
+        required = peak_for(resource)
+        if required:
+            required_resources[label] = {
+                "required": required,
+                "capacity": capacities.get(resource),
+            }
+    return {"required_staff": peak_for(), "required_resources": required_resources}
+
+
+def _group_schedule_suggestions(db: Session, branch_id: int, booking_date: date, member_services: list[list[Service]],
+                                requested_date: datetime, customer_id: int, guest_phone: str,
+                                requested_service_ids: set[int], allow_duplicate: bool) -> list[str]:
+    suggestions = []
+    cursor = datetime.combine(booking_date, OPENING_TIME, BUSINESS_TIMEZONE)
+    existing_bookings = _branch_day_bookings(db, branch_id, cursor)
+    nurse_capacity = _branch_nurse_capacity(db, branch_id)
+    staff_ids = [row[0] for row in db.query(User.id).filter(
+        User.role == "staff", User.branch_id == branch_id, User.is_active.is_(True), User.job_title.isnot(None)
+    ).all()]
+    while cursor.time() <= LAST_START_TIME and len(suggestions) < 3:
+        if cursor != requested_date.astimezone(BUSINESS_TIMEZONE):
+            try:
+                validate_group_booking_schedule(db, branch_id, cursor, member_services, online=True,
+                                                staff_ids=staff_ids, day_bookings=existing_bookings)
+                if not _group_slot_has_resource_capacity(db, branch_id, cursor, member_services, existing_bookings, nurse_capacity):
+                    cursor += timedelta(minutes=SLOT_INTERVAL_MINUTES)
+                    continue
+                duration = max(sum(max(1, int(service.duration_minutes or 0)) for service in services) for services in member_services)
+                _reject_overlapping_customer_booking(db, cursor, duration, customer_id=customer_id, guest_phone=guest_phone,
+                                                     allow_exact_duplicate=allow_duplicate, requested_service_ids=requested_service_ids)
+                suggestions.append(cursor.strftime("%-I:%M %p"))
+            except HTTPException:
+                pass
+        cursor += timedelta(minutes=SLOT_INTERVAL_MINUTES)
+    return suggestions
 
 
 def _reject_overlapping_customer_booking(
@@ -575,6 +708,8 @@ def _booking_query(db: Session):
         joinedload(Booking.preferred_service_provider),
         selectinload(Booking.service_items).joinedload(BookingServiceItem.service),
         selectinload(Booking.service_items).joinedload(BookingServiceItem.service_provider),
+        selectinload(Booking.service_items).joinedload(BookingServiceItem.member),
+        selectinload(Booking.group_members),
     )
 
 
@@ -582,7 +717,13 @@ def _start_online_booking_payment(db: Session, booking: Booking, services: list[
     """Create a pending full-payment record; PayPal orders are created on demand."""
     token = secrets.token_urlsafe(32) if guest else None
     reference = f"HS-{booking.id}-{uuid4().hex[:12]}"
-    total = round(sum(float(service.price) for service in services), 2)
+    total = round(
+        sum(float(item.service_price if item.service_price is not None else item.service.price) for item in booking.service_items if item.service)
+        if booking.service_items else sum(float(service.price or 0) for service in services),
+        2,
+    )
+    if not booking.service_items:
+        total = round(sum(float(service.price) for service in services), 2)
     payment = BookingPayment(
         booking_id=booking.id,
         reference_number=reference,
@@ -888,6 +1029,8 @@ def _record_paypal_capture(db: Session, attempt: BookingPaymentAttempt, payment:
         db.add(Transaction(booking_id=booking.id, staff_id=None, service_provider_id=booking.service_provider_id,
                            amount=float(payment.amount), payment_method="paypal", additional_charge=0,
                            commission_rate=0, commission_amount=0, idempotency_key=f"paypal:{capture_id}"[:80]))
+        if booking.group_reference:
+            booking.status = "pending"
     try:
         db.commit()
     except Exception:
@@ -987,11 +1130,22 @@ def get_customer_dashboard(
         .all()
     )
     now = datetime.now(timezone.utc)
+
+    def appointment_is_upcoming(booking: Booking) -> bool:
+        appointment_time = booking.appointment_date
+        if appointment_time.tzinfo is None:
+            appointment_time = appointment_time.replace(tzinfo=timezone.utc)
+        return appointment_time >= now
+
+    booking_payment_rows = db.query(BookingPayment.booking_id, BookingPayment.status, BookingPayment.amount, BookingPayment.payment_method).filter(
+        BookingPayment.booking_id.in_([booking.id for booking in bookings])
+    ).all() if bookings else []
+    booking_payments = {row.booking_id: row for row in booking_payment_rows}
     upcoming = next(
         (
             booking
             for booking in sorted(bookings, key=lambda item: item.appointment_date)
-            if booking.status in {"pending", "confirmed"} and booking.appointment_date >= now
+            if booking.status in {"pending", "confirmed"} and appointment_is_upcoming(booking)
         ),
         None,
     )
@@ -1067,11 +1221,26 @@ def get_customer_dashboard(
         else item["timestamp"]
     ).timestamp(), reverse=True)
 
+    upcoming_booking_payload = BookingOut.model_validate(upcoming).model_dump(mode="json") if upcoming else None
+    if upcoming_booking_payload:
+        payment = booking_payments.get(upcoming.id)
+        upcoming_booking_payload.update({
+            "payment_status": payment.status if payment else "unpaid",
+            "payment_amount": payment.amount if payment else None,
+            "payment_method": payment.payment_method if payment else None,
+        })
+        if upcoming.group_reference:
+            upcoming_booking_payload["service"] = {
+                **upcoming_booking_payload["service"],
+                "name": ", ".join(item.service.name for item in upcoming.service_items if item.service),
+                "price": sum(float(item.service_price if item.service_price is not None else item.service.price) for item in upcoming.service_items if item.service),
+                "duration_minutes": sum(int(item.service_duration_minutes or item.service.duration_minutes or 0) for item in upcoming.service_items if item.service),
+            }
     return {
         "user": _serialize_user(current_user),
-        "upcoming_booking": BookingOut.model_validate(upcoming) if upcoming else None,
+        "upcoming_booking": upcoming_booking_payload,
         "upcoming_bookings_count": len(
-            [b for b in bookings if b.status in {"pending", "confirmed"} and b.appointment_date >= now]
+            [b for b in bookings if b.status in {"pending", "confirmed"} and appointment_is_upcoming(b)]
         ),
         "total_visits": len(completed),
         "loyalty_points": len(completed) * 10,
@@ -1239,6 +1408,89 @@ def get_customer_booking_availability(
     return _booking_availability(branch_id, service_id, booking_date, service_ids, db)
 
 
+@router.post("/group-availability")
+def get_customer_group_booking_availability(
+    payload: GroupBookingAvailabilityRequest,
+    current_user: User | None = Depends(get_optional_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user:
+        _require_customer(current_user)
+    member_service_ids = [payload.booker_service_ids, *payload.member_service_ids]
+    if sum(len(selection) for selection in member_service_ids) > 20:
+        raise HTTPException(status_code=422, detail="A group booking can contain at most 20 service assignments.")
+    requested_ids = {service_id for selection in member_service_ids for service_id in selection}
+    if not requested_ids:
+        raise HTTPException(status_code=422, detail="Select at least one service for the group.")
+    services = db.query(Service).join(Service.branches).filter(
+        Service.id.in_(requested_ids), Service.is_active.is_(True),
+        Branch.id == payload.branch_id, Branch.is_active.is_(True),
+    ).all()
+    service_map = {service.id: service for service in services}
+    if len(service_map) != len(requested_ids):
+        raise HTTPException(status_code=404, detail="One or more selected services are not offered at this branch.")
+    member_services = [[service_map[service_id] for service_id in selection] for selection in member_service_ids]
+    capacity_requirements = _group_capacity_requirements(member_services)
+    start = datetime.combine(payload.booking_date, OPENING_TIME, BUSINESS_TIMEZONE)
+    day_bookings = _branch_day_bookings(db, payload.branch_id, start)
+    nurse_capacity = _branch_nurse_capacity(db, payload.branch_id)
+    if "Nurses" in capacity_requirements["required_resources"]:
+        capacity_requirements["required_resources"]["Nurses"]["capacity"] = nurse_capacity
+    staff_rows = db.query(User.id, User.full_name).filter(
+        User.role == "staff", User.branch_id == payload.branch_id,
+        User.is_active.is_(True), User.job_title.isnot(None),
+    ).all()
+    staff_names = {staff_id: full_name for staff_id, full_name in staff_rows}
+    staff_ids = list(staff_names)
+    slots = []
+    cursor = start
+    while cursor.time() <= LAST_START_TIME:
+        available = True
+        assignments = []
+        reason = None
+        try:
+            assignments = validate_group_booking_schedule(
+                db, payload.branch_id, cursor, member_services, online=True,
+                staff_ids=staff_ids, day_bookings=day_bookings,
+            )
+            if not _group_slot_has_resource_capacity(
+                db, payload.branch_id, cursor, member_services, day_bookings, nurse_capacity,
+            ):
+                available = False
+                reason = "Required equipment or qualified staff are unavailable."
+        except HTTPException as error:
+            available = False
+            reason = error.detail
+
+        assigned_services = []
+        for (member_index, service), (provider_id, item_start, _item_end) in zip(
+            [(member_index, service) for member_index, services_for_member in enumerate(member_services) for service in services_for_member],
+            assignments,
+        ):
+            assigned_services.append({
+                "member_index": member_index,
+                "service_name": service.name,
+                "duration_minutes": max(1, int(service.duration_minutes or 0)),
+                "provider_id": provider_id,
+                "provider_name": staff_names.get(provider_id),
+                "start_time": item_start.isoformat(),
+            })
+        slots.append({
+            "time": cursor.strftime("%H:%M"),
+            "available": available,
+            "is_full": not available and (reason == "Required equipment or qualified staff are unavailable." or isinstance(reason, str) and "available" in reason.casefold()),
+            "reason": reason,
+            "booked": 0 if available else 1,
+            "capacity": len(staff_ids),
+            "service_provider_ids": [provider_id for provider_id, _, _ in assignments],
+            "assigned_services": assigned_services,
+        })
+        cursor += timedelta(minutes=SLOT_INTERVAL_MINUTES)
+    return {"date": payload.booking_date.isoformat(), "slots": slots,
+            "capacity_summary": {**capacity_requirements, "active_staff": len(staff_ids)},
+            "lead_time_minutes": 30, "slot_interval_minutes": SLOT_INTERVAL_MINUTES}
+
+
 @router.get("/guest/availability")
 def get_guest_booking_availability(
     branch_id: int,
@@ -1313,6 +1565,107 @@ def create_customer_appointment(
     return _start_online_booking_payment(db, booking, ordered_services, guest=False)
 
 
+@router.post("/group-appointments", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
+def create_customer_group_appointment(
+    payload: GroupBookingCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create one paid booking containing up to the configured member limit and assignments."""
+    _require_customer(current_user)
+    if len(payload.members) + 1 > settings.GROUP_BOOKING_MAX_MEMBERS:
+        raise HTTPException(status_code=422, detail=f"A group booking can include up to {settings.GROUP_BOOKING_MAX_MEMBERS} people, including you.")
+    if not payload.booker_service_ids and not any(member.service_ids for member in payload.members):
+        raise HTTPException(status_code=422, detail="Select at least one service for someone in the group.")
+    selections = [(current_user.full_name, current_user.phone_number, payload.booker_service_ids)]
+    selections.extend((member.name, member.contact_number, member.service_ids) for member in payload.members)
+    total_assignments = sum(len(ids) for _, _, ids in selections)
+    if total_assignments > 20:
+        raise HTTPException(status_code=422, detail="A group booking can contain at most 20 service assignments.")
+    if any(not ids for _, _, ids in selections):
+        raise HTTPException(status_code=422, detail="Select at least one service for each group member.")
+    if not current_user.phone_verified or not current_user.phone_number:
+        raise HTTPException(status_code=400, detail="Verify a mobile number in your account before booking so we can text your booking receipt and arrival policy.")
+    try:
+        customer_phone = normalize_phone_number(current_user.phone_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Add a valid Philippine mobile number to your account before booking.") from exc
+
+    cancel_overdue_bookings(db)
+    branch = _lock_booking_branch(db, payload.branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Selected branch is not available.")
+    requested_ids = [service_id for _, _, ids in selections for service_id in ids]
+    services = db.query(Service).join(Service.branches).filter(
+        Service.id.in_(set(requested_ids)), Service.is_active.is_(True), Branch.id == payload.branch_id, Branch.is_active.is_(True)
+    ).all()
+    service_map = {service.id: service for service in services}
+    if len(service_map) != len(set(requested_ids)):
+        raise HTTPException(status_code=404, detail="One or more selected services are not offered at this branch.")
+    member_services = [[service_map[service_id] for service_id in ids] for _, _, ids in selections]
+    capacity_requirements = _group_capacity_requirements(member_services)
+    nurse_capacity = _branch_nurse_capacity(db, payload.branch_id)
+    if "Nurses" in capacity_requirements["required_resources"]:
+        capacity_requirements["required_resources"]["Nurses"]["capacity"] = nurse_capacity
+    ordered_assignments = [(member_index, service) for member_index, member_service_list in enumerate(member_services) for service in member_service_list]
+    ordered_services = [service for _, service in ordered_assignments]
+    appointment_date = payload.appointment_date
+    duration = max(sum(max(1, int(service.duration_minutes or 0)) for service in member_services_list) for member_services_list in member_services)
+    try:
+        assignments = validate_group_booking_schedule(db, payload.branch_id, appointment_date, member_services, online=True)
+    except HTTPException as exc:
+        if exc.status_code not in {409, 400}:
+            raise
+        suggestions = _group_schedule_suggestions(db, payload.branch_id, appointment_date.date(), member_services,
+            appointment_date, current_user.id, customer_phone, set(requested_ids), payload.allow_duplicate)
+        detail = {"message": exc.detail, "alternative_schedules": suggestions,
+                  "capacity_summary": capacity_requirements}
+        raise HTTPException(status_code=exc.status_code if exc.status_code == 400 else 409, detail=detail) from exc
+    day_bookings = _branch_day_bookings(db, payload.branch_id, appointment_date)
+    if not _group_slot_has_resource_capacity(db, payload.branch_id, appointment_date, member_services, day_bookings,
+                                             nurse_capacity=nurse_capacity):
+        suggestions = _group_schedule_suggestions(db, payload.branch_id, appointment_date.date(), member_services,
+            appointment_date, current_user.id, customer_phone, set(requested_ids), payload.allow_duplicate)
+        raise HTTPException(status_code=409, detail={
+            "message": "The required equipment or qualified staff cannot accommodate the entire group at that time.",
+            "alternative_schedules": suggestions,
+            "capacity_summary": capacity_requirements,
+        })
+    _reject_overlapping_customer_booking(db, appointment_date, duration, customer_id=current_user.id,
+                                         guest_phone=customer_phone, allow_exact_duplicate=payload.allow_duplicate,
+                                         requested_service_ids=set(requested_ids))
+
+    booking = Booking(customer_id=current_user.id, guest_phone=customer_phone, branch_id=payload.branch_id,
+                      service_id=ordered_services[0].id, appointment_date=appointment_date,
+                      notes=payload.notes, status="pending")
+    db.add(booking)
+    db.flush()
+    booking.group_reference = f"GB-{appointment_date.astimezone(BUSINESS_TIMEZONE).year}-{booking.id:06d}"
+    member_rows = []
+    for member_index, (name, phone, _) in enumerate(selections):
+        member = GroupBookingMember(booking_id=booking.id, member_name=name, contact_number=phone, is_booker=member_index == 0)
+        db.add(member)
+        member_rows.append(member)
+    db.flush()
+
+    for ((member_index, selected_service), (provider_id, item_start, item_end)) in zip(ordered_assignments, assignments):
+        db.add(BookingServiceItem(
+            booking_id=booking.id,
+            member_id=member_rows[member_index].id,
+            service_id=selected_service.id,
+            service_provider_id=provider_id,
+            appointment_start=item_start,
+            appointment_end=item_end,
+            service_price=float(selected_service.price),
+            service_duration_minutes=max(1, int(selected_service.duration_minutes or 0)),
+            status="pending",
+        ))
+    db.commit()
+    db.refresh(booking)
+    booking = _booking_query(db).filter(Booking.id == booking.id).first()
+    return _start_online_booking_payment(db, booking, ordered_services)
+
+
 @router.post("/guest/appointments", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
 def create_guest_appointment(payload: GuestBookingCreateRequest, db: Session = Depends(get_db)):
     try:
@@ -1380,6 +1733,11 @@ def list_customer_appointments(
         .order_by(Booking.created_at.desc(), Booking.id.desc())
         .all()
     )
+    for booking in bookings:
+        if booking.group_reference and booking.service_items:
+            booking.service.name = ", ".join(item.service.name for item in booking.service_items if item.service)
+            booking.service.price = sum(float(item.service_price if item.service_price is not None else item.service.price) for item in booking.service_items if item.service)
+            booking.service.duration_minutes = sum(int(item.service_duration_minutes or item.service.duration_minutes or 0) for item in booking.service_items if item.service)
     results = []
     for booking in bookings:
         item = BookingOut.model_validate(booking).model_dump()
@@ -1393,6 +1751,9 @@ def list_customer_appointments(
         provider = transaction.service_provider if transaction and transaction.service_provider else booking.service_provider
         branch_staff = db.query(User).filter(User.role == "staff", User.branch_id == booking.branch_id, User.is_active.is_(True), User.job_title.isnot(None)).order_by(User.full_name).all()
         item["service_provider"] = {"id": provider.id, "full_name": provider.full_name, "job_title": provider.job_title or "Salon Specialist"} if provider else None
+        if booking.group_reference:
+            item["group_reference"] = booking.group_reference
+            item["group_members"] = [{"id": member.id, "member_name": member.member_name, "contact_number": member.contact_number, "is_booker": member.is_booker} for member in booking.group_members]
         item["available_providers"] = [{"id": staff.id, "full_name": staff.full_name, "job_title": staff.job_title or "Salon Specialist"} for staff in branch_staff]
         if transaction:
             item["receipt"] = {
@@ -1406,6 +1767,14 @@ def list_customer_appointments(
             }
         else:
             item["receipt"] = None
+        item["service_items"] = [{"id": assignment.id, "member_id": assignment.member_id,
+            "member_name": assignment.member.member_name if assignment.member else None,
+            "member_is_booker": assignment.member.is_booker if assignment.member else False,
+            "service": {"id": assignment.service.id, "name": assignment.service.name, "price": float(assignment.service_price if assignment.service_price is not None else assignment.service.price), "duration_minutes": assignment.service_duration_minutes or assignment.service.duration_minutes},
+            "service_provider": {"id": assignment.service_provider.id, "full_name": assignment.service_provider.full_name} if assignment.service_provider else None,
+            "appointment_start": assignment.appointment_start, "appointment_end": assignment.appointment_end,
+            "service_price": assignment.service_price, "service_duration_minutes": assignment.service_duration_minutes,
+            "status": assignment.status} for assignment in booking.service_items]
         results.append(item)
     return results
 
@@ -1425,6 +1794,8 @@ def cancel_customer_appointment(
     )
     if not booking:
         raise HTTPException(status_code=404, detail="Appointment not found.")
+    if booking.group_reference:
+        raise HTTPException(status_code=409, detail="A group booking cannot be cancelled by the customer as a whole. Contact the branch to cancel individual service assignments.")
     if booking.status == "completed":
         raise HTTPException(status_code=400, detail="Completed appointments cannot be cancelled.")
 
@@ -1440,6 +1811,10 @@ def cancel_customer_appointment(
             {BookingPaymentAttempt.status: "cancelled"}, synchronize_session=False)
 
     booking.status = "cancelled"
+    if booking.group_reference:
+        for item in booking.service_items:
+            if item.status not in {"completed", "cancelled"}:
+                item.status = "cancelled"
     db.commit()
     db.refresh(booking)
     return BookingOut.model_validate(booking)

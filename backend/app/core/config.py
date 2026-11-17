@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     OTP_EXPIRE_MINUTES: int = 10
     OTP_MAX_ATTEMPTS: int = 5
     OTP_RESEND_COOLDOWN_SECONDS: int = 60
+    GROUP_BOOKING_MAX_MEMBERS: int = 100
 
     # OAuth
     GOOGLE_CLIENT_ID: str = "1052189554415-0tr5qpn1bhr3n7ldojhuddf9u93ddhnd.apps.googleusercontent.com"

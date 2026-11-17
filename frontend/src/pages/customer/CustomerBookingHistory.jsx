@@ -194,6 +194,7 @@ function AppointmentCard({ appointment, busy, onCancel, onPaymentComplete }) {
           <div className="flex items-start justify-between gap-2 lg:block">
             <div className="min-w-0">
               <h2 className="text-base font-extrabold leading-snug text-[#1F2937]">{appointment.service_items?.length ? appointment.service_items.map((item) => item.service?.name).filter(Boolean).join(", ") : appointment.service?.name || "Service"}</h2>
+              {appointment.group_reference && <div className="mt-2 rounded-lg bg-[#FFF8FB] p-2"><p className="text-[10px] font-extrabold text-[#A83F78]">Group booking · {appointment.group_reference}</p>{appointment.group_members?.map((member) => <p key={member.id} className="mt-1 text-[10px] text-[#667085]">{member.member_name}{member.is_booker ? " (booker)" : ""}: {(appointment.service_items || []).filter((item) => item.member_id === member.id).map((item) => item.service?.name).filter(Boolean).join(", ") || "No services"}</p>)}</div>}
             </div>
             <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold capitalize lg:mt-2 lg:inline-flex ${statusStyles[appointment.status] || statusStyles.pending}`}>{appointment.status}</span>
           </div>

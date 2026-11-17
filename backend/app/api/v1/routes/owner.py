@@ -3,13 +3,13 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr, field_validator
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.dependencies.permissions import require_role
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingServiceItem
 from app.models.branch import Branch
 from app.models.feedback import Feedback
 from app.models.service import Service
@@ -182,6 +182,9 @@ def _serialize_booking(booking: Booking) -> dict:
         "appointment_date": booking.appointment_date,
         "status": booking.status,
         "notes": booking.notes,
+        "group_reference": booking.group_reference,
+        "group_members": [{"id": member.id, "member_name": member.member_name, "contact_number": member.contact_number, "is_booker": member.is_booker} for member in booking.group_members],
+        "service_items": [{"id": item.id, "service": {"id": item.service.id, "name": item.service.name, "price": float(item.service_price if item.service_price is not None else item.service.price), "duration_minutes": item.service_duration_minutes or item.service.duration_minutes}, "service_provider": {"id": item.service_provider.id, "full_name": item.service_provider.full_name} if item.service_provider else None, "member_id": item.member_id, "appointment_start": item.appointment_start, "appointment_end": item.appointment_end, "service_price": item.service_price, "service_duration_minutes": item.service_duration_minutes, "status": item.status} for item in booking.service_items],
         "created_at": booking.created_at,
         "updated_at": booking.updated_at,
     }
@@ -209,6 +212,9 @@ def _serialize_transaction(transaction: Transaction) -> dict:
         } if transaction.service_provider else None,
         "booking": {
             "id": booking.id,
+            "group_reference": booking.group_reference,
+            "group_members": [{"id": member.id, "member_name": member.member_name, "is_booker": member.is_booker} for member in booking.group_members],
+            "service_items": [{"id": item.id, "service": {"id": item.service.id, "name": item.service.name}, "member_id": item.member_id, "status": item.status} for item in booking.service_items],
             "appointment_date": booking.appointment_date,
             "status": booking.status,
             "branch": {"id": booking.branch.id, "name": booking.branch.name} if booking and booking.branch else None,
@@ -225,6 +231,9 @@ def _booking_query(db: Session):
         joinedload(Booking.service),
         joinedload(Booking.service_provider),
         joinedload(Booking.preferred_service_provider),
+        selectinload(Booking.service_items).joinedload(BookingServiceItem.service),
+        selectinload(Booking.service_items).joinedload(BookingServiceItem.service_provider),
+        selectinload(Booking.group_members),
     )
 
 
@@ -232,9 +241,11 @@ def _transaction_query(db: Session):
     return db.query(Transaction).options(
         joinedload(Transaction.staff),
         joinedload(Transaction.service_provider),
-        joinedload(Transaction.booking).joinedload(Booking.branch),
-        joinedload(Transaction.booking).joinedload(Booking.service),
-        joinedload(Transaction.booking).joinedload(Booking.customer),
+        selectinload(Transaction.booking).joinedload(Booking.branch),
+        selectinload(Transaction.booking).joinedload(Booking.service),
+        selectinload(Transaction.booking).joinedload(Booking.customer),
+        selectinload(Transaction.booking).selectinload(Booking.service_items).joinedload(BookingServiceItem.service),
+        selectinload(Transaction.booking).selectinload(Booking.group_members),
     )
 
 
@@ -298,16 +309,19 @@ def get_owner_dashboard(
     for index, item in enumerate(branch_rankings, start=1):
         item["rank"] = index
 
+    booking_sales = db.query(Transaction.booking_id.label("booking_id"), func.sum(salon_revenue_expr).label("sales")).group_by(Transaction.booking_id).subquery()
+    assignment_price = func.coalesce(BookingServiceItem.service_price, Service.price)
+    assignment_totals = db.query(BookingServiceItem.booking_id.label("booking_id"), func.sum(assignment_price).label("total_price")).join(Service, Service.id == BookingServiceItem.service_id).filter(BookingServiceItem.status != "cancelled").group_by(BookingServiceItem.booking_id).subquery()
+    allocated_assignment_sales = func.coalesce(booking_sales.c.sales, 0) * assignment_price / func.nullif(assignment_totals.c.total_price, 0)
     service_rows = (
-        db.query(
-            Service.name,
-            func.count(Booking.id).label("bookings"),
-            func.coalesce(func.sum(salon_revenue_expr), 0).label("sales"),
-        )
-        .outerjoin(Booking, Booking.service_id == Service.id)
-        .outerjoin(Transaction, Transaction.booking_id == Booking.id)
+        db.query(Service.name, func.count(BookingServiceItem.id).label("bookings"), func.coalesce(func.sum(allocated_assignment_sales), 0).label("sales"))
+        .join(BookingServiceItem, BookingServiceItem.service_id == Service.id)
+        .join(Booking, Booking.id == BookingServiceItem.booking_id)
+        .outerjoin(booking_sales, booking_sales.c.booking_id == Booking.id)
+        .outerjoin(assignment_totals, assignment_totals.c.booking_id == Booking.id)
+        .filter(BookingServiceItem.status != "cancelled")
         .group_by(Service.name)
-        .order_by(func.count(Booking.id).desc())
+        .order_by(func.count(BookingServiceItem.id).desc())
         .limit(6)
         .all()
     )
@@ -558,11 +572,11 @@ def get_owner_reports(
         booking_query = booking_query.filter(Booking.branch_id == branch_id)
         transaction_query = transaction_query.filter(Booking.branch_id == branch_id)
     if staff_id:
-        booking_query = booking_query.filter(Booking.service_provider_id == staff_id)
-        transaction_query = transaction_query.filter(Transaction.service_provider_id == staff_id)
+        booking_query = booking_query.filter(or_(Booking.service_provider_id == staff_id, Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id)))
+        transaction_query = transaction_query.filter(or_(Transaction.service_provider_id == staff_id, and_(Booking.group_reference.isnot(None), Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id))))
     if service_id:
-        booking_query = booking_query.filter(Booking.service_id == service_id)
-        transaction_query = transaction_query.filter(Booking.service_id == service_id)
+        booking_query = booking_query.filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)))
+        transaction_query = transaction_query.filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)))
     if appointment_status:
         booking_query = booking_query.filter(Booking.status == appointment_status)
     if booking_type in {"online", "walk_in"}:
@@ -588,8 +602,8 @@ def get_owner_reports(
         .join(Booking, Booking.branch_id == Branch.id)
         .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.appointment_date >= start, Booking.appointment_date < end)
-        .filter(Booking.service_provider_id == staff_id if staff_id else True)
-        .filter(Booking.service_id == service_id if service_id else True)
+        .filter(or_(Booking.service_provider_id == staff_id, Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id)) if staff_id else True)
+        .filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)) if service_id else True)
         .filter(Booking.status == appointment_status if appointment_status else True)
         .filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else (~Booking.notes.like("Walk-in%") if booking_type == "online" else True))
         .filter(Booking.customer_id.is_(None) if booking_type == "guest" else (Booking.customer_id.isnot(None) if booking_type == "registered" else True))
@@ -604,19 +618,24 @@ def get_owner_reports(
         .all()
     )
 
+    assignment_price = func.coalesce(BookingServiceItem.service_price, Service.price)
+    assignment_totals = db.query(BookingServiceItem.booking_id.label("booking_id"), func.sum(assignment_price).label("total_price")).join(Service, Service.id == BookingServiceItem.service_id).filter(BookingServiceItem.status != "cancelled").group_by(BookingServiceItem.booking_id).subquery()
     service_rows = (
-        db.query(Service.name, func.count(func.distinct(Booking.id)).label("bookings"), func.coalesce(func.sum(transaction_totals.c.sales), 0).label("sales"))
-        .join(Booking, Booking.service_id == Service.id)
+        db.query(Service.name, func.count(BookingServiceItem.id).label("bookings"), func.coalesce(func.sum(func.coalesce(transaction_totals.c.sales, 0) * assignment_price / func.nullif(assignment_totals.c.total_price, 0)), 0).label("sales"))
+        .join(BookingServiceItem, BookingServiceItem.service_id == Service.id)
+        .join(Booking, Booking.id == BookingServiceItem.booking_id)
+        .outerjoin(assignment_totals, assignment_totals.c.booking_id == Booking.id)
         .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
         .filter(Booking.appointment_date >= start, Booking.appointment_date < end)
-        .filter(Booking.service_provider_id == staff_id if staff_id else True)
-        .filter(Booking.service_id == service_id if service_id else True)
+        .filter(or_(Booking.service_provider_id == staff_id, Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id)) if staff_id else True)
+        .filter(or_(Booking.service_id == service_id, Booking.service_items.any(BookingServiceItem.service_id == service_id)) if service_id else True)
         .filter(Booking.status == appointment_status if appointment_status else True)
         .filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else (~Booking.notes.like("Walk-in%") if booking_type == "online" else True))
         .filter(Booking.customer_id.is_(None) if booking_type == "guest" else (Booking.customer_id.isnot(None) if booking_type == "registered" else True))
         .filter(Branch.id == branch_id if branch_id else True)
         .group_by(Service.name)
-        .order_by(func.count(func.distinct(Booking.id)).desc())
+        .filter(BookingServiceItem.status != "cancelled")
+        .order_by(func.count(BookingServiceItem.id).desc())
         .all()
     )
 
@@ -626,7 +645,7 @@ def get_owner_reports(
             .join(Booking, Booking.service_id == Service.id)
             .outerjoin(transaction_totals, transaction_totals.c.booking_id == Booking.id)
             .filter(Booking.appointment_date >= start, Booking.appointment_date < end, Booking.branch_id == branch_id)
-            .filter(Booking.service_provider_id == staff_id if staff_id else True)
+            .filter(or_(Booking.service_provider_id == staff_id, Booking.service_items.any(BookingServiceItem.service_provider_id == staff_id)) if staff_id else True)
             .filter(Booking.service_id == service_id if service_id else True)
             .filter(Booking.status == appointment_status if appointment_status else True)
             .filter(Booking.notes.like("Walk-in%") if booking_type == "walk_in" else (~Booking.notes.like("Walk-in%") if booking_type == "online" else True))
@@ -793,16 +812,21 @@ def get_owner_dashboard_performance(
         completed = bookings.filter(Booking.status == "completed").count()
         sales = float(db.query(func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0)).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.created_at >= start, Transaction.created_at < end).scalar() or 0)
         branch_rating = float(db.query(func.avg(Feedback.branch_rating)).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Feedback.branch_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).scalar() or 0)
-        transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
-        transaction_metrics = {row.provider_id: row for row in transaction_rows}
+        transaction_rows = db.query(Transaction.service_provider_id.label("provider_id"), func.count(Transaction.id).label("services"), func.coalesce(func.sum(Transaction.amount - func.coalesce(Transaction.commission_amount, 0)), 0).label("revenue"), func.coalesce(func.sum(Transaction.commission_amount), 0).label("commission")).join(Booking, Transaction.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Booking.group_reference.is_(None), Transaction.service_provider_id.isnot(None), Transaction.created_at >= start, Transaction.created_at < end).group_by(Transaction.service_provider_id).all()
+        transaction_metrics = {row.provider_id: {"services": int(row.services), "revenue": float(row.revenue or 0), "commission": float(row.commission or 0)} for row in transaction_rows}
+        group_service_rows = db.query(BookingServiceItem.service_provider_id.label("provider_id"), func.count(BookingServiceItem.id).label("services"), func.coalesce(func.sum(func.coalesce(BookingServiceItem.service_price, Service.price)), 0).label("revenue")).join(Booking, Booking.id == BookingServiceItem.booking_id).join(Service, Service.id == BookingServiceItem.service_id).filter(Booking.branch_id == branch.id, Booking.group_reference.isnot(None), Booking.appointment_date >= start, Booking.appointment_date < end, BookingServiceItem.status == "completed", BookingServiceItem.service_provider_id.isnot(None)).group_by(BookingServiceItem.service_provider_id).all()
+        for row in group_service_rows:
+            metrics = transaction_metrics.setdefault(row.provider_id, {"services": 0, "revenue": 0.0, "commission": 0.0})
+            metrics["services"] += int(row.services)
+            metrics["revenue"] += float(row.revenue or 0)
         rating_rows = db.query(Feedback.service_provider_id.label("provider_id"), func.avg(Feedback.staff_rating).label("average"), func.count(Feedback.id).label("count")).join(Booking, Feedback.booking_id == Booking.id).filter(Booking.branch_id == branch.id, Feedback.service_provider_id.isnot(None), Feedback.staff_rating.isnot(None), Feedback.created_at >= start, Feedback.created_at < end).group_by(Feedback.service_provider_id).all()
         rating_metrics = {row.provider_id: row for row in rating_rows}
         staff_rows = db.query(User).filter(User.role == "staff", User.branch_id == branch.id, User.is_active.is_(True), User.job_title.isnot(None)).all()
         staff = []
         for member in staff_rows:
-            activity = transaction_metrics.get(member.id)
+            activity = transaction_metrics.get(member.id, {"services": 0, "revenue": 0, "commission": 0})
             rating = rating_metrics.get(member.id)
-            staff.append({"staff_id": member.id, "full_name": member.full_name, "job_title": member.job_title or "Salon Specialist", "services_completed": int(activity.services if activity else 0), "revenue": float(activity.revenue if activity else 0), "commission": float(activity.commission if activity else 0), "average_rating": round(float(rating.average or 0), 1) if rating else 0, "rating_count": int(rating.count if rating else 0)})
+            staff.append({"staff_id": member.id, "full_name": member.full_name, "job_title": member.job_title or "Salon Specialist", "services_completed": activity["services"], "revenue": activity["revenue"], "commission": activity["commission"], "average_rating": round(float(rating.average or 0), 1) if rating else 0, "rating_count": int(rating.count if rating else 0)})
         staff.sort(key=lambda item: (item["revenue"], item["services_completed"], item["average_rating"]), reverse=True)
         results.append({"branch_id": branch.id, "name": branch.name, "address": branch.address, "bookings": booking_count, "completed": completed, "completion_rate": round(completed / booking_count * 100, 1) if booking_count else 0, "sales": sales, "average_rating": round(branch_rating, 1), "staff": staff})
     results.sort(key=lambda item: (item["sales"], item["completed"]), reverse=True)

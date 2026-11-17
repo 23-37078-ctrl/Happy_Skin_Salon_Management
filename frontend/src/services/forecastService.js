@@ -11,6 +11,11 @@ const forecastService = {
     return response.data;
   },
 
+  trafficAnalysis: async (branchId, horizonDays = 84) => {
+    const response = await api.get(`/forecast/branches/${branchId}/traffic-analysis`, { params: { horizon_days: horizonDays } });
+    return response.data;
+  },
+
   accuracy: async () => {
     const response = await api.get("/forecast/accuracy");
     return response.data;
