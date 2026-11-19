@@ -512,6 +512,10 @@ def update_manager_group_service_provider(
         raise HTTPException(status_code=400, detail="Choose an active staff member from this branch.")
     target_start = target.appointment_start or booking.appointment_date
     target_end = target.appointment_end or target_start + timedelta(minutes=max(1, int(target.service_duration_minutes or target.service.duration_minutes or 0)))
+    validate_booking_schedule(
+        db, booking.branch_id, target_start, [target.service], online=False,
+        requested_provider_ids=[provider.id], exclude_booking_id=booking.id,
+    )
     for item in booking.service_items:
         if item.id == target.id or item.status in {"completed", "cancelled"} or item.service_provider_id != provider.id:
             continue

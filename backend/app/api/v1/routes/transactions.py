@@ -36,6 +36,7 @@ from app.schemas.booking import BookingCancellationRequest, BookingRescheduleReq
 from app.services.sms_service import send_appointment_confirmed_sms, send_booking_confirmation_sms
 from app.services.booking_lifecycle_service import cancel_overdue_bookings
 from app.services.booking_scheduling import validate_booking_schedule, lock_branch_schedule
+from app.api.v1.routes.customer import _group_slot_has_resource_capacity
 
 router = APIRouter(prefix="/staff/transactions", tags=["Staff - Transactions"])
 logger = logging.getLogger(__name__)
@@ -570,6 +571,19 @@ def confirm_online_booking(
     if not lock_branch_schedule(db, current_user.branch_id):
         raise HTTPException(status_code=404, detail="Branch is not available.")
     if booking.group_reference:
+        members_by_id = {member.id: [] for member in booking.group_members}
+        for item in booking.service_items:
+            if item.status != "cancelled" and item.member_id in members_by_id:
+                members_by_id[item.member_id].append(item.service)
+        group_services = [services for services in members_by_id.values() if services]
+        if group_services and not _group_slot_has_resource_capacity(
+            db, booking.branch_id, booking.appointment_date, group_services,
+            nurse_capacity=db.query(User).filter(
+                User.role == "staff", User.branch_id == booking.branch_id,
+                User.is_active.is_(True), User.job_title.ilike("%nurse%"),
+            ).count(),
+        ):
+            raise HTTPException(status_code=409, detail="The group's equipment or nurse capacity is no longer available at this time.")
         requested_provider_ids = [payload.service_provider_ids.get(item.id, payload.service_provider_id) for item in booking.service_items]
         provider_intervals = {}
         for item, requested_id in zip(booking.service_items, requested_provider_ids):
@@ -583,12 +597,13 @@ def confirm_online_booking(
             interval_end = item.appointment_end or interval_start + timedelta(minutes=max(1, int(item.service_duration_minutes or item.service.duration_minutes or 0)))
             if any(existing_start < interval_end and existing_end > interval_start for existing_start, existing_end in provider_intervals.get(requested_id, [])):
                 raise HTTPException(status_code=409, detail="The same staff member cannot handle overlapping group services.")
+            validate_booking_schedule(
+                db, booking.branch_id, interval_start, [item.service], online=False,
+                requested_provider_ids=[requested_id], exclude_booking_id=booking.id,
+            )
             provider_intervals.setdefault(requested_id, []).append((interval_start, interval_end))
             item.service_provider_id = requested_id
             item.status = "confirmed"
-        if item.appointment_start and item.appointment_end:
-            validate_booking_schedule(db, booking.branch_id, item.appointment_start, [item.service], online=False,
-                requested_provider_ids=[requested_id], exclude_booking_id=booking.id)
         booking.service_provider_id = booking.service_items[0].service_provider_id if booking.service_items else provider.id
         booking.status = "confirmed"
         db.commit()

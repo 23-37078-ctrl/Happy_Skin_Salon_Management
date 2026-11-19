@@ -292,8 +292,8 @@ export default function CustomerBookAppointment() {
     setError("");
     const currentIds = selectionServiceIds.map(String);
     const selected = currentIds.includes(String(service.id));
-    if (!selected && bookingType === "group" && groupAssignmentCount >= 20) {
-      setError("A group booking can include up to 20 service assignments.");
+    if (!selected && currentIds.length >= 20) {
+      setError("Each person can select up to 20 services per booking.");
       return;
     }
     if (!selected && bookingType === "individual" && form.service_ids.length >= 20) {
@@ -321,11 +321,8 @@ export default function CustomerBookAppointment() {
     const allSelected = categoryServices.every((service) => selectedIds.has(String(service.id)));
     if (allSelected) categoryServices.forEach((service) => selectedIds.delete(String(service.id)));
     else categoryServices.forEach((service) => selectedIds.add(String(service.id)));
-    const otherMemberServiceCount = activeMemberIndex === 0
-      ? groupMembers.reduce((sum, member) => sum + member.service_ids.length, 0)
-      : form.service_ids.length + groupMembers.reduce((sum, member, index) => sum + (index === activeMemberIndex - 1 ? 0 : member.service_ids.length), 0);
-    if (selectedIds.size + (bookingType === "group" ? otherMemberServiceCount : 0) > 20) {
-      setError("You can select up to 20 services in one booking. Deselect a few before adding this category.");
+    if (selectedIds.size > 20) {
+      setError("Each person can select up to 20 services per booking. Deselect a few before adding this category.");
       return;
     }
     const ids = [...selectedIds];
@@ -496,12 +493,12 @@ export default function CustomerBookAppointment() {
                   {[{ value: "individual", label: "Individual booking" }, { value: "group", label: "Group booking" }].map((option) => <button key={option.value} type="button" onClick={() => { setBookingType(option.value); setActiveMemberIndex(0); setForm((previous) => ({ ...previous, appointment_time: "" })); }} aria-pressed={bookingType === option.value} className={`min-h-10 rounded-lg px-3 py-2 text-sm font-bold ${bookingType === option.value ? "bg-[#B94B86] text-white shadow-sm" : "text-[#667085] hover:text-[#A83F78]"}`}>{option.label}</button>)}
                 </div>
                 {bookingType === "group" && <section className="rounded-2xl border border-[#F0E3EA] bg-[#FFFBFD] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold text-[#344054]">Group members</h3><p className="mt-1 text-xs text-[#667085]">You’re included as the main booker. Add up to 99 other people.</p></div><span className="rounded-full bg-[#FCE7F3] px-3 py-1 text-xs font-bold text-[#A83F78]">{groupMembers.length + 1} / 100 people</span></div>
+                  <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold text-[#344054]">Group members</h3><p className="mt-1 text-xs text-[#667085]">You’re included as the main booker. Add as many people as needed; available times depend on staff, equipment, and each service’s duration.</p></div><span className="rounded-full bg-[#FCE7F3] px-3 py-1 text-xs font-bold text-[#A83F78]">{groupMembers.length + 1} people</span></div>
                   {!isAuthenticated && <p className="mt-3 rounded-lg bg-[#FFF4E5] p-3 text-xs text-[#9A5B13]">Sign in to submit a group booking. Guest booking remains available for individual appointments.</p>}
                   <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setActiveMemberIndex(0)} className={`rounded-lg border px-3 py-2 text-xs font-bold ${activeMemberIndex === 0 ? "border-[#B94B86] bg-[#FCE7F3] text-[#A83F78]" : "border-[#F0E3EA] bg-white text-[#667085]"}`}>You (booker)</button>{groupMembers.map((member, index) => <div key={index} className="flex items-center gap-1"><button type="button" onClick={() => setActiveMemberIndex(index + 1)} className={`rounded-lg border px-3 py-2 text-xs font-bold ${activeMemberIndex === index + 1 ? "border-[#B94B86] bg-[#FCE7F3] text-[#A83F78]" : "border-[#F0E3EA] bg-white text-[#667085]"}`}>{member.name.trim() || `Member ${index + 2}`}</button><button type="button" aria-label={`Remove member ${index + 2}`} onClick={() => { setGroupMembers((items) => items.filter((_, itemIndex) => itemIndex !== index)); setActiveMemberIndex((current) => current === index + 1 ? 0 : current > index + 1 ? current - 1 : current); }} className="grid h-8 w-8 place-items-center rounded-lg text-[#98A2B3] hover:bg-[#FCE7F3] hover:text-[#A83F78]">×</button></div>)}</div>
                   <div className="mt-4 space-y-3">{activeMemberIndex > 0 && <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold text-[#667085]">Member name<input required minLength={2} maxLength={100} value={groupMembers[activeMemberIndex - 1]?.name || ""} onChange={(event) => setGroupMembers((items) => items.map((member, index) => index === activeMemberIndex - 1 ? { ...member, name: event.target.value } : member))} className="form-input mt-1" placeholder="Full name" /></label><label className="text-xs font-bold text-[#667085]">Contact number <span className="font-normal">(optional)</span><input type="tel" maxLength={20} value={groupMembers[activeMemberIndex - 1]?.contact_number || ""} onChange={(event) => setGroupMembers((items) => items.map((member, index) => index === activeMemberIndex - 1 ? { ...member, contact_number: event.target.value } : member))} className="form-input mt-1" placeholder="09XX XXX XXXX" /></label></div>}
                     <p className="text-xs text-[#667085]">Choose services for {activeMemberIndex === 0 ? "you" : groupMembers[activeMemberIndex - 1]?.name.trim() || `Member ${activeMemberIndex + 1}`} below. The same service can be selected for multiple people.</p>
-                    {groupMembers.length < 99 && <button type="button" onClick={() => { setGroupMembers((items) => [...items, { name: "", contact_number: "", service_ids: [] }]); setActiveMemberIndex(groupMembers.length + 1); }} className="rounded-lg border border-dashed border-[#DCAEC5] px-3 py-2 text-xs font-bold text-[#A83F78] hover:bg-[#FFF4F9]">+ Add member</button>}
+                    <button type="button" onClick={() => { setGroupMembers((items) => [...items, { name: "", contact_number: "", service_ids: [] }]); setActiveMemberIndex(groupMembers.length + 1); }} className="rounded-lg border border-dashed border-[#DCAEC5] px-3 py-2 text-xs font-bold text-[#A83F78] hover:bg-[#FFF4F9]">+ Add member</button>
                   </div>
                 </section>}
                 <Field label="Branch" icon={HiOutlineMapPin}>

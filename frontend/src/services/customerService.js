@@ -24,6 +24,11 @@ export async function cancelAppointment(appointmentId) {
   return data;
 }
 
+export async function rescheduleCustomerAppointment(appointmentId, appointmentDate) {
+  const { data } = await api.patch(`/customer/appointments/${appointmentId}/reschedule`, { appointment_date: appointmentDate });
+  return data;
+}
+
 /** Marks a single notification as read. */
 export async function markNotificationRead(notificationId) {
   const { data } = await api.patch(

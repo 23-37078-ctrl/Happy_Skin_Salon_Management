@@ -29,6 +29,7 @@ from app.models.booking_payment import BookingPayment
 from app.models.booking_payment_attempt import BookingPaymentAttempt
 from app.models.gcash_payment_submission import GCashPaymentSubmission
 from app.models.promotion import Promotion
+from app.models.inventory import InventoryItem
 from app.models.booking_phone_verification import BookingPhoneVerification
 from app.models.customer_support import CustomerProfileChangeRequest
 from app.models.customer_notification import CustomerNotificationRead
@@ -70,14 +71,12 @@ class GroupBookingAvailabilityRequest(BaseModel):
     branch_id: int
     booking_date: date
     booker_service_ids: list[int] = Field(default_factory=list, max_length=20)
-    member_service_ids: list[list[int]] = Field(min_length=1, max_length=99)
+    member_service_ids: list[list[int]] = Field(min_length=1)
 
 BUSINESS_TIMEZONE = SCHEDULING_TIMEZONE
 OPENING_TIME = SCHEDULING_OPENING_TIME
 CLOSING_TIME = SCHEDULING_CLOSING_TIME
 ACTIVE_BOOKING_STATUSES = {"pending", "confirmed"}
-FACIAL_MACHINE_CAPACITY = 5
-HAIR_TOOL_CAPACITY = 5
 FACIAL_RESOURCE_SERVICES = {
     "basic facial", "deep cleansing facial", "acne facial", "brightening facial",
     "anti-aging facial", "hydrating facial", "signature facial", "hydrafacial",
@@ -389,9 +388,13 @@ def _branch_day_bookings(db: Session, branch_id: int, appointment_date: datetime
 def _service_resource_types(service: Service) -> set[str]:
     name = " ".join((service.name or "").casefold().split())
     resources = set()
-    if name in FACIAL_RESOURCE_SERVICES or name in LEMON_BOTTLE_SERVICES:
+    if name in FACIAL_RESOURCE_SERVICES or name in LEMON_BOTTLE_SERVICES or any(
+        keyword in name for keyword in ("facial", "hydrafacial", "diamond peel", "led light", "rf facial", "microneedling", "skin booster", "cavitation", "hifu", "body contour", "whitening")
+    ):
         resources.add("face_machine")
-    if name in HAIR_TOOL_SERVICES:
+    if name in HAIR_TOOL_SERVICES or any(
+        keyword in name for keyword in ("hair", "rebond", "keratin", "scalp", "haircut", "coloring", "styling")
+    ):
         resources.add("hair_tool")
     if name in LEMON_BOTTLE_SERVICES:
         resources.add("nurse")
@@ -402,6 +405,13 @@ def _booking_services(booking: Booking) -> list[Service]:
     return [item.service for item in booking.service_items if item.service] or ([booking.service] if booking.service else [])
 
 
+def _booking_time_as_utc(value: datetime) -> datetime:
+    """Treat naive booking timestamps as salon-local for legacy rows."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=BUSINESS_TIMEZONE).astimezone(timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _branch_nurse_capacity(db: Session, branch_id: int) -> int:
     return db.query(User).filter(
         User.role == "staff",
@@ -409,6 +419,23 @@ def _branch_nurse_capacity(db: Session, branch_id: int) -> int:
         User.is_active.is_(True),
         User.job_title.ilike("%nurse%"),
     ).count()
+
+
+def _branch_equipment_capacities(db: Session, branch_id: int) -> dict[str, int]:
+    """Use active branch inventory as equipment capacity, with safe legacy defaults."""
+    capacities = {"face_machine": 5, "hair_tool": 5}
+    items = db.query(InventoryItem).filter(
+        InventoryItem.branch_id == branch_id,
+        InventoryItem.is_active.is_(True),
+    ).all()
+    for item in items:
+        category = " ".join((item.category or "").casefold().replace("_", " ").replace("-", " ").split())
+        name = " ".join((item.name or "").casefold().replace("_", " ").replace("-", " ").split())
+        if any(token in category or token in name for token in ("facial machine", "face machine", "facial equipment")):
+            capacities["face_machine"] = max(0, int(item.quantity or 0))
+        if any(token in category or token in name for token in ("hair tool", "hair equipment", "styling tool")):
+            capacities["hair_tool"] = max(0, int(item.quantity or 0))
+    return capacities
 
 
 def _slot_has_resource_capacity(
@@ -424,6 +451,7 @@ def _slot_has_resource_capacity(
         bookings = _branch_day_bookings(db, branch_id, appointment_date)
     if nurse_capacity is None:
         nurse_capacity = _branch_nurse_capacity(db, branch_id)
+    equipment_capacities = _branch_equipment_capacities(db, branch_id)
 
     occupied: dict[str, list[tuple[datetime, datetime]]] = {
         "face_machine": [], "hair_tool": [], "nurse": [],
@@ -431,17 +459,13 @@ def _slot_has_resource_capacity(
     for booking in bookings:
         if booking.id == exclude_booking_id:
             continue
-        cursor = booking.appointment_date
-        if cursor.tzinfo is None:
-            cursor = cursor.replace(tzinfo=timezone.utc)
-        else:
-            cursor = cursor.astimezone(timezone.utc)
+        cursor = _booking_time_as_utc(booking.appointment_date)
         if booking.service_items:
             for item in booking.service_items:
                 if item.status in {"completed", "cancelled"}:
                     continue
-                item_start = item.appointment_start.astimezone(timezone.utc) if item.appointment_start and item.appointment_start.tzinfo else item.appointment_start.replace(tzinfo=timezone.utc) if item.appointment_start else cursor
-                item_end = item.appointment_end.astimezone(timezone.utc) if item.appointment_end and item.appointment_end.tzinfo else item.appointment_end.replace(tzinfo=timezone.utc) if item.appointment_end else item_start + timedelta(minutes=max(1, int(item.service.duration_minutes or 0)))
+                item_start = _booking_time_as_utc(item.appointment_start) if item.appointment_start else cursor
+                item_end = _booking_time_as_utc(item.appointment_end) if item.appointment_end else item_start + timedelta(minutes=max(1, int(item.service_duration_minutes or item.service.duration_minutes or 0)))
                 for resource in _service_resource_types(item.service):
                     occupied[resource].append((item_start, item_end))
                 if not item.appointment_start:
@@ -451,21 +475,17 @@ def _slot_has_resource_capacity(
             for resource in _service_resource_types(booking.service):
                 occupied[resource].append((cursor, end))
 
-    capacities = {
-        "face_machine": FACIAL_MACHINE_CAPACITY,
-        "hair_tool": HAIR_TOOL_CAPACITY,
-        "nurse": nurse_capacity,
-    }
     cursor = appointment_date.astimezone(timezone.utc)
     for service in requested_services:
-        end = cursor + timedelta(minutes=service.duration_minutes or 0)
+        end = cursor + timedelta(minutes=max(1, int(service.duration_minutes or 0)))
         for resource in _service_resource_types(service):
-            capacity = capacities[resource]
+            capacity = nurse_capacity if resource == "nurse" else equipment_capacities.get(resource, 0)
             if capacity < 1:
                 return False
             concurrent = sum(start < end and occupied_end > cursor for start, occupied_end in occupied[resource])
             if concurrent >= capacity:
                 return False
+            occupied[resource].append((cursor, end))
         cursor = end
     return True
 
@@ -477,10 +497,11 @@ def _group_slot_has_resource_capacity(db: Session, branch_id: int, appointment_d
         bookings = _branch_day_bookings(db, branch_id, appointment_date)
     if nurse_capacity is None:
         nurse_capacity = _branch_nurse_capacity(db, branch_id)
+    equipment_capacities = _branch_equipment_capacities(db, branch_id)
     occupied: dict[str, list[tuple[datetime, datetime]]] = {"face_machine": [], "hair_tool": [], "nurse": []}
 
     def utc(value: datetime) -> datetime:
-        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        return _booking_time_as_utc(value)
 
     for booking in bookings:
         cursor = utc(booking.appointment_date)
@@ -489,7 +510,7 @@ def _group_slot_has_resource_capacity(db: Session, branch_id: int, appointment_d
                 if item.status in {"completed", "cancelled"}:
                     continue
                 item_start = utc(item.appointment_start) if item.appointment_start else cursor
-                item_end = utc(item.appointment_end) if item.appointment_end else item_start + timedelta(minutes=max(1, int(item.service.duration_minutes or 0)))
+                item_end = utc(item.appointment_end) if item.appointment_end else item_start + timedelta(minutes=max(1, int(item.service_duration_minutes or item.service.duration_minutes or 0)))
                 for resource in _service_resource_types(item.service):
                     occupied[resource].append((item_start, item_end))
                 if not item.appointment_start:
@@ -499,7 +520,7 @@ def _group_slot_has_resource_capacity(db: Session, branch_id: int, appointment_d
             for resource in _service_resource_types(booking.service):
                 occupied[resource].append((cursor, end))
 
-    capacities = {"face_machine": FACIAL_MACHINE_CAPACITY, "hair_tool": HAIR_TOOL_CAPACITY, "nurse": nurse_capacity}
+    capacities = {**equipment_capacities, "nurse": nurse_capacity}
     proposed: list[tuple[Service, datetime, datetime]] = []
     start_utc = utc(appointment_date)
     for services in member_services:
@@ -518,7 +539,7 @@ def _group_slot_has_resource_capacity(db: Session, branch_id: int, appointment_d
     return True
 
 
-def _group_capacity_requirements(member_services: list[list[Service]]) -> dict:
+def _group_capacity_requirements(member_services: list[list[Service]], capacities: dict[str, int] | None = None) -> dict:
     intervals: list[tuple[int, int, set[str]]] = []
     for services in member_services:
         cursor = 0
@@ -543,10 +564,7 @@ def _group_capacity_requirements(member_services: list[list[Service]]) -> dict:
         "hair_tool": "Hair tools",
         "nurse": "Nurses",
     }
-    capacities = {
-        "face_machine": FACIAL_MACHINE_CAPACITY,
-        "hair_tool": HAIR_TOOL_CAPACITY,
-    }
+    capacities = capacities or {"face_machine": 5, "hair_tool": 5, "nurse": 0}
     required_resources = {}
     for resource, label in resource_labels.items():
         required = peak_for(resource)
@@ -1417,8 +1435,6 @@ def get_customer_group_booking_availability(
     if current_user:
         _require_customer(current_user)
     member_service_ids = [payload.booker_service_ids, *payload.member_service_ids]
-    if sum(len(selection) for selection in member_service_ids) > 20:
-        raise HTTPException(status_code=422, detail="A group booking can contain at most 20 service assignments.")
     requested_ids = {service_id for selection in member_service_ids for service_id in selection}
     if not requested_ids:
         raise HTTPException(status_code=422, detail="Select at least one service for the group.")
@@ -1430,7 +1446,7 @@ def get_customer_group_booking_availability(
     if len(service_map) != len(requested_ids):
         raise HTTPException(status_code=404, detail="One or more selected services are not offered at this branch.")
     member_services = [[service_map[service_id] for service_id in selection] for selection in member_service_ids]
-    capacity_requirements = _group_capacity_requirements(member_services)
+    capacity_requirements = _group_capacity_requirements(member_services, _branch_equipment_capacities(db, payload.branch_id))
     start = datetime.combine(payload.booking_date, OPENING_TIME, BUSINESS_TIMEZONE)
     day_bookings = _branch_day_bookings(db, payload.branch_id, start)
     nurse_capacity = _branch_nurse_capacity(db, payload.branch_id)
@@ -1573,15 +1589,11 @@ def create_customer_group_appointment(
 ):
     """Create one paid booking containing up to the configured member limit and assignments."""
     _require_customer(current_user)
-    if len(payload.members) + 1 > settings.GROUP_BOOKING_MAX_MEMBERS:
-        raise HTTPException(status_code=422, detail=f"A group booking can include up to {settings.GROUP_BOOKING_MAX_MEMBERS} people, including you.")
     if not payload.booker_service_ids and not any(member.service_ids for member in payload.members):
         raise HTTPException(status_code=422, detail="Select at least one service for someone in the group.")
     selections = [(current_user.full_name, current_user.phone_number, payload.booker_service_ids)]
     selections.extend((member.name, member.contact_number, member.service_ids) for member in payload.members)
     total_assignments = sum(len(ids) for _, _, ids in selections)
-    if total_assignments > 20:
-        raise HTTPException(status_code=422, detail="A group booking can contain at most 20 service assignments.")
     if any(not ids for _, _, ids in selections):
         raise HTTPException(status_code=422, detail="Select at least one service for each group member.")
     if not current_user.phone_verified or not current_user.phone_number:
@@ -1603,7 +1615,7 @@ def create_customer_group_appointment(
     if len(service_map) != len(set(requested_ids)):
         raise HTTPException(status_code=404, detail="One or more selected services are not offered at this branch.")
     member_services = [[service_map[service_id] for service_id in ids] for _, _, ids in selections]
-    capacity_requirements = _group_capacity_requirements(member_services)
+    capacity_requirements = _group_capacity_requirements(member_services, _branch_equipment_capacities(db, payload.branch_id))
     nurse_capacity = _branch_nurse_capacity(db, payload.branch_id)
     if "Nurses" in capacity_requirements["required_resources"]:
         capacity_requirements["required_resources"]["Nurses"]["capacity"] = nurse_capacity

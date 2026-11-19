@@ -79,7 +79,7 @@ class GroupBookingMemberRequest(BaseModel):
 class GroupBookingCreateRequest(BaseModel):
     branch_id: int
     appointment_date: datetime
-    members: list[GroupBookingMemberRequest] = Field(min_length=1, max_length=99)
+    members: list[GroupBookingMemberRequest] = Field(min_length=1)
     booker_service_ids: list[int] = Field(default_factory=list, max_length=20)
     allow_duplicate: bool = False
     notes: Optional[str] = Field(default=None, max_length=255)

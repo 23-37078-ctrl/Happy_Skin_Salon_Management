@@ -57,6 +57,13 @@ def _staff_ids(db: Session, branch_id: int) -> list[int]:
 def _qualified_staff_ids(db: Session, branch_id: int, service, staff_ids: list[int] | None = None) -> list[int]:
     """Use an explicit staff-service mapping when one exists in the application's SQLAlchemy metadata."""
     ids = staff_ids if staff_ids is not None else _staff_ids(db, branch_id)
+    service_name = " ".join((service.name or "").casefold().split())
+    nurse_required = service_name in {"face / chin", "arms", "tummy", "face + arms + tummy"} or "lemon bottle" in service_name
+    if nurse_required:
+        nurse_ids = {row[0] for row in db.query(User.id).filter(
+            User.id.in_(ids), User.job_title.ilike("%nurse%")
+        ).all()} if ids else set()
+        ids = [provider_id for provider_id in ids if provider_id in nurse_ids]
     for relationship in Service.__mapper__.relationships:
         if relationship.mapper.class_ is User:
             association = getattr(service, relationship.key, None)

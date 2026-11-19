@@ -14,10 +14,11 @@ import {
   HiOutlineUserGroup,
   HiOutlineXMark,
 } from "react-icons/hi2";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   cancelAppointment,
   getCustomerAppointments,
+  rescheduleCustomerAppointment,
 } from "../../services/customerService";
 import { CustomerShell, Notice } from "./CustomerShell";
 import PayPalBookingButton from "../../components/payments/PayPalBookingButton";
@@ -45,6 +46,7 @@ const statusDetails = {
 const PAGE_SIZE = 15;
 
 export default function CustomerBookingHistory() {
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
@@ -161,6 +163,24 @@ export default function CustomerBookingHistory() {
                 appointment={appointment}
                 busy={busyId === appointment.id}
                 onCancel={setPendingCancelId}
+                onReschedule={async () => {
+                  setBusyId(appointment.id);
+                  setError("");
+                  setSuccess("");
+                  try {
+                    const value = window.prompt("Enter the new appointment date and time (YYYY-MM-DD HH:MM, Manila time):");
+                    if (!value) return;
+                    const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})$/);
+                    if (!match) throw new Error("Use YYYY-MM-DD HH:MM, for example 2026-12-05 14:20.");
+                    const updated = await rescheduleCustomerAppointment(appointment.id, `${match[1]}T${match[2]}:00+08:00`);
+                    setAppointments((items) => items.map((item) => item.id === appointment.id ? { ...item, ...updated } : item));
+                    setSuccess(`Appointment #${appointment.id} was rescheduled.`);
+                  } catch (err) {
+                    setError(err.response?.data?.detail || err.message || "We couldn't reschedule that appointment.");
+                  } finally {
+                    setBusyId(null);
+                  }
+                }}
                 onPaymentComplete={() => loadAppointments()}
               />
             ))}
@@ -180,7 +200,7 @@ export default function CustomerBookingHistory() {
   );
 }
 
-function AppointmentCard({ appointment, busy, onCancel, onPaymentComplete }) {
+function AppointmentCard({ appointment, busy, onCancel, onReschedule, onPaymentComplete }) {
   const [paymentMethod, setPaymentMethod] = useState("gcash");
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -223,6 +243,7 @@ function AppointmentCard({ appointment, busy, onCancel, onPaymentComplete }) {
           )}
           {(canReview || canCancel) && <div className="flex flex-wrap justify-end gap-2">
             {canReview && <Link to={`/customer/feedback?booking=${encodeURIComponent(String(appointment.id))}`} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#C9558F] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#B94780] focus:outline-none focus:ring-4 focus:ring-[#D65A9A]/20"><HiOutlineChatBubbleLeftRight className="h-4 w-4" /> Review service</Link>}
+            {canCancel && !appointment.group_reference && <button type="button" disabled={busy} onClick={onReschedule} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#E8C9D9] bg-white px-3 py-1.5 text-xs font-bold text-[#A83F78] hover:bg-[#FFF0F7] disabled:opacity-50"><HiOutlineCalendarDays className="h-4 w-4" /> Reschedule</button>}
             {canCancel && <button type="button" disabled={busy} onClick={() => onCancel(appointment.id)} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#F1C7D5] bg-white px-3 py-1.5 text-xs font-bold text-[#B42318] transition hover:border-[#FDA29B] hover:bg-[#FFF5F5] focus:outline-none focus:ring-4 focus:ring-[#EF4444]/10 disabled:opacity-60"><HiOutlineXMark className="h-4 w-4" /> Cancel</button>}
           </div>}
         </aside>
